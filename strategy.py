@@ -167,7 +167,7 @@ def main():
 
     while True:
         clock = trade_client.get_clock()
-
+        logging.info("in while true")
         # Detect if the market has just transitioned from open to closed.
         if market_open and not clock.is_open:
             logging.info("Market closed. Sleeping until next open at %s", clock.next_open)
@@ -187,7 +187,7 @@ def main():
         
         # Fetch data
         df_main = fetch_bars(stock_data_client, underlying_symbol, TIMEFRAME_MAIN, days=MA_SLOW + 100)
-        df_trend = fetch_bars(stock_data_client, underlying_symbol, TIMEFRAME_TREND, days=MA_SLOW + 10)
+        df_trend = fetch_bars(stock_data_client, underlying_symbol, TIMEFRAME_TREND, days=MA_SLOW + 100)
         logging.info("Fetched %d main bars and %d trend bars", len(df_main), len(df_trend))
         
         # Update current bar index
@@ -214,11 +214,27 @@ def main():
         macd_prev = macd_line.iloc[-2]
         sig_now = signal_line.iloc[-1]
         sig_prev = signal_line.iloc[-2]
+        logging.info(
+            "Indicator values - rsi_now: %.2f | rsi_prev: %.2f | macd_now: %.4f | macd_prev: %.4f | sig_now: %.4f | sig_prev: %.4f",
+            rsi_now,
+            rsi_prev,
+            macd_now,
+            macd_prev,
+            sig_now,
+            sig_prev
+        )
 
         # Trend filter on higher timeframe with NaN check
         ma_fast = df_trend.close.rolling(MA_FAST).mean()
         ma_mid = df_trend.close.rolling(MA_MID).mean()
         ma_slow = df_trend.close.rolling(MA_SLOW).mean()
+        
+        logging.info(
+            "Trend MAs - ma_fast: %.2f | ma_mid: %.2f | ma_slow: %.2f",
+            ma_fast.iloc[-1],
+            ma_mid.iloc[-1],
+            ma_slow.iloc[-1]
+        )
         
         # Check if we have enough data for all MAs
         if not (ma_fast.isna().any() or ma_mid.isna().any() or ma_slow.isna().any()):
@@ -305,11 +321,12 @@ def main():
                 rsi_retreat_bar = None
                 macd_death_cross_bar = None
                 macd_centerline_bar = None
-        # Hourly scheduling
-        # Compute the timestamp for the next top of hour
-        next_run = datetime.now(timezone.utc).replace(minute=0, second=0, microsecond=0) + timedelta(hours=1)
+        # Compute the timestamp for the next 1-minute mark
+        now = datetime.now(timezone.utc)
+        next_run = now.replace(second=0, microsecond=0) + timedelta(minutes=1)
+        print("Next run at:", next_run.isoformat())
         # Pause until that exact moment
-        sleep_until(next_run, chunk_seconds=30)
+        sleep_until(next_run, chunk_seconds=10)
 
 # The code below ensures that the main() function is called only when this script is executed directly.
 # It prevents main() from running if the script is imported as a module in another script.
