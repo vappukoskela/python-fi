@@ -32,8 +32,8 @@ from alpaca.trading.requests import MarketOrderRequest
 # Set the local timezone
 NY_TZ = ZoneInfo('America/New_York')
 
-# Select the stock (AAPL)
-underlying_symbol = 'AAPL'
+# Select the stock (NVIDIA)
+underlying_symbol = 'NVDA'
 
 # Strategy Parameters
 RSI_PERIOD       = 14                   # Standard medium‑term RSI
@@ -45,7 +45,8 @@ MA_MID           = 100                  # Higher‑timeframe mid MA
 MA_SLOW          = 200                  # Higher‑timeframe slow MA
 BUY_POWER_LIMIT  = 0.02                 # Limit the amount of buying power to use for the trade
 MAX_RISK_PCT     = 0.03                 # 1–3% position sizing
-TIMEFRAME_MAIN   = TimeFrameUnit.Hour   # Suggested trading timeframePpyho
+TIMEFRAME_MAIN   = TimeFrameUnit.Minute        
+CYKLE_MINUTES    = 3                   # Suggested trading timeframePpyho
 TIMEFRAME_TREND  = TimeFrameUnit.Day    # Trend‑defining timeframe
 
 
