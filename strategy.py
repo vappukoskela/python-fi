@@ -263,9 +263,11 @@ def main():
         #         macd_cross_bar is not None and 
         #         abs(rsi_bounce_bar - macd_cross_bar) <= WINDOW_SIZE):
         
-        # Entry logic - simplified to only follow RSI crossing above 30 (oversold)
+        # Entry logic - simplified to only follow RSI being above 30 (oversold)
         if not position_open and position_size > 0:
-            if (rsi_bounce_bar is not None):
+            logging.info("No position open. Considering entry.")
+            if (rsi_now > 30):
+                logging.info("Entry conditions met. Placing buy order for %d shares. RSI now %d", position_size, rsi_now)
                 req = MarketOrderRequest(
                     symbol=underlying_symbol,
                     qty=position_size,  # Use calculated position size
@@ -308,7 +310,9 @@ def main():
     
         #Exit logic - simplified. Only following RSI
         if position_open:
-            if (rsi_retreat_bar is not None):   
+            logging.info("Position open. Considering exit.")
+            if (rsi_retreat_bar is not None):  
+                logging.info("Exit conditions met. Placing sell order for %d shares. RSI now %d", current_qty, rsi_now) 
                 req = MarketOrderRequest(
                     symbol=underlying_symbol,
                     qty=current_qty,
