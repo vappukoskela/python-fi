@@ -250,17 +250,22 @@ def main():
         # Detect RSI oversold bounce
         if (rsi_prev < 30) and (rsi_now > 30):
             rsi_bounce_bar = current_bar_index
+            logging.info("RSI bounce detected at bar %d", rsi_bounce_bar)
 
         # Detect MACD golden cross
         if (macd_prev < sig_prev) and (macd_now > sig_now):
             macd_cross_bar = current_bar_index
+            logging.info("MACD golden cross detected at bar %d", macd_cross_bar)
 
-        # Entry logic
-        if not position_open and in_uptrend and position_size > 0:
-            if (rsi_bounce_bar is not None and 
-                macd_cross_bar is not None and 
-                abs(rsi_bounce_bar - macd_cross_bar) <= WINDOW_SIZE):
-                
+        # Entry logic - original. Keep this
+        # if not position_open and in_uptrend and position_size > 0:
+        #     if (rsi_bounce_bar is not None and 
+        #         macd_cross_bar is not None and 
+        #         abs(rsi_bounce_bar - macd_cross_bar) <= WINDOW_SIZE):
+        
+        # Entry logic - simplified to only follow RSI crossing above 30 (oversold)
+        if not position_open and position_size > 0:
+            if (rsi_bounce_bar is not None):
                 req = MarketOrderRequest(
                     symbol=underlying_symbol,
                     qty=position_size,  # Use calculated position size
@@ -292,14 +297,18 @@ def main():
         elif macd_prev > 0 and macd_now < 0:  # centerline drop
             macd_centerline_bar = current_bar_index
 
-        # Exit logic
-        if position_open:
-            if (rsi_retreat_bar is not None and 
-                ((macd_death_cross_bar is not None and 
-                  abs(rsi_retreat_bar - macd_death_cross_bar) <= WINDOW_SIZE) or
-                 (macd_centerline_bar is not None and 
-                  abs(rsi_retreat_bar - macd_centerline_bar) <= WINDOW_SIZE))):
+        # Exit logic - original. Keep this for now
+        # if position_open:
+        #     if (rsi_retreat_bar is not None and 
+        #         ((macd_death_cross_bar is not None and 
+        #           abs(rsi_retreat_bar - macd_death_cross_bar) <= WINDOW_SIZE) or
+        #          (macd_centerline_bar is not None and 
+        #           abs(rsi_retreat_bar - macd_centerline_bar) <= WINDOW_SIZE))):
                 
+    
+        #Exit logic - simplified. Only following RSI
+        if position_open:
+            if (rsi_retreat_bar is not None):   
                 req = MarketOrderRequest(
                     symbol=underlying_symbol,
                     qty=current_qty,
