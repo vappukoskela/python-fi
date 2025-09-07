@@ -167,7 +167,7 @@ def main():
 
     while True:
         clock = trade_client.get_clock()
-        logging.info("in while true")
+
         # Detect if the market has just transitioned from open to closed.
         if market_open and not clock.is_open:
             logging.info("Market closed. Sleeping until next open at %s", clock.next_open)
@@ -187,7 +187,7 @@ def main():
         
         # Fetch data
         df_main = fetch_bars(stock_data_client, underlying_symbol, TIMEFRAME_MAIN, days=MA_SLOW + 100)
-        df_trend = fetch_bars(stock_data_client, underlying_symbol, TIMEFRAME_TREND, days=MA_SLOW + 100)
+        df_trend = fetch_bars(stock_data_client, underlying_symbol, TIMEFRAME_TREND, days=MA_SLOW + 10)
         logging.info("Fetched %d main bars and %d trend bars", len(df_main), len(df_trend))
         
         # Update current bar index
@@ -214,27 +214,11 @@ def main():
         macd_prev = macd_line.iloc[-2]
         sig_now = signal_line.iloc[-1]
         sig_prev = signal_line.iloc[-2]
-        logging.info(
-            "Indicator values - rsi_now: %.2f | rsi_prev: %.2f | macd_now: %.4f | macd_prev: %.4f | sig_now: %.4f | sig_prev: %.4f",
-            rsi_now,
-            rsi_prev,
-            macd_now,
-            macd_prev,
-            sig_now,
-            sig_prev
-        )
 
         # Trend filter on higher timeframe with NaN check
         ma_fast = df_trend.close.rolling(MA_FAST).mean()
         ma_mid = df_trend.close.rolling(MA_MID).mean()
         ma_slow = df_trend.close.rolling(MA_SLOW).mean()
-        
-        logging.info(
-            "Trend MAs - ma_fast: %.2f | ma_mid: %.2f | ma_slow: %.2f",
-            ma_fast.iloc[-1],
-            ma_mid.iloc[-1],
-            ma_slow.iloc[-1]
-        )
         
         # Check if we have enough data for all MAs
         if not (ma_fast.isna().any() or ma_mid.isna().any() or ma_slow.isna().any()):
@@ -250,24 +234,17 @@ def main():
         # Detect RSI oversold bounce
         if (rsi_prev < 30) and (rsi_now > 30):
             rsi_bounce_bar = current_bar_index
-            logging.info("RSI bounce detected at bar %d", rsi_bounce_bar)
 
         # Detect MACD golden cross
         if (macd_prev < sig_prev) and (macd_now > sig_now):
             macd_cross_bar = current_bar_index
-            logging.info("MACD golden cross detected at bar %d", macd_cross_bar)
 
-        # Entry logic - original. Keep this
-        # if not position_open and in_uptrend and position_size > 0:
-        #     if (rsi_bounce_bar is not None and 
-        #         macd_cross_bar is not None and 
-        #         abs(rsi_bounce_bar - macd_cross_bar) <= WINDOW_SIZE):
-        
-        # Entry logic - simplified to only follow RSI being above 30 (oversold)
-        if not position_open and position_size > 0:
-            logging.info("No position open. Considering entry.")
-            if (rsi_now > 30):
-                logging.info("Entry conditions met. Placing buy order for %d shares. RSI now %d", position_size, rsi_now)
+        # Entry logic
+        if not position_open and in_uptrend and position_size > 0:
+            if (rsi_bounce_bar is not None and 
+                macd_cross_bar is not None and 
+                abs(rsi_bounce_bar - macd_cross_bar) <= WINDOW_SIZE):
+                
                 req = MarketOrderRequest(
                     symbol=underlying_symbol,
                     qty=position_size,  # Use calculated position size
@@ -299,20 +276,14 @@ def main():
         elif macd_prev > 0 and macd_now < 0:  # centerline drop
             macd_centerline_bar = current_bar_index
 
-        # Exit logic - original. Keep this for now
-        # if position_open:
-        #     if (rsi_retreat_bar is not None and 
-        #         ((macd_death_cross_bar is not None and 
-        #           abs(rsi_retreat_bar - macd_death_cross_bar) <= WINDOW_SIZE) or
-        #          (macd_centerline_bar is not None and 
-        #           abs(rsi_retreat_bar - macd_centerline_bar) <= WINDOW_SIZE))):
-                
-    
-        #Exit logic - simplified. Only following RSI
+        # Exit logic
         if position_open:
-            logging.info("Position open. Considering exit.")
-            if (rsi_retreat_bar is not None):  
-                logging.info("Exit conditions met. Placing sell order for %d shares. RSI now %d", current_qty, rsi_now) 
+            if (rsi_retreat_bar is not None and 
+                ((macd_death_cross_bar is not None and 
+                  abs(rsi_retreat_bar - macd_death_cross_bar) <= WINDOW_SIZE) or
+                 (macd_centerline_bar is not None and 
+                  abs(rsi_retreat_bar - macd_centerline_bar) <= WINDOW_SIZE))):
+                
                 req = MarketOrderRequest(
                     symbol=underlying_symbol,
                     qty=current_qty,
@@ -334,12 +305,11 @@ def main():
                 rsi_retreat_bar = None
                 macd_death_cross_bar = None
                 macd_centerline_bar = None
-        # Compute the timestamp for the next 1-minute mark
-        now = datetime.now(timezone.utc)
-        next_run = now.replace(second=0, microsecond=0) + timedelta(minutes=1)
-        print("Next run at:", next_run.isoformat())
+        # Hourly scheduling
+        # Compute the timestamp for the next top of hour
+        next_run = datetime.now(timezone.utc).replace(minute=0, second=0, microsecond=0) + timedelta(hours=1)
         # Pause until that exact moment
-        sleep_until(next_run, chunk_seconds=10)
+        sleep_until(next_run, chunk_seconds=30)
 
 # The code below ensures that the main() function is called only when this script is executed directly.
 # It prevents main() from running if the script is imported as a module in another script.
