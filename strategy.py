@@ -45,7 +45,7 @@ MA_MID           = 100                  # Higher‑timeframe mid MA
 MA_SLOW          = 200                  # Higher‑timeframe slow MA
 BUY_POWER_LIMIT  = 0.02                 # Limit the amount of buying power to use for the trade
 MAX_RISK_PCT     = 0.03                 # 1–3% position sizing
-TIMEFRAME_MAIN   = TimeFrameUnit.Hour   # Suggested trading timeframePpyho
+TIMEFRAME_MAIN   = TimeFrameUnit.Minute # Suggested trading timeframePpyho
 TIMEFRAME_TREND  = TimeFrameUnit.Day    # Trend‑defining timeframe
 
 
@@ -232,25 +232,18 @@ def main():
         position_size = int(buying_power_limit / current_price)
 
         # Detect RSI oversold bounce
-        if (rsi_prev < 30) and (rsi_now > 30):
+        if (rsi_prev < 40) and (rsi_now > 40):
             rsi_bounce_bar = current_bar_index
 
-        # Detect MACD golden cross
-        if (macd_prev < sig_prev) and (macd_now > sig_now):
-            macd_cross_bar = current_bar_index
-
-        # Entry logic
-        if not position_open and in_uptrend and position_size > 0:
-            if (rsi_bounce_bar is not None and 
-                macd_cross_bar is not None and 
-                abs(rsi_bounce_bar - macd_cross_bar) <= WINDOW_SIZE):
-                
+                # Entry logic: Only RSI bounce over 40 is used        
+            if not position_open and position_size > 0:
+            if rsi_bounce_bar is not None:
                 req = MarketOrderRequest(
                     symbol=underlying_symbol,
                     qty=position_size,  # Use calculated position size
                     side=OrderSide.BUY,
                     type=OrderType.MARKET,
-                    time_in_force=TimeInForce.DAY,
+                    time_in_force=TimeInForce.DAY              
                 )
                 res = trade_client.submit_order(req)
                 logging.info(
