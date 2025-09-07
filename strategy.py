@@ -271,12 +271,7 @@ def main():
 
         # Exit logic
         if position_open:
-            if (rsi_retreat_bar is not None and 
-                ((macd_death_cross_bar is not None and 
-                  abs(rsi_retreat_bar - macd_death_cross_bar) <= WINDOW_SIZE) or
-                 (macd_centerline_bar is not None and 
-                  abs(rsi_retreat_bar - macd_centerline_bar) <= WINDOW_SIZE))):
-                
+            if rsi_now > 60 or rsi_now < 35: 
                 req = MarketOrderRequest(
                     symbol=underlying_symbol,
                     qty=current_qty,
