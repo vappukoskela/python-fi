@@ -236,7 +236,7 @@ def main():
             rsi_bounce_bar = current_bar_index
 
                 # Entry logic: Only RSI bounce over 40 is used        
-            if not position_open and position_size > 0:
+        if not position_open and position_size > 0:
             if rsi_bounce_bar is not None:
                 req = MarketOrderRequest(
                     symbol=underlying_symbol,
@@ -295,10 +295,9 @@ def main():
                 macd_centerline_bar = None
         # Hourly scheduling
         # Compute the timestamp for the next top of hour
-        next_run = datetime.now(timezone.utc).replace(minute=0, second=0, microsecond=0) + timedelta(hours=1)
-        # Pause until that exact moment
-        sleep_until(next_run, chunk_seconds=30)
-
+        now = datetime.now(timezone.utc)
+        next_run = now.replace(second=0, microsecond=0) + timedelta(minutes=1)
+        sleep_until(next_run, chunk_seconds=10)
 # The code below ensures that the main() function is called only when this script is executed directly.
 # It prevents main() from running if the script is imported as a module in another script.
 if __name__ == "__main__":
