@@ -33,7 +33,8 @@ from alpaca.trading.requests import MarketOrderRequest
 NY_TZ = ZoneInfo('America/New_York')
 
 # Select the stock (AAPL)
-underlying_symbol = 'AAPL'
+# underlying_symbol = 'AAPL'
+symbol_array = ['NVDA', 'AAPL', 'MSFT', 'GOOGL', 'AMZN', 'TSLA']
 
 # Strategy Parameters
 RSI_PERIOD       = 14                   # Standard medium‑term RSI
@@ -168,131 +169,147 @@ def main():
     while True:
         clock = trade_client.get_clock()
 
-        # Detect if the market has just transitioned from open to closed.
-        if market_open and not clock.is_open:
-            logging.info("Market closed. Sleeping until next open at %s", clock.next_open)
-            market_open = False
-            sleep_until(clock.next_open)
-            continue        # skip the rest of the loop while the market is shut
+        for underlying_symbol in symbol_array:
+            # Detect if the market has just transitioned from open to closed.
+            if market_open and not clock.is_open:
+                logging.info("Market closed. Sleeping until next open at %s", clock.next_open)
+                market_open = False
+                sleep_until(clock.next_open)
+                continue        # skip the rest of the loop while the market is shut
 
-        # Detect if the market has just transitioned from closed to open.
-        if (not market_open) and clock.is_open:
-            logging.info("Market opened. Resuming trading")
-            market_open = True           # fall through and run the trading logic
+            # Detect if the market has just transitioned from closed to open.
+            if (not market_open) and clock.is_open:
+                logging.info("Market opened. Resuming trading")
+                market_open = True           # fall through and run the trading logic
 
-        # Detect if the market is closed (e.g., at script start or unexpected state), exit to prevent trading.
-        if not clock.is_open:
-            logging.info("Market is closed. Exiting.")
-            exit(0)
-        
-        # Fetch data
-        df_main = fetch_bars(stock_data_client, underlying_symbol, TIMEFRAME_MAIN, days=MA_SLOW + 100)
-        df_trend = fetch_bars(stock_data_client, underlying_symbol, TIMEFRAME_TREND, days=MA_SLOW + 10)
-        logging.info("Fetched %d main bars and %d trend bars", len(df_main), len(df_trend))
-        
-        # Update current bar index
-        current_bar_index = len(df_main) - 1
+            # Detect if the market is closed (e.g., at script start or unexpected state), exit to prevent trading.
+            if not clock.is_open:
+                logging.info("Market is closed. Exiting.")
+                exit(0)
+            
+            # Fetch data
+            df_main = fetch_bars(stock_data_client, underlying_symbol, TIMEFRAME_MAIN, days=MA_SLOW + 100)
+            df_trend = fetch_bars(stock_data_client, underlying_symbol, TIMEFRAME_TREND, days=MA_SLOW + 10)
+            logging.info("Fetched %d main bars and %d trend bars for %s", len(df_main), len(df_trend), underlying_symbol)
+            
+            # Update current bar index
+            current_bar_index = len(df_main) - 1
 
-        # Check if we currently hold the underlying_symbol
-        try:
-            position = trade_client.get_open_position(underlying_symbol)
-            position_open = True
-            current_qty = int(position.qty)
-        except Exception as e:
-            position_open = False
-            current_qty = 0
+            # Check if we currently hold the underlying_symbol
+            try:
+                position = trade_client.get_open_position(underlying_symbol)
+                position_open = True
+                current_qty = int(position.qty)
+            except Exception as e:
+                position_open = False
+                current_qty = 0
 
-        # Compute indicators using helper functions
-        prices = df_main.close
-        rsi_series = compute_rsi(prices, RSI_PERIOD)
-        macd_line, signal_line = compute_macd(prices, MACD_FAST, MACD_SLOW, MACD_SIGNAL)
+            # Compute indicators using helper functions
+            prices = df_main.close
+            rsi_series = compute_rsi(prices, RSI_PERIOD)
+            macd_line, signal_line = compute_macd(prices, MACD_FAST, MACD_SLOW, MACD_SIGNAL)
 
-        # Get latest values
-        rsi_now = rsi_series.iloc[-1]
-        rsi_prev = rsi_series.iloc[-2]
-        macd_now = macd_line.iloc[-1]
-        macd_prev = macd_line.iloc[-2]
-        sig_now = signal_line.iloc[-1]
-        sig_prev = signal_line.iloc[-2]
+            # Get latest values
+            rsi_now = rsi_series.iloc[-1]
+            rsi_prev = rsi_series.iloc[-2]
+            macd_now = macd_line.iloc[-1]
+            macd_prev = macd_line.iloc[-2]
+            sig_now = signal_line.iloc[-1]
+            sig_prev = signal_line.iloc[-2]
 
-        # Trend filter on higher timeframe with NaN check
-        ma_fast = df_trend.close.rolling(MA_FAST).mean()
-        ma_mid = df_trend.close.rolling(MA_MID).mean()
-        ma_slow = df_trend.close.rolling(MA_SLOW).mean()
-        
-        # Check if we have enough data for all MAs
-        if not (ma_fast.isna().any() or ma_mid.isna().any() or ma_slow.isna().any()):
-            in_uptrend = (ma_fast.iloc[-1] > ma_mid.iloc[-1]) and (ma_mid.iloc[-1] > ma_slow.iloc[-1])
-        else:
-            in_uptrend = False
 
-        # Calculate position size based on buying power
-        buying_power_limit = calculate_buying_power_limit(BUY_POWER_LIMIT)
-        current_price = get_underlying_price(underlying_symbol)
-        position_size = int(buying_power_limit / current_price)
-
-        # Detect RSI oversold bounce
-        if (rsi_prev < 40) and (rsi_now > 40):
-            rsi_bounce_bar = current_bar_index
-
-                # Entry logic: Only RSI bounce over 40 is used        
-        if not position_open and position_size > 0:
-            if rsi_bounce_bar is not None:
-                req = MarketOrderRequest(
-                    symbol=underlying_symbol,
-                    qty=position_size,  # Use calculated position size
-                    side=OrderSide.BUY,
-                    type=OrderType.MARKET,
-                    time_in_force=TimeInForce.DAY              
+            logging.info("%s: Indicator values - rsi_now: %.2f | rsi_prev: %.2f | macd_now: %.4f | macd_prev: %.4f | sig_now: %.4f | sig_prev: %.4f",
+                underlying_symbol,
+                rsi_now,
+                rsi_prev,
+                macd_now,
+                macd_prev,
+                sig_now,
+                sig_prev
                 )
-                res = trade_client.submit_order(req)
-                logging.info(
-                    "BUY ORDER SUBMITTED - Symbol: %s | Qty: %d | Est.Price: $%.2f | OrderID: %s | ClientOrderID: %s | SubmittedAt: %s",
-                    underlying_symbol,
-                    position_size,
-                    current_price,
-                    res.id,
-                    res.client_order_id,
-                    res.submitted_at
-                )
-                # Reset entry signals
-                rsi_bounce_bar = None
-                macd_cross_bar = None
+            # Trend filter on higher timeframe with NaN check
+            ma_fast = df_trend.close.rolling(MA_FAST).mean()
+            ma_mid = df_trend.close.rolling(MA_MID).mean()
+            ma_slow = df_trend.close.rolling(MA_SLOW).mean()
+            
+            # Check if we have enough data for all MAs
+            if not (ma_fast.isna().any() or ma_mid.isna().any() or ma_slow.isna().any()):
+                in_uptrend = (ma_fast.iloc[-1] > ma_mid.iloc[-1]) and (ma_mid.iloc[-1] > ma_slow.iloc[-1])
+            else:
+                in_uptrend = False
 
-        # Detect RSI overbought retreat
-        if (rsi_prev > 70) and (rsi_now < 65):
-            rsi_retreat_bar = current_bar_index
+            # Calculate position size based on buying power
+            buying_power_limit = calculate_buying_power_limit(BUY_POWER_LIMIT)
+            current_price = get_underlying_price(underlying_symbol)
+            position_size = int(buying_power_limit / current_price)
 
-        # Detect MACD bearish signals
-        if (macd_prev > sig_prev) and (macd_now < sig_now):  # death cross
-            macd_death_cross_bar = current_bar_index
-        elif macd_prev > 0 and macd_now < 0:  # centerline drop
-            macd_centerline_bar = current_bar_index
+            # Detect RSI oversold bounce
+            if (rsi_prev < 40) and (rsi_now > 40):
+                rsi_bounce_bar = current_bar_index
 
-        # Exit logic
-        if position_open:
-            if rsi_now > 60 or rsi_now < 35: 
-                req = MarketOrderRequest(
-                    symbol=underlying_symbol,
-                    qty=current_qty,
-                    side=OrderSide.SELL,
-                    type=OrderType.MARKET,
-                    time_in_force=TimeInForce.DAY,
-                )
-                res = trade_client.submit_order(req)
-                logging.info(
-                    "SELL ORDER SUBMITTED - Symbol: %s | Qty: %d | Est.Price: $%.2f | OrderID: %s | ClientOrderID: %s | SubmittedAt: %s",
-                    underlying_symbol,
-                    current_qty,
-                    current_price,
-                    res.id,
-                    res.client_order_id,
-                    res.submitted_at
-                )
-                # Reset exit signals
-                rsi_retreat_bar = None
-                macd_death_cross_bar = None
-                macd_centerline_bar = None
+                    # Entry logic: Only RSI bounce over 40 is used        
+            if not position_open and position_size > 0:
+                if (rsi_bounce_bar is not None and 
+                    macd_cross_bar is not None):
+                    req = MarketOrderRequest(
+                        symbol=underlying_symbol,
+                        qty=position_size,  # Use calculated position size
+                        side=OrderSide.BUY,
+                        type=OrderType.MARKET,
+                        time_in_force=TimeInForce.DAY              
+                    )
+                    res = trade_client.submit_order(req)
+                    logging.info(
+                        "BUY ORDER SUBMITTED - Symbol: %s | Qty: %d | Est.Price: $%.2f | OrderID: %s | ClientOrderID: %s | SubmittedAt: %s",
+                        underlying_symbol,
+                        position_size,
+                        current_price,
+                        res.id,
+                        res.client_order_id,
+                        res.submitted_at
+                    )
+                    # Reset entry signals
+                    rsi_bounce_bar = None
+                    macd_cross_bar = None
+
+            # Detect RSI overbought retreat
+            if (rsi_prev > 70) and (rsi_now < 65):
+                rsi_retreat_bar = current_bar_index
+
+            # Detect MACD bearish signals
+            if (macd_prev > sig_prev) and (macd_now < sig_now):  # death cross
+                macd_death_cross_bar = current_bar_index
+            elif macd_prev > 0 and macd_now < 0:  # centerline drop
+                macd_centerline_bar = current_bar_index
+
+            # Exit logic
+            if position_open:
+                # if rsi_now > 60 or rsi_now < 35:
+                if(macd_death_cross_bar is not None or
+                   macd_centerline_bar is not None): 
+                    req = MarketOrderRequest(
+                        symbol=underlying_symbol,
+                        qty=current_qty,
+                        side=OrderSide.SELL,
+                        type=OrderType.MARKET,
+                        time_in_force=TimeInForce.DAY,
+                    )
+                    res = trade_client.submit_order(req)
+                    logging.info(
+                        "SELL ORDER SUBMITTED - Symbol: %s | Qty: %d | Est.Price: $%.2f | OrderID: %s | ClientOrderID: %s | SubmittedAt: %s",
+                        underlying_symbol,
+                        current_qty,
+                        current_price,
+                        res.id,
+                        res.client_order_id,
+                        res.submitted_at
+                    )
+                    # Reset exit signals
+                    rsi_retreat_bar = None
+                    macd_death_cross_bar = None
+                    macd_centerline_bar = None
+                    
+                
         # Hourly scheduling
         # Compute the timestamp for the next top of hour
         now = datetime.now(timezone.utc)
