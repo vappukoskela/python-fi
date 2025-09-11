@@ -247,6 +247,10 @@ def main():
             if (rsi_prev < 30) and (rsi_now > 30):
                 rsi_bounce_bar = current_bar_index
 
+            # Detect MACD golden cross
+            if (macd_prev < sig_prev) and (macd_now > sig_now):
+                macd_cross_bar = current_bar_index
+
                     # Entry logic: Only RSI bounce over 30 is used        
             if not position_open and position_size > 0:
                 if (rsi_bounce_bar is not None and 
