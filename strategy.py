@@ -247,7 +247,7 @@ def main():
             if (rsi_prev < 30) and (rsi_now > 30):
                 rsi_bounce_bar = current_bar_index
 
-                    # Entry logic: Only RSI bounce over 40 is used        
+                    # Entry logic: Only RSI bounce over 30 is used        
             if not position_open and position_size > 0:
                 if (rsi_bounce_bar is not None and 
                     macd_cross_bar is not None):
