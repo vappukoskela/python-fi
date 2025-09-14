@@ -36,14 +36,6 @@ NY_TZ = ZoneInfo('America/New_York')
 # underlying_symbol = 'AAPL'
 symbol_array = ['NVDA', 'AAPL', 'MSFT', 'GOOGL', 'AMZN', 'TSLA']
 
-# Set tracking signal lags over a predefined window
-rsi_bounce_bar = {symbol: None for symbol in symbol_array}
-macd_cross_bar = {symbol: None for symbol in symbol_array}
-rsi_retreat_bar = {symbol: None for symbol in symbol_array}
-macd_death_cross_bar = {symbol: None for symbol in symbol_array}
-macd_centerline_bar = {symbol: None for symbol in symbol_array}
-current_bar_index = 0
-
 # Strategy Parameters
 RSI_PERIOD       = 14                   # Standard medium‑term RSI
 MACD_FAST        = 12                   # MACD fast EMA
@@ -56,6 +48,16 @@ BUY_POWER_LIMIT  = 0.02                 # Limit the amount of buying power to us
 MAX_RISK_PCT     = 0.03                 # 1–3% position sizing
 TIMEFRAME_MAIN   = TimeFrameUnit.Minute # Suggested trading timeframePpyho
 TIMEFRAME_TREND  = TimeFrameUnit.Day    # Trend‑defining timeframe
+
+
+# Set tracking signal lags over a predefined window
+WINDOW_SIZE = 5
+rsi_bounce_bar = None
+macd_cross_bar = None
+rsi_retreat_bar = None
+macd_death_cross_bar = None
+macd_centerline_bar = None
+current_bar_index = 0
 
 # Load environment variables
 # Please safely store your API keys and never commit them to the repository (use .gitignore)
@@ -141,21 +143,6 @@ def get_next_bar_time(current_bar_time, timeframe):
         return current_bar_time + timedelta(days=1)
 
 def main():
-    """
-    Main trading loop and setup.
-    This function initializes logging, sets up per-symbol tracking variables for trading signals and risk management, 
-    and enters an infinite loop to execute the trading strategy. For each symbol in the trading universe, it:
-    - Checks market open/close status and sleeps or exits as appropriate.
-    - Fetches historical price data for indicator calculation.
-    - Computes technical indicators (RSI, MACD) and moving averages for trend filtering.
-    - Determines position sizing based on available buying power.
-    - Detects entry signals (RSI bounce and MACD golden cross) and submits buy orders if conditions are met.
-    - Tracks stop loss and take profit levels per symbol.
-    - Detects exit signals (MACD death cross, centerline drop, stop loss, or take profit) and submits sell orders.
-    - Logs all trading actions and indicator values for audit and debugging.
-    - Schedules the next iteration to run at the top of the next minute.
-    The loop continues indefinitely, managing positions and responding to market conditions in real time.
-    """
     """Main trading loop and setup."""
     # Configure logging
     logging.basicConfig(
@@ -172,16 +159,12 @@ def main():
 
     # Set tracking signal flags over a predefined window
     global rsi_bounce_bar, macd_cross_bar, rsi_retreat_bar, macd_death_cross_bar, macd_centerline_bar, current_bar_index
-    rsi_bounce_bar = {symbol: None for symbol in symbol_array}
-    macd_cross_bar = {symbol: None for symbol in symbol_array}
-    rsi_retreat_bar = {symbol: None for symbol in symbol_array}
-    macd_death_cross_bar = {symbol: None for symbol in symbol_array}
-    macd_centerline_bar = {symbol: None for symbol in symbol_array}
+    rsi_bounce_bar = None
+    macd_cross_bar = None
+    rsi_retreat_bar = None
+    macd_death_cross_bar = None
+    macd_centerline_bar = None
     current_bar_index = 0
-
-    # Per-symbol stop loss and take profit
-    stop_loss_price = {symbol: None for symbol in symbol_array}
-    take_profit_price = {symbol: None for symbol in symbol_array}
 
     while True:
         clock = trade_client.get_clock()
@@ -258,31 +241,19 @@ def main():
             # Calculate position size based on buying power
             buying_power_limit = calculate_buying_power_limit(BUY_POWER_LIMIT)
             current_price = get_underlying_price(underlying_symbol)
-            if current_price > 0:
-                if buying_power_limit < current_price:
-                    position_size = 0
-                    logging.warning("Buying power limit ($%.2f) is less than current price ($%.2f) for %s. Skipping trade for this symbol.", buying_power_limit, current_price, underlying_symbol)
-                    continue  # Skip trading for this symbol in this iteration
-                position_size = int(buying_power_limit / current_price)
-            else:
-                position_size = 0
-                logging.warning("Current price for %s is zero or negative, cannot calculate position size.", underlying_symbol)
-                logging.warning("Current price for %s is zero or negative, cannot calculate position size.", underlying_symbol)
+            position_size = int(buying_power_limit / current_price)
 
             # Detect RSI oversold bounce
             if (rsi_prev < 30) and (rsi_now > 30):
-                rsi_bounce_bar[underlying_symbol] = current_bar_index
-            # Detect MACD golden cross
-            if (macd_prev < sig_prev) and (macd_now > sig_now):
-                macd_cross_bar[underlying_symbol] = current_bar_index
+                rsi_bounce_bar = current_bar_index
 
-                # Entry logic: Only RSI bounce over 30 is used        
-            if not position_open and position_size > 0 and in_uptrend:
-                if (rsi_bounce_bar[underlying_symbol] is not None and 
-                    macd_cross_bar[underlying_symbol] is not None):
+                    # Entry logic: Only RSI bounce over 30 is used        
+            if not position_open and position_size > 0:
+                if (rsi_bounce_bar is not None and 
+                    macd_cross_bar is not None):
                     req = MarketOrderRequest(
                         symbol=underlying_symbol,
-                        qty=position_size,
+                        qty=position_size,  # Use calculated position size
                         side=OrderSide.BUY,
                         type=OrderType.MARKET,
                         time_in_force=TimeInForce.DAY              
@@ -297,36 +268,25 @@ def main():
                         res.client_order_id,
                         res.submitted_at
                     )
-                    # Set per-symbol stop loss and take profit
-                    stop_loss_price[underlying_symbol] = current_price * 0.97
-                    take_profit_price[underlying_symbol] = current_price * 1.005
                     # Reset entry signals
-                    rsi_bounce_bar[underlying_symbol] = None
-                    macd_cross_bar[underlying_symbol] = None
+                    rsi_bounce_bar = None
+                    macd_cross_bar = None
 
             # Detect RSI overbought retreat
             if (rsi_prev > 70) and (rsi_now < 65):
-                rsi_retreat_bar[underlying_symbol] = current_bar_index
+                rsi_retreat_bar = current_bar_index
 
             # Detect MACD bearish signals
             if (macd_prev > sig_prev) and (macd_now < sig_now):  # death cross
-                macd_death_cross_bar[underlying_symbol] = current_bar_index
+                macd_death_cross_bar = current_bar_index
             elif macd_prev > 0 and macd_now < 0:  # centerline drop
-                macd_centerline_bar[underlying_symbol] = current_bar_index
+                macd_centerline_bar = current_bar_index
 
             # Exit logic
             if position_open:
-                exit_reason = None
-                if macd_death_cross_bar[underlying_symbol] is not None:
-                    exit_reason = "MACD death cross"
-                elif macd_centerline_bar[underlying_symbol] is not None:
-                    exit_reason = "MACD centerline drop"
-                elif stop_loss_price[underlying_symbol] is not None and current_price <= stop_loss_price[underlying_symbol]:
-                    exit_reason = "Stop loss"
-                elif take_profit_price[underlying_symbol] is not None and current_price >= take_profit_price[underlying_symbol]:
-                    exit_reason = "Take profit"
-
-                if exit_reason:
+                # if rsi_now > 60 or rsi_now < 35:
+                if(macd_death_cross_bar is not None or
+                   macd_centerline_bar is not None): 
                     req = MarketOrderRequest(
                         symbol=underlying_symbol,
                         qty=current_qty,
@@ -344,15 +304,12 @@ def main():
                         res.client_order_id,
                         res.submitted_at
                     )
-                    logging.info("SELL triggered by: %s", exit_reason)
-
                     # Reset exit signals
-                    rsi_retreat_bar[underlying_symbol] = None
-                    macd_death_cross_bar[underlying_symbol] = None
-                    macd_centerline_bar[underlying_symbol] = None
-                    stop_loss_price[underlying_symbol] = None
-                    take_profit_price[underlying_symbol] = None
-
+                    rsi_retreat_bar = None
+                    macd_death_cross_bar = None
+                    macd_centerline_bar = None
+                    
+                
         # Hourly scheduling
         # Compute the timestamp for the next top of hour
         now = datetime.now(timezone.utc)
