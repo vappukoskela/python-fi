@@ -46,9 +46,9 @@ current_bar_index = 0
 
 # Strategy Parameters
 RSI_PERIOD       = 14                   # Standard medium‑term RSI
-MACD_FAST        = 12                   # MACD fast EMA
-MACD_SLOW        = 26                   # MACD slow EMA
-MACD_SIGNAL      = 9                    # MACD signal line EMA
+MACD_FAST        = 6                   # MACD fast EMA
+MACD_SLOW        = 13                   # MACD slow EMA
+MACD_SIGNAL      = 5                    # MACD signal line EMA
 MA_FAST          = 50                   # Higher‑timeframe fast MA
 MA_MID           = 100                  # Higher‑timeframe mid MA
 MA_SLOW          = 200                  # Higher‑timeframe slow MA
@@ -270,7 +270,7 @@ def main():
                 logging.warning("Current price for %s is zero or negative, cannot calculate position size.", underlying_symbol)
 
             # Detect RSI oversold bounce
-            if (rsi_prev < 30) and (rsi_now > 30):
+            if (rsi_prev < 35) and (rsi_now > 35):
                 rsi_bounce_bar[underlying_symbol] = current_bar_index
             # Detect MACD golden cross
             if (macd_prev < sig_prev) and (macd_now > sig_now):
