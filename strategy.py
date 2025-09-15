@@ -276,8 +276,21 @@ def main():
             if (macd_prev < sig_prev) and (macd_now > sig_now):
                 macd_cross_bar[underlying_symbol] = current_bar_index
 
-                # Entry logic: Only RSI bounce over 30 is used        
-            if not position_open and position_size > 0 and in_uptrend:
+            # Entry logic: Only RSI bounce over 30 is used 
+            # Volyymisuodatin
+            volume_series = df_main.volume
+            volume_now = volume_series.iloc[-1]
+            volume_avg = volume_series.rolling(window=20).mean().iloc[-1]
+            volume_ok = volume_now > volume_avg
+
+            # Hintakäyttäytyminen (price action)
+            recent_lows = prices.tail(5).rolling(window=2).min()
+            recent_highs = prices.tail(5).rolling(window=2).max()
+            higher_low = recent_lows.iloc[-1] > recent_lows.iloc[-2]
+            breakout = prices.iloc[-1] > recent_highs.iloc[-2]
+            price_action_ok = higher_low and breakout
+
+            if not position_open and position_size > 0 and in_uptrend and volume_ok and price_action_ok:
                 if (rsi_bounce_bar[underlying_symbol] is not None and 
                     macd_cross_bar[underlying_symbol] is not None):
                     req = MarketOrderRequest(
