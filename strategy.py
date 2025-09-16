@@ -205,7 +205,7 @@ def main():
 
             # --- Ostoehto ---
             if not position_open and position_size > 0 and in_uptrend and volume_ok and price_action_ok:
-                if (rsi_bounce_bar[underlying_symbol] is not None and macd_cross_bar[under
+                if (rsi_bounce_bar[underlying_symbol] is not None and macd_cross_bar[underlying_symbol] is not None):
                 if (rsi_bounce_bar[underlying_symbol] is not None 
                     and macd_cross_bar[underlying_symbol] is not None):
 
