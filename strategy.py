@@ -158,6 +158,7 @@ def main():
             macd_line, signal_line = compute_macd(prices, MACD_FAST, MACD_SLOW, MACD_SIGNAL)
 
             rsi_now = rsi_series.iloc[-1]
+            rsi_prev = rsi_series.iloc[-2]
             macd_now = macd_line.iloc[-1]
             macd_prev = macd_line.iloc[-2]
             sig_now = signal_line.iloc[-1]
