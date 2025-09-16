@@ -206,3 +206,83 @@ def main():
             # --- Ostoehto ---
             if not position_open and position_size > 0 and in_uptrend and volume_ok and price_action_ok:
                 if (rsi_bounce_bar[underlying_symbol] is not None and macd_cross_bar[under
+                if (rsi_bounce_bar[underlying_symbol] is not None 
+                    and macd_cross_bar[underlying_symbol] is not None):
+
+                    req = MarketOrderRequest(
+                        symbol=underlying_symbol,
+                        qty=position_size,
+                        side=OrderSide.BUY,
+                        type=OrderType.MARKET,
+                        time_in_force=TimeInForce.DAY
+                    )
+                    res = trade_client.submit_order(req)
+
+                    logging.info(
+                        "BUY ORDER SUBMITTED - Symbol: %s | Qty: %d | Est.Price: $%.2f | OrderID: %s | ClientOrderID: %s | SubmittedAt: %s",
+                        underlying_symbol, position_size, current_price,
+                        res.id, res.client_order_id, res.submitted_at
+                    )
+
+                    # Stop loss ja take profit
+                    stop_loss_price[underlying_symbol] = current_price * 0.97
+                    take_profit_price[underlying_symbol] = current_price * 1.005
+
+                    # Nollataan signaalit
+                    rsi_bounce_bar[underlying_symbol] = None
+                    macd_cross_bar[underlying_symbol] = None
+
+            # --- Myyntisignaalit ---
+            # RSI retreat
+            if (rsi_prev > 70) and (rsi_now < 65):
+                rsi_retreat_bar[underlying_symbol] = current_bar_index
+
+            # MACD death cross tai centerline drop
+            if (macd_prev > sig_prev) and (macd_now < sig_now):
+                macd_death_cross_bar[underlying_symbol] = current_bar_index
+            elif macd_prev > 0 and macd_now < 0:
+                macd_centerline_bar[underlying_symbol] = current_bar_index
+
+            # --- Myyntiehto ---
+            if position_open:
+                exit_reason = None
+                if macd_death_cross_bar[underlying_symbol] is not None:
+                    exit_reason = "MACD death cross"
+                elif macd_centerline_bar[underlying_symbol] is not None:
+                    exit_reason = "MACD centerline drop"
+                elif stop_loss_price[underlying_symbol] is not None and current_price <= stop_loss_price[underlying_symbol]:
+                    exit_reason = "Stop loss"
+                elif take_profit_price[underlying_symbol] is not None and current_price >= take_profit_price[underlying_symbol]:
+                    exit_reason = "Take profit"
+
+                if exit_reason:
+                    req = MarketOrderRequest(
+                        symbol=underlying_symbol,
+                        qty=current_qty,
+                        side=OrderSide.SELL,
+                        type=OrderType.MARKET,
+                        time_in_force=TimeInForce.DAY,
+                    )
+                    res = trade_client.submit_order(req)
+                    logging.info(
+                        "SELL ORDER SUBMITTED - Symbol: %s | Qty: %d | Est.Price: $%.2f | OrderID: %s | ClientOrderID: %s | SubmittedAt: %s",
+                        underlying_symbol, current_qty, current_price,
+                        res.id, res.client_order_id, res.submitted_at
+                    )
+                    logging.info("SELL triggered by: %s", exit_reason)
+
+                    # Nollataan myyntisignaalit
+                    rsi_retreat_bar[underlying_symbol] = None
+                    macd_death_cross_bar[underlying_symbol] = None
+                    macd_centerline_bar[underlying_symbol] = None
+                    stop_loss_price[underlying_symbol] = None
+                    take_profit_price[underlying_symbol] = None
+
+        # --- Ajastus seuraavaan sykliin ---
+        now = datetime.now(timezone.utc)
+        next_run = now.replace(second=0, microsecond=0) + timedelta(minutes=1)
+        sleep_until(next_run, chunk_seconds=10)
+
+
+if __name__ == "__main__":
+    main()
