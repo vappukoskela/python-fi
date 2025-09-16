@@ -163,7 +163,7 @@ def main():
             macd_prev = macd_line.iloc[-2]
             sig_now = signal_line.iloc[-1]
             sig_prev = signal_line.iloc[-2]
-
+            logging.info("%s - Price: $%.2f | RSI: %.2f | MACD: %.4f | Signal: %.4f", underlying_symbol, prices.iloc[-1], rsi_now, macd_now, sig_now)
             ma_fast = df_trend.close.rolling(MA_FAST).mean()
             ma_mid = df_trend.close.rolling(MA_MID).mean()
             ma_slow = df_trend.close.rolling(MA_SLOW).mean()
