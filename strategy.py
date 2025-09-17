@@ -184,11 +184,7 @@ def main():
             sig_now = signal_line.iloc[-1]
             sig_prev = signal_line.iloc[-2]
 
-            # --- Trendisuodatin (korjattu) ---
-            ma_fast = df_trend.close.rolling(MA_FAST).mean()
-            ma_mid  = df_trend.close.rolling(MA_MID).mean()
-            ma_slow = df_trend.close.rolling(MA_SLOW).mean()
-            
+                       
                         # --- Trendisuodatin (korjattu) ---
             ma_fast = df_trend.close.rolling(MA_FAST).mean()
             ma_mid  = df_trend.close.rolling(MA_MID).mean()
