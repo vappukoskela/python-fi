@@ -42,7 +42,7 @@ TIMEFRAME_TREND = TimeFrameUnit.Day
 load_dotenv()
 API_KEY = os.getenv("ALPACA_PAPER_API_KEY")
 API_SECRET = os.getenv("ALPACA_PAPER_SECRET_KEY")
-ALPACA_PAPER_TRADE = os.getenv("ALPACA_PAPER_TRADE", "True")
+ALPACA_PAPER_TRADE = (os.getenv("ALPACA_PAPER_TRADE", "True") == "True")
 trade_api_url = os.getenv("TRADE_API_URL")
 
 if not API_KEY or not API_SECRET:
@@ -72,7 +72,9 @@ def log_strategy_state(
         underlying_symbol,
         current_bar_index,
         in_uptrend,
-        last_fast, last_mid, last_slow,
+        last_fast if pd.notna(last_fast) else float('nan'),
+        last_mid if pd.notna(last_mid) else float('nan'),
+        last_slow if pd.notna(last_slow) else float('nan'),
         volume_now, volume_avg, volume_ok,
         higher_low, breakout, price_action_ok,
         rsi_prev, rsi_now, (rsi_now > 30), ((rsi_prev > 70) and (rsi_now < 65)),
@@ -100,12 +102,16 @@ def fetch_bars(client, underlying_symbol, timeframe_unit, days=90):
         timeframe=TimeFrame(amount=1, unit=timeframe_unit),
         start=today - timedelta(days=days),
     )
-    return client.get_stock_bars(req).df
+    df = client.get_stock_bars(req).df
+    # Varmista, että DataFrame on multiindex -> yksittäisen symbolin df
+    if isinstance(df.index, pd.MultiIndex):
+        df = df.xs(underlying_symbol, level='symbol')
+    return df.sort_index()
 
 def compute_rsi(prices, period):
-    deltas = prices.diff().dropna()
-    gains = deltas.where(deltas > 0, 0)
-    losses = (-deltas).where(deltas < 0, 0)
+    deltas = prices.diff()
+    gains = deltas.clip(lower=0)
+    losses = (-deltas).clip(lower=0)
     avg_gain = gains.rolling(period).mean()
     avg_loss = losses.rolling(period).mean()
     rs = avg_gain / avg_loss
@@ -145,7 +151,9 @@ def main():
 
     while True:
         clock = trade_client.get_clock()
+
         for underlying_symbol in symbol_array:
+            # Markkinaikkuna
             if market_open and not clock.is_open:
                 logging.info("Market closed. Sleeping until next open at %s", clock.next_open)
                 market_open = False
@@ -156,23 +164,44 @@ def main():
                 market_open = True
             if not clock.is_open:
                 logging.info("Market is closed. Exiting.")
-                exit(0)
+                return
 
+            # Hae data
             df_main = fetch_bars(stock_data_client, underlying_symbol, TIMEFRAME_MAIN, days=MA_SLOW + 100)
             df_trend = fetch_bars(stock_data_client, underlying_symbol, TIMEFRAME_TREND, days=MA_SLOW + 250)
+
+            # Vähimmäispituustarkistukset
+            if df_main is None or df_main.empty or 'close' not in df_main.columns or 'volume' not in df_main.columns:
+                logging.warning("%s - Missing intraday data or columns.", underlying_symbol)
+                continue
+            if df_trend is None or df_trend.empty or 'close' not in df_trend.columns:
+                logging.warning("%s - Missing daily trend data.", underlying_symbol)
+                continue
+
             current_bar_index = len(df_main) - 1
 
+            # Avoin positio
             try:
                 position = trade_client.get_open_position(underlying_symbol)
                 position_open = True
-                current_qty = int(position.qty)
-            except Exception:
+                current_qty = int(float(position.qty))
+            except Exception as e:
                 position_open = False
                 current_qty = 0
 
-            prices = df_main.close
+            prices = df_main['close']
+            if len(prices) < 50:
+                logging.debug("%s - Not enough bars for indicators (%d < 50).", underlying_symbol, len(prices))
+                continue
+
+            # Indikaattorit
             rsi_series = compute_rsi(prices, RSI_PERIOD)
             macd_line, signal_line = compute_macd(prices, MACD_FAST, MACD_SLOW, MACD_SIGNAL)
+
+            # Varmista arvoja on vähintään 2
+            if rsi_series.notna().sum() < 2 or macd_line.notna().sum() < 2 or signal_line.notna().sum() < 2:
+                logging.debug("%s - Indicators not ready (NaN head).", underlying_symbol)
+                continue
 
             rsi_now = rsi_series.iloc[-1]
             rsi_prev = rsi_series.iloc[-2]
@@ -181,41 +210,49 @@ def main():
             sig_now = signal_line.iloc[-1]
             sig_prev = signal_line.iloc[-2]
 
-            # --- Trendisuodatin ---
-            ma_fast = df_trend.close.rolling(MA_FAST).mean()
-            ma_mid  = df_trend.close.rolling(MA_MID).mean()
-            ma_slow = df_trend.close.rolling(MA_SLOW).mean()
-            last_fast, last_mid, last_slow = ma_fast.iloc[-1], ma_mid.iloc[-1], ma_slow.iloc[-1]
+            # --- Trendisuodatin (päivädata) ---
+            ma_fast = df_trend['close'].rolling(MA_FAST).mean()
+            ma_mid  = df_trend['close'].rolling(MA_MID).mean()
+            ma_slow = df_trend['close'].rolling(MA_SLOW).mean()
+            last_fast = ma_fast.iloc[-1]
+            last_mid  = ma_mid.iloc[-1]
+            last_slow = ma_slow.iloc[-1]
 
             if pd.notna(last_fast) and pd.notna(last_mid) and pd.notna(last_slow):
-
-                            if pd.notna(last_fast) and pd.notna(last_mid) and pd.notna(last_slow):
                 in_uptrend = (last_fast > last_mid) and (last_mid > last_slow)
             else:
                 in_uptrend = False
 
             # --- Volyymisuodatin ---
-            volume_now = df_main.volume.iloc[-1]
-            volume_avg = df_main.volume.tail(20).mean()
+            volume_now = float(df_main['volume'].iloc[-1])
+            volume_avg = float(df_main['volume'].tail(20).mean()) if len(df_main) >= 20 else float('inf')
             volume_ok = volume_now > volume_avg
 
             # --- Price action ---
-            recent_lows = prices.tail(5).rolling(window=2).min()
-            recent_highs = prices.tail(5).rolling(window=2).max()
-            higher_low = recent_lows.iloc[-1] > recent_lows.iloc[-2]
-            breakout = prices.iloc[-1] > recent_highs.iloc[-2]
-            price_action_ok = higher_low and breakout
+            price_action_ok = False
+            higher_low = False
+            breakout = False
+            if len(prices) >= 6:
+                recent = prices.tail(5)
+                recent_lows = recent.rolling(window=2).min()
+                recent_highs = recent.rolling(window=2).max()
+                # varmistetaan, että saimme tarpeeksi arvoja
+                if len(recent_lows.dropna()) >= 2 and len(recent_highs.dropna()) >= 2:
+                    higher_low = recent_lows.iloc[-1] > recent_lows.iloc[-2]
+                    breakout = prices.iloc[-1] > recent_highs.iloc[-2]
+                    price_action_ok = higher_low and breakout
 
-            # --- RSI / MACD signaalit ---
-            if rsi_now > 30:
+            # --- RSI / MACD signaalit (päivitetään viimeisin signaalibari) ---
+            if pd.notna(rsi_now) and (rsi_now > 30):
                 rsi_bounce_bar[underlying_symbol] = current_bar_index
-            if (macd_prev < sig_prev) and (macd_now > sig_now):
-                macd_cross_bar[underlying_symbol] = current_bar_index
-            if (rsi_prev > 70) and (rsi_now < 65):
+            if pd.notna(macd_prev) and pd.notna(sig_prev) and pd.notna(macd_now) and pd.notna(sig_now):
+                if (macd_prev < sig_prev) and (macd_now > sig_now):
+                    macd_cross_bar[underlying_symbol] = current_bar_index
+                if (macd_prev > sig_prev) and (macd_now < sig_now):
+                    macd_death_cross_bar[underlying_symbol] = current_bar_index
+            if pd.notna(rsi_prev) and pd.notna(rsi_now) and (rsi_prev > 70) and (rsi_now < 65):
                 rsi_retreat_bar[underlying_symbol] = current_bar_index
-            if (macd_prev > sig_prev) and (macd_now < sig_now):
-                macd_death_cross_bar[underlying_symbol] = current_bar_index
-            if macd_prev > 0 and macd_now < 0:
+            if pd.notna(macd_prev) and pd.notna(macd_now) and (macd_prev > 0) and (macd_now < 0):
                 macd_centerline_bar[underlying_symbol] = current_bar_index
 
             # --- Yhdistetty debug-yhteenveto ---
@@ -229,8 +266,8 @@ def main():
                 macd_prev, macd_now, sig_prev, sig_now
             )
 
-            # --- Signaalien yhdistäminen ---
-            bars_valid = 3  # signaalit voimassa 3 baria
+            # --- Signaalien yhdistäminen (voimassa 3 baria) ---
+            bars_valid = 3
 
             buy_signal = (
                 in_uptrend and volume_ok and price_action_ok and (
@@ -247,34 +284,41 @@ def main():
 
             # --- Kaupankäyntilogiikka ---
             if buy_signal and not position_open:
-                limit = calculate_buying_power_limit(BUY_POWER_LIMIT)
-                price = get_underlying_price(underlying_symbol)
-                qty = int(limit // price)
-                if qty > 0:
+                try:
+                    limit = calculate_buying_power_limit(BUY_POWER_LIMIT)
+                    price = float(get_underlying_price(underlying_symbol))
+                    qty = int(limit // price)
+                    if qty > 0:
+                        order = MarketOrderRequest(
+                            symbol=underlying_symbol,
+                            qty=qty,
+                            side=OrderSide.BUY,
+                            type=OrderType.MARKET,
+                            time_in_force=TimeInForce.DAY
+                        )
+                        trade_client.submit_order(order)
+                        logging.info("%s - BUY %d @ %.2f", underlying_symbol, qty, price)
+                    else:
+                        logging.info("%s - BUY skipped: qty=0 (limit=%.2f, price=%.2f)", underlying_symbol, limit, price)
+                except Exception as e:
+                    logging.exception("%s - BUY error: %s", underlying_symbol, str(e))
+
+            if sell_signal and position_open and current_qty > 0:
+                try:
                     order = MarketOrderRequest(
                         symbol=underlying_symbol,
-                        qty=qty,
-                        side=OrderSide.BUY,
+                        qty=current_qty,
+                        side=OrderSide.SELL,
                         type=OrderType.MARKET,
                         time_in_force=TimeInForce.DAY
                     )
                     trade_client.submit_order(order)
-                    logging.info("%s - BUY %d @ %.2f", underlying_symbol, qty, price)
-
-            if sell_signal and position_open:
-                order = MarketOrderRequest(
-                    symbol=underlying_symbol,
-                    qty=current_qty,
-                    side=OrderSide.SELL,
-                    type=OrderType.MARKET,
-                    time_in_force=TimeInForce.DAY
-                )
-                trade_client.submit_order(order)
-                logging.info("%s - SELL %d @ market", underlying_symbol, current_qty)
+                    logging.info("%s - SELL %d @ market", underlying_symbol, current_qty)
+                except Exception as e:
+                    logging.exception("%s - SELL error: %s", underlying_symbol, str(e))
 
         # odota seuraavaa kierrosta
         time.sleep(60)
 
 if __name__ == "__main__":
     main()
-
