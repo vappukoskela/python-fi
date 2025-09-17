@@ -188,7 +188,7 @@ def main():
             ma_fast = df_trend.close.rolling(MA_FAST).mean()
             ma_mid  = df_trend.close.rolling(MA_MID).mean()
             ma_slow = df_trend.close.rolling(MA_SLOW).mean()
-            last_fast, last_mid, last_slow =
+            
                         # --- Trendisuodatin (korjattu) ---
             ma_fast = df_trend.close.rolling(MA_FAST).mean()
             ma_mid  = df_trend.close.rolling(MA_MID).mean()
