@@ -1,31 +1,21 @@
-# Import standard library modules
 import logging
 import os
 import time
 from datetime import datetime, timedelta, timezone
 from zoneinfo import ZoneInfo
 
-# Import third party modules
 import numpy as np
 import pandas as pd
 from dotenv import load_dotenv
 
-# Import Alpaca modules
-from alpaca.data.historical.stock import (
-    StockHistoricalDataClient, StockLatestTradeRequest,
-)
+from alpaca.data.historical.stock import StockHistoricalDataClient, StockLatestTradeRequest
 from alpaca.data.requests import StockBarsRequest
 from alpaca.data.timeframe import TimeFrame, TimeFrameUnit
 from alpaca.trading.client import TradingClient
-from alpaca.trading.enums import (
-    AssetClass, AssetStatus, OrderSide, OrderType, QueryOrderStatus, TimeInForce,
-)
+from alpaca.trading.enums import AssetClass, AssetStatus, OrderSide, OrderType, QueryOrderStatus, TimeInForce
 from alpaca.trading.requests import MarketOrderRequest
 
-# Set the local timezone
 NY_TZ = ZoneInfo('America/New_York')
-
-# Symbols to trade
 symbol_array = ['NVDA', 'AAPL', 'MSFT', 'GOOGL', 'AMZN', 'TSLA']
 
 # Tracking signal lags
@@ -59,11 +49,41 @@ trade_api_url = os.getenv("TRADE_API_URL")
 if not API_KEY or not API_SECRET:
     raise RuntimeError("Missing Alpaca API credentials in environment variables.")
 
-# Setup trading clients
 trade_client = TradingClient(api_key=API_KEY, secret_key=API_SECRET, paper=ALPACA_PAPER_TRADE, url_override=trade_api_url)
 stock_data_client = StockHistoricalDataClient(api_key=API_KEY, secret_key=API_SECRET)
 
-# Helper functions
+# --- Apufunktio yhdistettyyn debug-yhteenvetoon ---
+def log_strategy_state(
+    underlying_symbol,
+    current_bar_index,
+    last_fast, last_mid, last_slow, in_uptrend,
+    volume_now, volume_avg, volume_ok,
+    higher_low, breakout, price_action_ok,
+    rsi_prev, rsi_now,
+    macd_prev, macd_now, sig_prev, sig_now
+):
+    logging.info(
+        "%s | Bar=%d | "
+        "Trend: %s (MA50=%.2f, MA100=%.2f, MA200=%.2f) | "
+        "Vol: now=%.0f avg20=%.0f ok=%s | "
+        "PriceAction: HL=%s breakout=%s ok=%s | "
+        "RSI: prev=%.2f now=%.2f bounce_ok=%s retreat_ok=%s | "
+        "MACD: prev=%.4f now=%.4f sig_prev=%.4f sig_now=%.4f "
+        "golden=%s death=%s centerline=%s",
+        underlying_symbol,
+        current_bar_index,
+        in_uptrend,
+        last_fast, last_mid, last_slow,
+        volume_now, volume_avg, volume_ok,
+        higher_low, breakout, price_action_ok,
+        rsi_prev, rsi_now, (rsi_now > 30), ((rsi_prev > 70) and (rsi_now < 65)),
+        macd_prev, macd_now, sig_prev, sig_now,
+        ((macd_prev < sig_prev) and (macd_now > sig_now)),
+        ((macd_prev > sig_prev) and (macd_now < sig_now)),
+        ((macd_prev > 0) and (macd_now < 0))
+    )
+
+# --- Helper functions ---
 def sleep_until(target_time, chunk_seconds=30):
     if target_time.tzinfo is None:
         target_time = target_time.replace(tzinfo=timezone.utc)
@@ -109,7 +129,7 @@ def get_underlying_price(symbol):
     resp = stock_data_client.get_stock_latest_trade(req)
     return resp[symbol].price
 
-# Main trading loop
+# --- Main trading loop ---
 def main():
     logging.basicConfig(
         filename="trade_log.txt",
@@ -142,7 +162,7 @@ def main():
                 exit(0)
 
             df_main = fetch_bars(stock_data_client, underlying_symbol, TIMEFRAME_MAIN, days=MA_SLOW + 100)
-            df_trend = fetch_bars(stock_data_client, underlying_symbol, TIMEFRAME_TREND, days=MA_SLOW + 10)
+            df_trend = fetch_bars(stock_data_client, underlying_symbol, TIMEFRAME_TREND, days=MA_SLOW + 250)
             current_bar_index = len(df_main) - 1
 
             try:
@@ -164,37 +184,28 @@ def main():
             sig_now = signal_line.iloc[-1]
             sig_prev = signal_line.iloc[-2]
 
+            # --- Trendisuodatin (korjattu) ---
             ma_fast = df_trend.close.rolling(MA_FAST).mean()
-            ma_mid = df_trend.close.rolling(MA_MID).mean()
+            ma_mid  = df_trend.close.rolling(MA_MID).mean()
             ma_slow = df_trend.close.rolling(MA_SLOW).mean()
-            if not (ma_fast.isna().any() or ma_mid.isna().any() or ma_slow.isna().any()):
-                in_uptrend = (ma_fast.iloc[-1] > ma_mid.iloc[-1]) and (ma_mid.iloc[-1] > ma_slow.iloc[-1])
+            last_fast, last_mid, last_slow =
+                        # --- Trendisuodatin (korjattu) ---
+            ma_fast = df_trend.close.rolling(MA_FAST).mean()
+            ma_mid  = df_trend.close.rolling(MA_MID).mean()
+            ma_slow = df_trend.close.rolling(MA_SLOW).mean()
+
+            last_fast = ma_fast.iloc[-1]
+            last_mid  = ma_mid.iloc[-1]
+            last_slow = ma_slow.iloc[-1]
+
+            if pd.notna(last_fast) and pd.notna(last_mid) and pd.notna(last_slow):
+                in_uptrend = (last_fast > last_mid) and (last_mid > last_slow)
             else:
                 in_uptrend = False
 
-            buying_power_limit = calculate_buying_power_limit(BUY_POWER_LIMIT)
-            current_price = get_underlying_price(underlying_symbol)
-            if current_price <= 0 or buying_power_limit < current_price:
-                position_size = 0
-            else:
-                position_size = int(buying_power_limit / current_price)
-
-            # --- RSI yli 30 ---
-            if rsi_now > 30:
-                rsi_bounce_bar[underlying_symbol] = current_bar_index
-            else:
-                rsi_bounce_bar[underlying_symbol] = None
-
-            # --- MACD golden cross ---
-            if (macd_prev < sig_prev) and (macd_now > sig_now):
-                macd_cross_bar[underlying_symbol] = current_bar_index
-            else:
-                macd_cross_bar[underlying_symbol] = None
-
             # --- Volyymisuodatin ---
-            volume_series = df_main.volume
-            volume_now = volume_series.iloc[-1]
-            volume_avg = volume_series.rolling(window=20).mean().iloc[-1]
+            volume_now = df_main.volume.iloc[-1]
+            volume_avg = df_main.volume.tail(20).mean()
             volume_ok = volume_now > volume_avg
 
             # --- Price action ---
@@ -204,91 +215,91 @@ def main():
             breakout = prices.iloc[-1] > recent_highs.iloc[-2]
             price_action_ok = higher_low and breakout
 
-            logging.info("%s - Price: $%.2f | RSI: %.2f | MACD: %.4f | Signal: %.4f", underlying_symbol, prices.iloc[-1], rsi_now, macd_now, sig_now)
-            logging.info("%s - In uptrend: %s | Volume OK: %s | Price Action OK: %s", underlying_symbol, in_uptrend, volume_ok, price_action_ok)   
-            logging.info("%s - rsi_bounce_bar: %s | macd_cross_bar: %s | position_size: %d | position_open: %s | current_qty: %d", underlying_symbol, rsi_bounce_bar[underlying_symbol], macd_cross_bar[underlying_symbol], position_size, position_open, current_qty)
-            # --- Ostoehto ---
-            if not position_open and position_size > 0 and in_uptrend and volume_ok and price_action_ok:
-                if (rsi_bounce_bar[underlying_symbol] is not None and macd_cross_bar[underlying_symbol] is not None):
-                
-                    req = MarketOrderRequest(
+            # --- RSI / MACD signaalit ---
+            # RSI bounce
+            if rsi_now > 30:
+                rsi_bounce_bar[underlying_symbol] = current_bar_index
+            else:
+                rsi_bounce_bar[underlying_symbol] = None
+
+            # MACD golden cross
+            if (macd_prev < sig_prev) and (macd_now > sig_now):
+                macd_cross_bar[underlying_symbol] = current_bar_index
+            else:
+                macd_cross_bar[underlying_symbol] = None
+
+            # RSI retreat
+            if (rsi_prev > 70) and (rsi_now < 65):
+                rsi_retreat_bar[underlying_symbol] = current_bar_index
+            else:
+                rsi_retreat_bar[underlying_symbol] = None
+
+            # MACD death cross
+            if (macd_prev > sig_prev) and (macd_now < sig_now):
+                macd_death_cross_bar[underlying_symbol] = current_bar_index
+            else:
+                macd_death_cross_bar[underlying_symbol] = None
+
+            # MACD centerline drop
+            if macd_prev > 0 and macd_now < 0:
+                macd_centerline_bar[underlying_symbol] = current_bar_index
+            else:
+                macd_centerline_bar[underlying_symbol] = None
+
+            # --- Yhdistetty debug-yhteenveto ---
+            log_strategy_state(
+                underlying_symbol,
+                current_bar_index,
+                last_fast, last_mid, last_slow, in_uptrend,
+                volume_now, volume_avg, volume_ok,
+                higher_low, breakout, price_action_ok,
+                rsi_prev, rsi_now,
+                macd_prev, macd_now, sig_prev, sig_now
+            )
+
+            # --- Signaalien yhdistäminen ---
+            buy_signal = (
+                in_uptrend and volume_ok and price_action_ok and
+                (rsi_bounce_bar[underlying_symbol] == current_bar_index or
+                 macd_cross_bar[underlying_symbol] == current_bar_index)
+            )
+
+            sell_signal = (
+                (rsi_retreat_bar[underlying_symbol] == current_bar_index) or
+                (macd_death_cross_bar[underlying_symbol] == current_bar_index) or
+                (macd_centerline_bar[underlying_symbol] == current_bar_index)
+            )
+
+            # --- Kaupankäyntilogiikka ---
+            if buy_signal and not position_open:
+                limit = calculate_buying_power_limit(BUY_POWER_LIMIT)
+                price = get_underlying_price(underlying_symbol)
+                qty = int(limit // price)
+                if qty > 0:
+                    order = MarketOrderRequest(
                         symbol=underlying_symbol,
-                        qty=position_size,
+                        qty=qty,
                         side=OrderSide.BUY,
                         type=OrderType.MARKET,
                         time_in_force=TimeInForce.DAY
                     )
-                    res = trade_client.submit_order(req)
+                    trade_client.submit_order(order)
+                    logging.info("%s - BUY %d @ %.2f", underlying_symbol, qty, price)
 
-                    logging.info(
-                        "BUY ORDER SUBMITTED - Symbol: %s | Qty: %d | Est.Price: $%.2f | OrderID: %s | ClientOrderID: %s | SubmittedAt: %s",
-                        underlying_symbol, position_size, current_price,
-                        res.id, res.client_order_id, res.submitted_at
-                    )
+            if sell_signal and position_open:
+                order = MarketOrderRequest(
+                    symbol=underlying_symbol,
+                    qty=current_qty,
+                    side=OrderSide.SELL,
+                    type=OrderType.MARKET,
+                    time_in_force=TimeInForce.DAY
+                )
+                trade_client.submit_order(order)
+                logging.info("%s - SELL %d @ market", underlying_symbol, current_qty)
 
-                    # Stop loss ja take profit
-                    stop_loss_price[underlying_symbol] = current_price * 0.97
-                    take_profit_price[underlying_symbol] = current_price * 1.005
-
-                    # Nollataan signaalit
-                    rsi_bounce_bar[underlying_symbol] = None
-                    macd_cross_bar[underlying_symbol] = None
-
-            # --- Myyntisignaalit ---
-            # RSI retreat
-            if (rsi_prev > 70) and (rsi_now < 65):
-                rsi_retreat_bar[underlying_symbol] = current_bar_index
-
-            # MACD death cross tai centerline drop
-            if (macd_prev > sig_prev) and (macd_now < sig_now):
-                macd_death_cross_bar[underlying_symbol] = current_bar_index
-            elif macd_prev > 0 and macd_now < 0:
-                macd_centerline_bar[underlying_symbol] = current_bar_index
-                
-            logging.info("%s - RSI retreat bar: %s | MACD death cross bar: %s | MACD centerline bar: %s", underlying_symbol,
-                         rsi_retreat_bar[underlying_symbol], macd_death_cross_bar[underlying_symbol], macd_centerline_bar[underlying_symbol])
-            logging.info("%s - Stop loss price: %s | Take profit price: %s", underlying_symbol, stop_loss_price[underlying_symbol], take_profit_price[underlying_symbol])
-            
-            # --- Myyntiehto ---
-            if position_open:
-                exit_reason = None
-                if macd_death_cross_bar[underlying_symbol] is not None:
-                    exit_reason = "MACD death cross"
-                elif macd_centerline_bar[underlying_symbol] is not None:
-                    exit_reason = "MACD centerline drop"
-                elif stop_loss_price[underlying_symbol] is not None and current_price <= stop_loss_price[underlying_symbol]:
-                    exit_reason = "Stop loss"
-                elif take_profit_price[underlying_symbol] is not None and current_price >= take_profit_price[underlying_symbol]:
-                    exit_reason = "Take profit"
-
-                if exit_reason:
-                    req = MarketOrderRequest(
-                        symbol=underlying_symbol,
-                        qty=current_qty,
-                        side=OrderSide.SELL,
-                        type=OrderType.MARKET,
-                        time_in_force=TimeInForce.DAY,
-                    )
-                    res = trade_client.submit_order(req)
-                    logging.info(
-                        "SELL ORDER SUBMITTED - Symbol: %s | Qty: %d | Est.Price: $%.2f | OrderID: %s | ClientOrderID: %s | SubmittedAt: %s",
-                        underlying_symbol, current_qty, current_price,
-                        res.id, res.client_order_id, res.submitted_at
-                    )
-                    logging.info("SELL triggered by: %s", exit_reason)
-
-                    # Nollataan myyntisignaalit
-                    rsi_retreat_bar[underlying_symbol] = None
-                    macd_death_cross_bar[underlying_symbol] = None
-                    macd_centerline_bar[underlying_symbol] = None
-                    stop_loss_price[underlying_symbol] = None
-                    take_profit_price[underlying_symbol] = None
-
-        # --- Ajastus seuraavaan sykliin ---
-        now = datetime.now(timezone.utc)
-        next_run = now.replace(second=0, microsecond=0) + timedelta(minutes=1)
-        sleep_until(next_run, chunk_seconds=10)
-
+        # odota seuraavaa kierrosta
+        time.sleep(60)
 
 if __name__ == "__main__":
     main()
+
