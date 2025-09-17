@@ -163,7 +163,7 @@ def main():
             macd_prev = macd_line.iloc[-2]
             sig_now = signal_line.iloc[-1]
             sig_prev = signal_line.iloc[-2]
-            logging.info("%s - Price: $%.2f | RSI: %.2f | MACD: %.4f | Signal: %.4f", underlying_symbol, prices.iloc[-1], rsi_now, macd_now, sig_now)
+
             ma_fast = df_trend.close.rolling(MA_FAST).mean()
             ma_mid = df_trend.close.rolling(MA_MID).mean()
             ma_slow = df_trend.close.rolling(MA_SLOW).mean()
@@ -204,6 +204,9 @@ def main():
             breakout = prices.iloc[-1] > recent_highs.iloc[-2]
             price_action_ok = higher_low and breakout
 
+            logging.info("%s - Price: $%.2f | RSI: %.2f | MACD: %.4f | Signal: %.4f", underlying_symbol, prices.iloc[-1], rsi_now, macd_now, sig_now)
+            logging.info("%s - In uptrend: %s | Volume OK: %s | Price Action OK: %s", underlying_symbol, in_uptrend, volume_ok, price_action_ok)   
+            logging.info("%s - rsi_bounce_bar: %s | macd_cross_bar: %s | position_size: %d | position_open: %s | current_qty: %d", underlying_symbol, rsi_bounce_bar[underlying_symbol], macd_cross_bar[underlying_symbol], position_size, position_open, current_qty)
             # --- Ostoehto ---
             if not position_open and position_size > 0 and in_uptrend and volume_ok and price_action_ok:
                 if (rsi_bounce_bar[underlying_symbol] is not None and macd_cross_bar[underlying_symbol] is not None):
@@ -241,7 +244,11 @@ def main():
                 macd_death_cross_bar[underlying_symbol] = current_bar_index
             elif macd_prev > 0 and macd_now < 0:
                 macd_centerline_bar[underlying_symbol] = current_bar_index
-
+                
+            logging.info("%s - RSI retreat bar: %s | MACD death cross bar: %s | MACD centerline bar: %s", underlying_symbol
+                         rsi_retreat_bar[underlying_symbol], macd_death_cross_bar[underlying_symbol], macd_centerline_bar[underlying_symbol])
+            logging.info("%s - Stop loss price: %s | Take profit price: %s", underlying_symbol, stop_loss_price[underlying_symbol], take_profit_price[underlying_symbol])
+            
             # --- Myyntiehto ---
             if position_open:
                 exit_reason = None
