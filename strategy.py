@@ -245,7 +245,7 @@ def main():
             elif macd_prev > 0 and macd_now < 0:
                 macd_centerline_bar[underlying_symbol] = current_bar_index
                 
-            logging.info("%s - RSI retreat bar: %s | MACD death cross bar: %s | MACD centerline bar: %s", underlying_symbol
+            logging.info("%s - RSI retreat bar: %s | MACD death cross bar: %s | MACD centerline bar: %s", underlying_symbol,
                          rsi_retreat_bar[underlying_symbol], macd_death_cross_bar[underlying_symbol], macd_centerline_bar[underlying_symbol])
             logging.info("%s - Stop loss price: %s | Take profit price: %s", underlying_symbol, stop_loss_price[underlying_symbol], take_profit_price[underlying_symbol])
             
