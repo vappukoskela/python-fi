@@ -16,7 +16,7 @@ from alpaca.trading.enums import OrderSide, OrderType, TimeInForce
 from alpaca.trading.requests import MarketOrderRequest
 
 NY_TZ = ZoneInfo('America/New_York')
-symbol_array = ['NVDA', 'AAPL', 'MSFT', 'GOOGL', 'AMZN', 'MU' 'QCOM' 'V' 'AMD' 'C' 'PLTR' 'EBAY' 'OKTA' 'IBM' 'ORCL' 'META']
+symbol_array = ['NVDA', 'AAPL', 'MSFT', 'GOOGL', 'AMZN', 'MU', 'QCOM', 'V', 'AMD', 'C', 'PLTR', 'EBAY', 'OKTA', 'IBM', 'ORCL', 'META']
 
 # Tracking signal lags
 rsi_bounce_bar = {symbol: None for symbol in symbol_array}
