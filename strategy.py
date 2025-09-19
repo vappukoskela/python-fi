@@ -1,12 +1,16 @@
-import logging, os, time
-from datetime import datetime, timedelta
+import logging
+import os
+import time
+from datetime import datetime, timedelta, timezone
 from zoneinfo import ZoneInfo
-import numpy as np, pandas as pd
+
+import numpy as np
+import pandas as pd
 from dotenv import load_dotenv
+
 from alpaca.data.historical.stock import StockHistoricalDataClient, StockLatestTradeRequest
 from alpaca.data.requests import StockBarsRequest
 from alpaca.data.timeframe import TimeFrame, TimeFrameUnit
-from alpaca.data.models import DataFeed
 from alpaca.trading.client import TradingClient
 from alpaca.trading.enums import OrderSide, OrderType, TimeInForce
 from alpaca.trading.requests import MarketOrderRequest
