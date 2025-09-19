@@ -56,7 +56,8 @@ def fetch_bars(client, symbol, timeframe, days=1):
             symbol_or_symbols=symbol,
             timeframe=timeframe,
             start=start,
-            end=end
+            end=end,
+            feed="iex"
             # feed-parametri poistettu
         )
         bars = client.get_stock_bars(req).df
@@ -91,10 +92,10 @@ def main():
 
     global stock_data_client, trade_client
     stock_data_client = StockHistoricalDataClient(
-        os.getenv("APCA_API_KEY_ID"), os.getenv("APCA_API_SECRET_KEY")
+        os.getenv("ALPACA_PAPER_API_KEY"), os.getenv("ALPACA_PAPER_SECRET_KEY")
     )
     trade_client = TradingClient(
-        os.getenv("APCA_API_KEY_ID"), os.getenv("APCA_API_SECRET_KEY"), paper=True
+        os.getenv("ALPACA_PAPER_API_KEY"), os.getenv("ALPACA_PAPER_SECRET_KEY"), paper=True
     )
 
     symbols = ["AAPL", "MSFT", "PLTR"]
