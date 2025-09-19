@@ -6,6 +6,7 @@ from dotenv import load_dotenv
 from alpaca.data.historical.stock import StockHistoricalDataClient, StockLatestTradeRequest
 from alpaca.data.requests import StockBarsRequest
 from alpaca.data.timeframe import TimeFrame, TimeFrameUnit
+from alpaca.data.models import DataFeed
 from alpaca.trading.client import TradingClient
 from alpaca.trading.enums import OrderSide, OrderType, TimeInForce
 from alpaca.trading.requests import MarketOrderRequest
@@ -13,21 +14,20 @@ from alpaca.trading.requests import MarketOrderRequest
 NY_TZ = ZoneInfo('America/New_York')
 symbol_array = ['NVDA','AAPL','MSFT','GOOGL','AMZN','MU','QCOM','V','AMD','C','PLTR','EBAY','OKTA','IBM','ORCL','META']
 
-# --- Trendistrategian parametrit ---
+# --- Parametrit ---
 RSI_PERIOD = 14
 MACD_FAST, MACD_SLOW, MACD_SIGNAL = 6, 13, 5
 MA_FAST, MA_MID, MA_SLOW = 50, 100, 200
-BUY_POWER_LIMIT = 0.02
-TIMEFRAME_MAIN, TIMEFRAME_TREND = TimeFrameUnit.Minute, TimeFrameUnit.Day
+BUY_POWER_LIMIT = 0.05   # nostettu hieman, jotta qty ei jää nollaksi
+TIMEFRAME_MAIN = TimeFrameUnit.Minute
 
-# --- Scalping-parametrit ---
 SCALP = True
 SCALP_TIMEFRAME = TimeFrameUnit.Minute
 SCALP_LOOKBACK_MIN = 200
 SCALP_SLEEP_SECONDS = 10
 EMA_FAST_SCALP, EMA_SLOW_SCALP = 9, 20
 RSI_SCALP_PERIOD = 7
-VOL_SPIKE_MULT = 1.2
+VOL_SPIKE_MULT = 1.05   # kevennetty testiksi
 TP_PCT, SL_PCT = 0.004, 0.003
 MAX_HOLD_BARS = 15
 
@@ -42,9 +42,12 @@ stock_data_client = StockHistoricalDataClient(API_KEY, API_SECRET)
 # --- Helperit ---
 def fetch_bars(client, symbol, timeframe_unit, days=90):
     today = datetime.now(NY_TZ).date()
-    req = StockBarsRequest(symbol_or_symbols=[symbol],
-                           timeframe=TimeFrame(1, timeframe_unit),
-                           start=today - timedelta(days=days))
+    req = StockBarsRequest(
+        symbol_or_symbols=[symbol],
+        timeframe=TimeFrame(1, timeframe_unit),
+        start=today - timedelta(days=days),
+        feed=DataFeed.IEX
+    )
     df = client.get_stock_bars(req).df
     if isinstance(df.index, pd.MultiIndex):
         df = df.xs(symbol, level='symbol')
@@ -89,22 +92,21 @@ def calculate_buying_power_limit(limit):
     return float(trade_client.get_account().buying_power)*limit
 
 def get_underlying_price(symbol):
-    req = StockLatestTradeRequest(symbol_or_symbols=symbol)
+    req = StockLatestTradeRequest(symbol_or_symbols=symbol, feed=DataFeed.IEX)
     return stock_data_client.get_stock_latest_trade(req)[symbol].price
 
 # --- Main loop ---
 def main():
-    logging.basicConfig(filename="trade_log.txt", level=logging.INFO,
+    logging.basicConfig(filename="trade_log.txt", level=logging.DEBUG,
                         format="%(asctime)s %(levelname)s: %(message)s",
                         datefmt="%Y-%m-%d %H:%M:%S")
     logging.info("=== Strategy started ===")
 
-    entry_bars = {}   # tallennetaan entry-barit scalpingille
+    entry_bars = {}
 
     while True:
         for sym in symbol_array:
             if SCALP:
-                # --- Scalping ---
                 df = fetch_bars(stock_data_client, sym, SCALP_TIMEFRAME, days=2)
                 if df is None or df.empty or len(df)<SCALP_LOOKBACK_MIN: continue
                 close, vol = df['close'], df['volume']
@@ -113,7 +115,12 @@ def main():
                 vol_ok = vol.iloc[-1] > VOL_SPIKE_MULT*vol.tail(20).mean()
                 ema_cross_up = (ema_fast.iloc[-2]<=ema_slow.iloc[-2]) and (ema_fast.iloc[-1]>ema_slow.iloc[-1])
                 ema_cross_down = (ema_fast.iloc[-2]>=ema_slow.iloc[-2]) and (ema_fast.iloc[-1]<ema_slow.iloc[-1])
-                scalp_buy = ema_cross_up and (close.iloc[-1]>vwap.iloc[-1]) and vol_ok and (45<float(rsi_s.iloc[-1])<70)
+                scalp_buy = ema_cross_up and (close.iloc[-1]>vwap.iloc[-1]) and vol_ok and (40<float(rsi_s.iloc[-1])<75)
+
+                logging.debug("%s scalp chk | cross_up=%s price>vwap=%s vol_ratio=%.2f rsi=%.1f",
+                              sym, ema_cross_up, (close.iloc[-1]>vwap.iloc[-1]),
+                              vol.iloc[-1]/max(1,vol.tail(20).mean()), float(rsi_s.iloc[-1]))
+
                 qty_open, avg_entry = position_value(sym)
                 last = float(close.iloc[-1])
                 tp_hit = qty_open>0 and pct_diff(last,avg_entry)>=TP_PCT
@@ -130,6 +137,8 @@ def main():
                         limit = calculate_buying_power_limit(BUY_POWER_LIMIT)
                         mkt_price = float(get_underlying_price(sym))
                         qty = int(limit//mkt_price)
+                        if qty == 0 and limit >= mkt_price:
+                            qty = 1
                         if qty>0:
                             order = MarketOrderRequest(symbol=sym, qty=qty, side=OrderSide.BUY,
                                                        type=OrderType.MARKET, time_in_force=TimeInForce.DAY)
@@ -139,22 +148,30 @@ def main():
                     except Exception as e: logging.exception("%s - SCALP BUY error: %s", sym, str(e))
 
                 if qty_open>0 and (tp_hit or sl_hit or ema_fail or vwap_fail or hold_too_long):
+                if qty_open>0 and (tp_hit or sl_hit or ema_fail or vwap_fail or hold_too_long):
                     try:
-                        order = MarketOrderRequest(symbol=sym, qty=qty_open, side=OrderSide.SELL,
-                                                   type=OrderType.MARKET, time_in_force=TimeInForce.DAY)
+                        order = MarketOrderRequest(
+                            symbol=sym,
+                            qty=qty_open,
+                            side=OrderSide.SELL,
+                            type=OrderType.MARKET,
+                            time_in_force=TimeInForce.DAY
+                        )
                         trade_client.submit_order(order)
-                        reason = "TP" if tp_hit else "SL" if sl_hit else "EMA/VWAP fail" if (ema_fail or vwap_fail) else "MAX_HOLD"
+                        reason = (
+                            "TP" if tp_hit else
+                            "SL" if sl_hit else
+                            "EMA/VWAP fail" if (ema_fail or vwap_fail) else
+                            "MAX_HOLD"
+                        )
                         logging.info("%s - SCALP SELL %d @ market (%s)", sym, qty_open, reason)
-                        if sym in entry_bars: del entry_bars[sym]
-                    except Exception as e: logging.exception("%s - SCALP SELL error: %s", sym, str(e))
+                        if sym in entry_bars:
+                            del entry_bars[sym]
+                    except Exception as e:
+                        logging.exception("%s - SCALP SELL error: %s", sym, str(e))
+
             else:
                 # --- Trendistrategia ---
-                df = fetch_bars(stock_data_client, sym, TIMEFRAME_MAIN, days=90)
-                if df is None or df.empty: continue
-                close = df['close']
-                rsi = compute_rsi(close, RSI_PERIOD)
-                macd_line, signal_line = compute_macd(close, MACD_FAST, MACD_SLOW, MACD_SIGNAL)
-                               # --- Trendistrategia ---
                 df = fetch_bars(stock_data_client, sym, TIMEFRAME_MAIN, days=90)
                 if df is None or df.empty:
                     continue
@@ -162,12 +179,13 @@ def main():
                 close = df['close']
                 rsi = compute_rsi(close, RSI_PERIOD)
                 macd_line, signal_line = compute_macd(close, MACD_FAST, MACD_SLOW, MACD_SIGNAL)
-                ema50, ema100, ema200 = compute_ema(close, MA_FAST), compute_ema(close, MA_MID), compute_ema(close, MA_SLOW)
+                ema50, ema100, ema200 = (
+                    compute_ema(close, MA_FAST),
+                    compute_ema(close, MA_MID),
+                    compute_ema(close, MA_SLOW)
+                )
 
-                # Trendisuodatin: nouseva trendi jos EMA50>EMA100>EMA200
                 uptrend = ema50.iloc[-1] > ema100.iloc[-1] > ema200.iloc[-1]
-
-                # Signaalit
                 rsi_now = float(rsi.iloc[-1]) if pd.notna(rsi.iloc[-1]) else 50
                 macd_cross_up = (macd_line.iloc[-2] <= signal_line.iloc[-2]) and (macd_line.iloc[-1] > signal_line.iloc[-1])
                 macd_cross_down = (macd_line.iloc[-2] >= signal_line.iloc[-2]) and (macd_line.iloc[-1] < signal_line.iloc[-1])
@@ -183,9 +201,16 @@ def main():
                         limit = calculate_buying_power_limit(BUY_POWER_LIMIT)
                         mkt_price = float(get_underlying_price(sym))
                         qty = int(limit // mkt_price)
+                        if qty == 0 and limit >= mkt_price:
+                            qty = 1
                         if qty > 0:
-                            order = MarketOrderRequest(symbol=sym, qty=qty, side=OrderSide.BUY,
-                                                       type=OrderType.MARKET, time_in_force=TimeInForce.DAY)
+                            order = MarketOrderRequest(
+                                symbol=sym,
+                                qty=qty,
+                                side=OrderSide.BUY,
+                                type=OrderType.MARKET,
+                                time_in_force=TimeInForce.DAY
+                            )
                             trade_client.submit_order(order)
                             logging.info("%s - TREND BUY %d @ %.2f", sym, qty, mkt_price)
                     except Exception as e:
@@ -193,8 +218,13 @@ def main():
 
                 if qty_open > 0 and sell_signal:
                     try:
-                        order = MarketOrderRequest(symbol=sym, qty=qty_open, side=OrderSide.SELL,
-                                                   type=OrderType.MARKET, time_in_force=TimeInForce.DAY)
+                        order = MarketOrderRequest(
+                            symbol=sym,
+                            qty=qty_open,
+                            side=OrderSide.SELL,
+                            type=OrderType.MARKET,
+                            time_in_force=TimeInForce.DAY
+                        )
                         trade_client.submit_order(order)
                         logging.info("%s - TREND SELL %d @ market", sym, qty_open)
                     except Exception as e:
@@ -203,6 +233,6 @@ def main():
         # odota seuraavaa kierrosta
         time.sleep(SCALP_SLEEP_SECONDS if SCALP else 60)
 
+
 if __name__ == "__main__":
     main()
- 
