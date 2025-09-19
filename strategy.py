@@ -117,13 +117,19 @@ def main():
                 vwap = compute_vwap(df)
                 rsi_s = compute_rsi(close, RSI_PERIOD)
 
+                # Jos RSI ei ole vielä laskettavissa, ohitetaan
+                if pd.isna(rsi_s.iloc[-1]):
+                    continue
+
                 # EMA9/EMA20 logiikka
                 ema_cross_up = (ema_fast.iloc[-2] <= ema_slow.iloc[-2]) and (ema_fast.iloc[-1] > ema_slow.iloc[-1])
                 ema_cross_down = (ema_fast.iloc[-2] >= ema_slow.iloc[-2]) and (ema_fast.iloc[-1] < ema_slow.iloc[-1])
-                ema_trend_up = ema_fast.iloc[-1] > ema_slow.iloc[-1]   # uusi: hyväksy myös jatkuva trendi
+                ema_trend_up = ema_fast.iloc[-1] > ema_slow.iloc[-1]   # hyväksy myös jatkuva trendi
 
                 # Volyymiehto
                 avg20 = vol.rolling(20).mean()
+                if pd.isna(avg20.iloc[-1]):
+                    continue
                 vol_ok = vol.iloc[-1] > avg20.iloc[-1] * VOL_SPIKE_MULT
 
                 # Scalping BUY-signaali
@@ -200,4 +206,3 @@ def main():
 
 if __name__ == "__main__":
     main()
-
