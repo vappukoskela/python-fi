@@ -124,7 +124,7 @@ def main():
                 # EMA9/EMA20 logiikka
                 ema_cross_up = (ema_fast.iloc[-2] <= ema_slow.iloc[-2]) and (ema_fast.iloc[-1] > ema_slow.iloc[-1])
                 ema_cross_down = (ema_fast.iloc[-2] >= ema_slow.iloc[-2]) and (ema_fast.iloc[-1] < ema_slow.iloc[-1])
-                ema_trend_up = ema_fast.iloc[-1] > ema_slow.iloc[-1]   # hyväksy myös jatkuva trendi
+                ema_trend_up = ema_fast.iloc[-1] > ema_slow.iloc[-1]  # hyväksy myös jatkuva trendi
 
                 # Volyymiehto
                 avg20 = vol.rolling(20).mean()
