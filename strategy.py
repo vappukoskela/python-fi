@@ -11,7 +11,6 @@ from dotenv import load_dotenv
 from alpaca.data.historical.stock import StockHistoricalDataClient, StockLatestTradeRequest
 from alpaca.data.requests import StockBarsRequest
 from alpaca.data.timeframe import TimeFrame, TimeFrameUnit
-from alpaca.data.models import DataFeed
 from alpaca.trading.client import TradingClient
 from alpaca.trading.enums import OrderSide, OrderType, TimeInForce
 from alpaca.trading.requests import MarketOrderRequest
@@ -51,7 +50,7 @@ def fetch_bars(client, symbol, timeframe_unit, days=90):
         symbol_or_symbols=[symbol],
         timeframe=TimeFrame(1, timeframe_unit),
         start=today - timedelta(days=days),
-        feed=DataFeed.IEX
+        feed="iex"
     )
     df = client.get_stock_bars(req).df
     if isinstance(df.index, pd.MultiIndex):
@@ -97,7 +96,7 @@ def calculate_buying_power_limit(limit):
     return float(trade_client.get_account().buying_power)*limit
 
 def get_underlying_price(symbol):
-    req = StockLatestTradeRequest(symbol_or_symbols=symbol, feed=DataFeed.IEX)
+    req = StockLatestTradeRequest(symbol_or_symbols=symbol, feed="iex")
     return stock_data_client.get_stock_latest_trade(req)[symbol].price
 
 # --- Main loop ---
