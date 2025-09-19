@@ -153,7 +153,7 @@ def main():
                 if df is None or df.empty: continue
                 close = df['close']
                 rsi = compute_rsi(close, RSI_PERIOD)
-                macd_line, signal_line = compute_macd(close, MACD_FAST, MAC
+                macd_line, signal_line = compute_macd(close, MACD_FAST, MACD_SLOW, MACD_SIGNAL)
                                # --- Trendistrategia ---
                 df = fetch_bars(stock_data_client, sym, TIMEFRAME_MAIN, days=90)
                 if df is None or df.empty:
