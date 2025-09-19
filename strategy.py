@@ -98,7 +98,7 @@ def main():
         os.getenv("ALPACA_PAPER_API_KEY"), os.getenv("ALPACA_PAPER_SECRET_KEY"), paper=True
     )
 
-    symbols = ["AAPL", "MSFT", "PLTR"]
+    symbols = ["AAPL", "MSFT", "MU", "QCOM", "NVDA", "V", "AMD", "GOOG", "C", "EBAY", "OKTA", "TSLA", "AMZN", "ADSK", "DELL"]
     entry_bars = {}
 
     while True:
