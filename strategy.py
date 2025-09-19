@@ -157,8 +157,7 @@ def main():
                         order = MarketOrderRequest(symbol=sym, qty=qty_open, side=OrderSide.SELL,
                                                    type=OrderType.MARKET, time_in_force=TimeInForce.DAY)
                         trade_client.submit_order(order)
-                        reason = "TP" if tp_hit else "SL" if sl_hit else "EMA/VWAP fail" if (ema_fail or vwap_fail) else
-                                                reason = "TP" if tp_hit else "SL" if sl_hit else "EMA/VWAP fail" if (ema_fail or vwap_fail) else "MAX_HOLD"
+                        reason = "TP" if tp_hit else "SL" if sl_hit else "EMA/VWAP fail" if (ema_fail or vwap_fail) else "MAX_HOLD"                      
                         logging.info("%s - SCALP SELL %d @ market (%s)", sym, qty_open, reason)
                         if sym in entry_bars:
                             del entry_bars[sym]
