@@ -2,7 +2,6 @@ import logging
 import os
 import time
 from datetime import datetime, timedelta, timezone
-from zoneinfo import ZoneInfo
 import numpy as np
 import pandas as pd
 from dotenv import load_dotenv
@@ -57,8 +56,8 @@ def fetch_bars(client, symbol, timeframe, days=1):
             symbol_or_symbols=symbol,
             timeframe=timeframe,
             start=start,
-            end=end,
-            feed=DataFeed.IEX
+            end=end
+            # feed-parametri poistettu
         )
         bars = client.get_stock_bars(req).df
         if symbol in bars.index.levels[0]:
@@ -117,22 +116,18 @@ def main():
                 vwap = compute_vwap(df)
                 rsi_s = compute_rsi(close, RSI_PERIOD)
 
-                # Jos RSI ei ole vielä laskettavissa, ohitetaan
                 if pd.isna(rsi_s.iloc[-1]):
                     continue
 
-                # EMA9/EMA20 logiikka
                 ema_cross_up = (ema_fast.iloc[-2] <= ema_slow.iloc[-2]) and (ema_fast.iloc[-1] > ema_slow.iloc[-1])
                 ema_cross_down = (ema_fast.iloc[-2] >= ema_slow.iloc[-2]) and (ema_fast.iloc[-1] < ema_slow.iloc[-1])
-                ema_trend_up = ema_fast.iloc[-1] > ema_slow.iloc[-1]  # hyväksy myös jatkuva trendi
+                ema_trend_up = ema_fast.iloc[-1] > ema_slow.iloc[-1]
 
-                # Volyymiehto
                 avg20 = vol.rolling(20).mean()
                 if pd.isna(avg20.iloc[-1]):
                     continue
                 vol_ok = vol.iloc[-1] > avg20.iloc[-1] * VOL_SPIKE_MULT
 
-                # Scalping BUY-signaali
                 scalp_buy = (ema_cross_up or ema_trend_up) \
                             and (close.iloc[-1] > vwap.iloc[-1]) \
                             and vol_ok \
@@ -148,7 +143,6 @@ def main():
                     ema_cross_up, ema_cross_down, ema_trend_up, scalp_buy, qty_open
                 )
 
-                # BUY
                 if scalp_buy and qty_open == 0:
                     try:
                         limit = calculate_buying_power_limit(BUY_POWER_LIMIT)
@@ -170,7 +164,6 @@ def main():
                     except Exception as e:
                         logging.exception("%s - SCALP BUY error: %s", sym, str(e))
 
-                # SELL (ei muutettu)
                 if qty_open > 0:
                     try:
                         last = float(close.iloc[-1])
@@ -198,7 +191,6 @@ def main():
 
             else:
                 # --- Trendistrategia ---
-                # (tämä osa jätetty ennalleen)
                 pass
 
         time.sleep(SCALP_SLEEP_SECONDS if SCALP else 60)
