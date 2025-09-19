@@ -18,7 +18,7 @@ symbol_array = ['NVDA','AAPL','MSFT','GOOGL','AMZN','MU','QCOM','V','AMD','C','P
 RSI_PERIOD = 14
 MACD_FAST, MACD_SLOW, MACD_SIGNAL = 6, 13, 5
 MA_FAST, MA_MID, MA_SLOW = 50, 100, 200
-BUY_POWER_LIMIT = 0.05   # nostettu hieman, jotta qty ei jää nollaksi
+BUY_POWER_LIMIT = 0.05
 TIMEFRAME_MAIN = TimeFrameUnit.Minute
 
 SCALP = True
@@ -27,7 +27,7 @@ SCALP_LOOKBACK_MIN = 200
 SCALP_SLEEP_SECONDS = 10
 EMA_FAST_SCALP, EMA_SLOW_SCALP = 9, 20
 RSI_SCALP_PERIOD = 7
-VOL_SPIKE_MULT = 1.05   # kevennetty testiksi
+VOL_SPIKE_MULT = 1.05
 TP_PCT, SL_PCT = 0.004, 0.003
 MAX_HOLD_BARS = 15
 
@@ -107,6 +107,7 @@ def main():
     while True:
         for sym in symbol_array:
             if SCALP:
+                # --- Scalping ---
                 df = fetch_bars(stock_data_client, sym, SCALP_TIMEFRAME, days=2)
                 if df is None or df.empty or len(df)<SCALP_LOOKBACK_MIN: continue
                 close, vol = df['close'], df['volume']
@@ -117,9 +118,13 @@ def main():
                 ema_cross_down = (ema_fast.iloc[-2]>=ema_slow.iloc[-2]) and (ema_fast.iloc[-1]<ema_slow.iloc[-1])
                 scalp_buy = ema_cross_up and (close.iloc[-1]>vwap.iloc[-1]) and vol_ok and (40<float(rsi_s.iloc[-1])<75)
 
-                logging.debug("%s scalp chk | cross_up=%s price>vwap=%s vol_ratio=%.2f rsi=%.1f",
-                              sym, ema_cross_up, (close.iloc[-1]>vwap.iloc[-1]),
-                              vol.iloc[-1]/max(1,vol.tail(20).mean()), float(rsi_s.iloc[-1]))
+                logging.debug(
+                    "%s scalp chk | close=%.2f ema9=%.2f ema20=%.2f vwap=%.2f rsi=%.1f vol=%.0f avg20=%.0f "
+                    "cross_up=%s cross_down=%s scalp_buy=%s qty_open=%d",
+                    sym, close.iloc[-1], ema_fast.iloc[-1], ema_slow.iloc[-1], vwap.iloc[-1],
+                    float(rsi_s.iloc[-1]), vol.iloc[-1], vol.tail(20).mean(),
+                    ema_cross_up, ema_cross_down, scalp_buy, position_value(sym)[0]
+                )
 
                 qty_open, avg_entry = position_value(sym)
                 last = float(close.iloc[-1])
@@ -148,22 +153,12 @@ def main():
                     except Exception as e: logging.exception("%s - SCALP BUY error: %s", sym, str(e))
 
                 if qty_open>0 and (tp_hit or sl_hit or ema_fail or vwap_fail or hold_too_long):
-                if qty_open>0 and (tp_hit or sl_hit or ema_fail or vwap_fail or hold_too_long):
                     try:
-                        order = MarketOrderRequest(
-                            symbol=sym,
-                            qty=qty_open,
-                            side=OrderSide.SELL,
-                            type=OrderType.MARKET,
-                            time_in_force=TimeInForce.DAY
-                        )
+                        order = MarketOrderRequest(symbol=sym, qty=qty_open, side=OrderSide.SELL,
+                                                   type=OrderType.MARKET, time_in_force=TimeInForce.DAY)
                         trade_client.submit_order(order)
-                        reason = (
-                            "TP" if tp_hit else
-                            "SL" if sl_hit else
-                            "EMA/VWAP fail" if (ema_fail or vwap_fail) else
-                            "MAX_HOLD"
-                        )
+                        reason = "TP" if tp_hit else "SL" if sl_hit else "EMA/VWAP fail" if (ema_fail or vwap_fail) else
+                                                reason = "TP" if tp_hit else "SL" if sl_hit else "EMA/VWAP fail" if (ema_fail or vwap_fail) else "MAX_HOLD"
                         logging.info("%s - SCALP SELL %d @ market (%s)", sym, qty_open, reason)
                         if sym in entry_bars:
                             del entry_bars[sym]
@@ -195,6 +190,14 @@ def main():
 
                 qty_open, avg_entry = position_value(sym)
                 last = float(close.iloc[-1])
+
+                logging.debug(
+                    "%s trend chk | close=%.2f ema50=%.2f ema100=%.2f ema200=%.2f rsi=%.1f macd=%.3f sig=%.3f "
+                    "uptrend=%s macd_up=%s macd_down=%s buy=%s sell=%s qty_open=%d",
+                    sym, last, ema50.iloc[-1], ema100.iloc[-1], ema200.iloc[-1],
+                    rsi_now, macd_line.iloc[-1], signal_line.iloc[-1],
+                    uptrend, macd_cross_up, macd_cross_down, buy_signal, sell_signal, qty_open
+                )
 
                 if buy_signal and qty_open == 0:
                     try:
