@@ -23,7 +23,7 @@ RSI_PERIOD = 7
 VOL_SPIKE_MULT = 1.05
 TP_PCT = 0.003
 SL_PCT = 0.002
-MAX_HOLD_BARS = 10   # now interpreted as minutes
+MAX_HOLD_BARS = 10   # interpreted as minutes
 SCALP_SLEEP_SECONDS = 10
 BUY_POWER_LIMIT = 0.05
 
@@ -178,7 +178,7 @@ def main():
                         ema_fail = (ema_fast.iloc[-3:].mean() < ema_slow.iloc[-3:].mean())
                         vwap_fail = (close.iloc[-3:].mean() < vwap.iloc[-3:].mean())
 
-                        # NEW: time-based max hold
+                        # time-based max hold
                         elapsed_minutes = (df.index[-1] - entry_times.get(sym, df.index[-1])).total_seconds() / 60
                         max_hold = elapsed_minutes >= MAX_HOLD_BARS
 
@@ -199,9 +199,19 @@ def main():
                                 time_in_force=TimeInForce.DAY
                             )
                             trade_client.submit_order(order)
-                            logging.info("%s - SCALP SELL %d @ market (%s)", sym, qty_open, reason)
+
+                            # --- NEW: P/L logging ---
+                            pl_per_share = last - avg_entry
+                            pl_total = pl_per_share * qty_open
+                            logging.info(
+                                "%s - SCALP SELL %d @ %.2f (%s) | Entry=%.2f Exit=%.2f P/L per share=%.4f Total P/L=%.2f",
+                                sym, qty_open, last, reason, avg_entry, last, pl_per_share, pl_total
+                            )
+
                             if sym in entry_times:
                                 del entry_times[sym]
+                    except Exception as e:
+                        logging.exception("%s - SCALP SELL error: %s", sym, str(e))
                     except Exception as e:
                         logging.exception("%s - SCALP SELL error: %s", sym, str(e))
 
@@ -209,9 +219,9 @@ def main():
                 # --- Trendistrategia ---
                 pass
 
+        # wait before next loop
         time.sleep(SCALP_SLEEP_SECONDS if SCALP else 60)
 
 
 if __name__ == "__main__":
     main()
-
