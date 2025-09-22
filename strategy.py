@@ -57,8 +57,7 @@ def fetch_bars(client, symbol, timeframe, days=1):
             timeframe=timeframe,
             start=start,
             end=end,
-            feed="iex"
-            # feed-parametri poistettu
+            feed="iex"  # feed-parametri poistettu, käytetään oletusta
         )
         bars = client.get_stock_bars(req).df
         if symbol in bars.index.levels[0]:
@@ -92,10 +91,13 @@ def main():
 
     global stock_data_client, trade_client
     stock_data_client = StockHistoricalDataClient(
-        os.getenv("ALPACA_PAPER_API_KEY"), os.getenv("ALPACA_PAPER_SECRET_KEY")
+        os.getenv("ALPACA_PAPER_API_KEY"),
+        os.getenv("ALPACA_PAPER_SECRET_KEY")
     )
     trade_client = TradingClient(
-        os.getenv("ALPACA_PAPER_API_KEY"), os.getenv("ALPACA_PAPER_SECRET_KEY"), paper=True
+        os.getenv("ALPACA_PAPER_API_KEY"),
+        os.getenv("ALPACA_PAPER_SECRET_KEY"),
+        paper=True
     )
 
     symbols = ["AAPL", "MSFT", "MU", "QCOM", "NVDA", "V", "AMD", "GOOG", "C", "EBAY", "OKTA", "TSLA", "AMZN", "ADSK", "DELL"]
@@ -165,16 +167,28 @@ def main():
                     except Exception as e:
                         logging.exception("%s - SCALP BUY error: %s", sym, str(e))
 
+                # --- NEW SELL BLOCK ---
                 if qty_open > 0:
                     try:
                         last = float(close.iloc[-1])
                         tp_hit = last >= avg_entry * (1 + TP_PCT)
                         sl_hit = last <= avg_entry * (1 - SL_PCT)
-                        ema_fail = ema_cross_down
-                        vwap_fail = last < vwap.iloc[-1]
+
+                        # Confirmation: use last 3 bars for EMA/VWAP
+                        ema_fail = (ema_fast.iloc[-3:].mean() < ema_slow.iloc[-3:].mean())
+                        vwap_fail = (close.iloc[-3:].mean() < vwap.iloc[-3:].mean())
+
                         max_hold = (len(close) - entry_bars.get(sym, len(close))) >= MAX_HOLD_BARS
 
-                        if tp_hit or sl_hit or ema_fail or vwap_fail or max_hold:
+                        reason = None
+                        if tp_hit or sl_hit:
+                            reason = "TP" if tp_hit else "SL"
+                        elif ema_fail or vwap_fail:
+                            reason = "EMA/VWAP fail"
+                        elif max_hold:
+                            reason = "MAX_HOLD"
+
+                        if reason:
                             order = MarketOrderRequest(
                                 symbol=sym,
                                 qty=qty_open,
@@ -183,7 +197,6 @@ def main():
                                 time_in_force=TimeInForce.DAY
                             )
                             trade_client.submit_order(order)
-                            reason = "TP" if tp_hit else "SL" if sl_hit else "EMA/VWAP fail" if (ema_fail or vwap_fail) else "MAX_HOLD"
                             logging.info("%s - SCALP SELL %d @ market (%s)", sym, qty_open, reason)
                             if sym in entry_bars:
                                 del entry_bars[sym]
