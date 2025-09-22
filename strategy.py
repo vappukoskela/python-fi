@@ -23,7 +23,7 @@ RSI_PERIOD = 7
 VOL_SPIKE_MULT = 1.05
 TP_PCT = 0.003
 SL_PCT = 0.002
-MAX_HOLD_BARS = 10
+MAX_HOLD_BARS = 10   # now interpreted as minutes
 SCALP_SLEEP_SECONDS = 10
 BUY_POWER_LIMIT = 0.05
 
@@ -57,7 +57,7 @@ def fetch_bars(client, symbol, timeframe, days=1):
             timeframe=timeframe,
             start=start,
             end=end,
-            feed="iex"  # feed-parametri poistettu, käytetään oletusta
+            feed="iex"
         )
         bars = client.get_stock_bars(req).df
         if symbol in bars.index.levels[0]:
@@ -101,7 +101,7 @@ def main():
     )
 
     symbols = ["AAPL", "MSFT", "MU", "QCOM", "NVDA", "V", "AMD", "GOOG", "C", "EBAY", "OKTA", "TSLA", "AMZN", "ADSK", "DELL"]
-    entry_bars = {}
+    entry_times = {}   # store entry timestamps instead of bar counts
 
     while True:
         for sym in symbols:
@@ -162,12 +162,12 @@ def main():
                                 time_in_force=TimeInForce.DAY
                             )
                             trade_client.submit_order(order)
-                            entry_bars[sym] = len(close)
+                            entry_times[sym] = df.index[-1]   # store timestamp
                             logging.info("%s - SCALP BUY %d @ %.2f", sym, qty, mkt_price)
                     except Exception as e:
                         logging.exception("%s - SCALP BUY error: %s", sym, str(e))
 
-                # --- NEW SELL BLOCK ---
+                # --- SELL BLOCK ---
                 if qty_open > 0:
                     try:
                         last = float(close.iloc[-1])
@@ -178,7 +178,9 @@ def main():
                         ema_fail = (ema_fast.iloc[-3:].mean() < ema_slow.iloc[-3:].mean())
                         vwap_fail = (close.iloc[-3:].mean() < vwap.iloc[-3:].mean())
 
-                        max_hold = (len(close) - entry_bars.get(sym, len(close))) >= MAX_HOLD_BARS
+                        # NEW: time-based max hold
+                        elapsed_minutes = (df.index[-1] - entry_times.get(sym, df.index[-1])).total_seconds() / 60
+                        max_hold = elapsed_minutes >= MAX_HOLD_BARS
 
                         reason = None
                         if tp_hit or sl_hit:
@@ -198,8 +200,8 @@ def main():
                             )
                             trade_client.submit_order(order)
                             logging.info("%s - SCALP SELL %d @ market (%s)", sym, qty_open, reason)
-                            if sym in entry_bars:
-                                del entry_bars[sym]
+                            if sym in entry_times:
+                                del entry_times[sym]
                     except Exception as e:
                         logging.exception("%s - SCALP SELL error: %s", sym, str(e))
 
@@ -212,3 +214,4 @@ def main():
 
 if __name__ == "__main__":
     main()
+
