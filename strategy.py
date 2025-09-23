@@ -21,8 +21,8 @@ EMA_FAST = 9
 EMA_SLOW = 20
 RSI_PERIOD = 7
 VOL_SPIKE_MULT = 1.05
-TP_PCT = 0.003
-SL_PCT = 0.002
+TP_PCT = 0.006   # widened to 0.6%
+SL_PCT = 0.003   # widened to 0.3%
 MAX_HOLD_BARS = 10   # interpreted as minutes
 SCALP_SLEEP_SECONDS = 10
 BUY_POWER_LIMIT = 0.05
@@ -47,6 +47,14 @@ def compute_macd(series, fast=12, slow=26, signal=9):
 
 def compute_vwap(df):
     return (df['close'] * df['volume']).cumsum() / df['volume'].cumsum()
+
+def compute_atr(df, period=14):
+    high_low = df['high'] - df['low']
+    high_close = (df['high'] - df['close'].shift()).abs()
+    low_close = (df['low'] - df['close'].shift()).abs()
+    ranges = pd.concat([high_low, high_close, low_close], axis=1)
+    true_range = ranges.max(axis=1)
+    return true_range.rolling(period).mean()
 
 def fetch_bars(client, symbol, timeframe, days=1):
     try:
@@ -101,12 +109,11 @@ def main():
     )
 
     symbols = ["AAPL", "MSFT", "MU", "QCOM", "NVDA", "V", "AMD", "GOOG", "C", "EBAY", "OKTA", "TSLA", "AMZN", "ADSK", "DELL"]
-    entry_times = {}   # store entry timestamps instead of bar counts
+    entry_times = {}
 
     while True:
         for sym in symbols:
             if SCALP:
-                # --- Scalping-strategia ---
                 df = fetch_bars(stock_data_client, sym, TIMEFRAME_SCALP, days=1)
                 if df is None or df.empty:
                     continue
@@ -118,12 +125,12 @@ def main():
                 ema_slow = compute_ema(close, EMA_SLOW)
                 vwap = compute_vwap(df)
                 rsi_s = compute_rsi(close, RSI_PERIOD)
+                atr = compute_atr(df)
 
                 if pd.isna(rsi_s.iloc[-1]):
                     continue
 
                 ema_cross_up = (ema_fast.iloc[-2] <= ema_slow.iloc[-2]) and (ema_fast.iloc[-1] > ema_slow.iloc[-1])
-                ema_cross_down = (ema_fast.iloc[-2] >= ema_slow.iloc[-2]) and (ema_fast.iloc[-1] < ema_slow.iloc[-1])
                 ema_trend_up = ema_fast.iloc[-1] > ema_slow.iloc[-1]
 
                 avg20 = vol.rolling(20).mean()
@@ -134,25 +141,15 @@ def main():
                 scalp_buy = (ema_cross_up or ema_trend_up) \
                             and (close.iloc[-1] > vwap.iloc[-1]) \
                             and vol_ok \
-                            and (40 < float(rsi_s.iloc[-1]) < 75)
+                            and (45 < float(rsi_s.iloc[-1]) < 65)
 
                 qty_open, avg_entry = position_value(sym)
-
-                logging.debug(
-                    "%s scalp chk | close=%.2f ema9=%.2f ema20=%.2f vwap=%.2f rsi=%.1f vol=%d avg20=%d "
-                    "cross_up=%s cross_down=%s trend_up=%s scalp_buy=%s qty_open=%d",
-                    sym, close.iloc[-1], ema_fast.iloc[-1], ema_slow.iloc[-1], vwap.iloc[-1],
-                    float(rsi_s.iloc[-1]), vol.iloc[-1], avg20.iloc[-1],
-                    ema_cross_up, ema_cross_down, ema_trend_up, scalp_buy, qty_open
-                )
 
                 if scalp_buy and qty_open == 0:
                     try:
                         limit = calculate_buying_power_limit(BUY_POWER_LIMIT)
                         mkt_price = float(get_underlying_price(sym))
                         qty = int(limit // mkt_price)
-                        if qty == 0 and limit >= mkt_price:
-                            qty = 1
                         if qty > 0:
                             order = MarketOrderRequest(
                                 symbol=sym,
@@ -162,7 +159,7 @@ def main():
                                 time_in_force=TimeInForce.DAY
                             )
                             trade_client.submit_order(order)
-                            entry_times[sym] = df.index[-1]   # store timestamp
+                            entry_times[sym] = df.index[-1]
                             logging.info("%s - SCALP BUY %d @ %.2f", sym, qty, mkt_price)
                     except Exception as e:
                         logging.exception("%s - SCALP BUY error: %s", sym, str(e))
@@ -174,13 +171,19 @@ def main():
                         tp_hit = last >= avg_entry * (1 + TP_PCT)
                         sl_hit = last <= avg_entry * (1 - SL_PCT)
 
-                        # Confirmation: use last 3 bars for EMA/VWAP
-                        ema_fail = (ema_fast.iloc[-3:].mean() < ema_slow.iloc[-3:].mean())
-                        vwap_fail = (close.iloc[-3:].mean() < vwap.iloc[-3:].mean())
+                        # Confirmation: require 3 consecutive closes below VWAP
+                        vwap_fail = all(close.iloc[-i] < vwap.iloc[-i] for i in range(1, 4))
+                        # EMA fail: fast EMA consistently below slow EMA
+                        ema_fail = all(ema_fast.iloc[-i] < ema_slow.iloc[-i] for i in range(1, 4))
 
-                        # time-based max hold
+                        # Dynamic max hold
                         elapsed_minutes = (df.index[-1] - entry_times.get(sym, df.index[-1])).total_seconds() / 60
-                        max_hold = elapsed_minutes >= MAX_HOLD_BARS
+                        max_hold = False
+                        if elapsed_minutes >= MAX_HOLD_BARS:
+                            move = abs(last - avg_entry)
+                            atr_val = atr.iloc[-1]
+                            if move < 0.5 * atr_val:
+                                max_hold = True
 
                         reason = None
                         if tp_hit or sl_hit:
@@ -188,7 +191,7 @@ def main():
                         elif ema_fail or vwap_fail:
                             reason = "EMA/VWAP fail"
                         elif max_hold:
-                            reason = "MAX_HOLD"
+                            reason = "DYNAMIC_MAX_HOLD"
 
                         if reason:
                             order = MarketOrderRequest(
@@ -200,7 +203,6 @@ def main():
                             )
                             trade_client.submit_order(order)
 
-                            # --- NEW: P/L logging ---
                             pl_per_share = last - avg_entry
                             pl_total = pl_per_share * qty_open
                             logging.info(
@@ -211,7 +213,6 @@ def main():
                             if sym in entry_times:
                                 del entry_times[sym]
                     except Exception as e:
-                        logging.exception("%s - SCALP SELL error: %s", sym, str(e))
                     except Exception as e:
                         logging.exception("%s - SCALP SELL error: %s", sym, str(e))
 
