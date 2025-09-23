@@ -21,8 +21,8 @@ TIMEFRAME_SCALP = TimeFrame(1, TimeFrameUnit.Minute)
 EMA_FAST = 9
 EMA_SLOW = 20
 RSI_PERIOD = 7
-VOL_SPIKE_MULT = 1.05
-MAX_HOLD_BARS = 10   # minutes
+VOL_SPIKE_MULT = 1.2   # stricter volume requirement
+MAX_HOLD_BARS = 10     # minutes
 SCALP_SLEEP_SECONDS = 10
 BUY_POWER_LIMIT = 0.05
 
@@ -163,19 +163,23 @@ def main():
                 if pd.isna(rsi_s.iloc[-1]) or len(df) < 3:
                     continue
 
-                ema_cross_up = (ema_fast.iloc[-2] <= ema_slow.iloc[-2]) and (ema_fast.iloc[-1] > ema_slow.iloc[-1])
-                ema_trend_up = ema_fast.iloc[-1] > ema_slow.iloc[-1]
-
                 avg20 = vol.rolling(20).mean()
                 if pd.isna(avg20.iloc[-1]):
                     continue
-                vol_ok = vol.iloc[-1] > avg20.iloc[-1] * VOL_SPIKE_MULT
-
-                scalp_buy = (ema_cross_up or ema_trend_up) and (close.iloc[-1] > vwap.iloc[-1]) and vol_ok and (45 < float(rsi_s.iloc[-1]) < 65)
 
                 qty_open, avg_entry = position_value(sym)
 
-                # --- BUY ---
+                # --- BUY (stricter conditions) ---
+                ema_confirm = (
+                    ema_fast.iloc[-1] > ema_slow.iloc[-1] and
+                    ema_fast.iloc[-2] > ema_slow.iloc[-2]
+                )
+                vwap_ok = close.iloc[-1] > vwap.iloc[-1] * 1.001
+                rsi_ok = 50 < rsi_s.iloc[-1] < 70
+                vol_ok = vol.iloc[-1] > avg20.iloc[-1] * VOL_SPIKE_MULT
+
+                scalp_buy = ema_confirm and vwap_ok and rsi_ok and vol_ok
+
                 if scalp_buy and qty_open == 0:
                     try:
                         limit = calculate_buying_power_limit(BUY_POWER_LIMIT)
@@ -197,7 +201,7 @@ def main():
                     except Exception as e:
                         logging.exception("%s - SCALP BUY error: %s", sym, str(e))
 
-                # --- SELL ---
+                # --- SELL (unchanged, with trailing stop & persistence) ---
                 if qty_open > 0:
                     try:
                         last = float(close.iloc[-1])
@@ -216,7 +220,8 @@ def main():
                         ema_fail = all(ema_fast.iloc[-i] < ema_slow.iloc[-i] for i in range(1, 3))
 
                         elapsed_minutes = (df.index[-1] - entry_times.get(sym, df.index[-1])).total_seconds() / 60
-                        # --- Dynamic max hold (only in normal mode) ---
+
+                       # --- Dynamic max hold (only in normal mode) ---
                         max_hold = False
                         if not FAST_SCALP_MODE and elapsed_minutes >= MAX_HOLD_BARS:
                             atr_val = atr.iloc[-1]
@@ -224,6 +229,8 @@ def main():
                                 move = abs(last - avg_entry)
                                 if move < 0.5 * atr_val:
                                     max_hold = True
+                            else:
+                                logging.debug("%s - ATR not available, skipping max-hold check", sym)
 
                         # --- Decide exit reason ---
                         reason = None
