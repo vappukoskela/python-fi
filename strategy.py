@@ -219,9 +219,9 @@ def main():
                     except Exception as e:
                         logging.exception("%s - SCALP SELL error: %s", sym, str(e))
 
-                     else:
+                #     else:
                 # --- Trendistrategia ---
-                pass
+                #  pass
 
         # wait before next loop
         time.sleep(SCALP_SLEEP_SECONDS if SCALP else 60)
