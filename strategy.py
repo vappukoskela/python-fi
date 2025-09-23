@@ -13,7 +13,7 @@ from alpaca.trading.client import TradingClient
 from alpaca.trading.enums import OrderSide, OrderType, TimeInForce
 from alpaca.trading.requests import MarketOrderRequest
 
-# --- asetukset ---
+# --- settings ---
 SCALP = True
 TIMEFRAME_SCALP = TimeFrame(1, TimeFrameUnit.Minute)
 TIMEFRAME_MAIN = TimeFrame(5, TimeFrameUnit.Minute)
@@ -23,11 +23,11 @@ RSI_PERIOD = 7
 VOL_SPIKE_MULT = 1.05
 TP_PCT = 0.006   # widened to 0.6%
 SL_PCT = 0.003   # widened to 0.3%
-MAX_HOLD_BARS = 10   # interpreted as minutes
+MAX_HOLD_BARS = 10   # minutes
 SCALP_SLEEP_SECONDS = 10
 BUY_POWER_LIMIT = 0.05
 
-# --- apufunktiot ---
+# --- helper functions ---
 def compute_ema(series, period):
     return series.ewm(span=period, adjust=False).mean()
 
@@ -91,7 +91,7 @@ def position_value(symbol):
     except:
         return 0, 0.0
 
-# --- pääohjelma ---
+# --- main loop ---
 def main():
     load_dotenv()
     logging.basicConfig(filename="trade_log.txt", level=logging.DEBUG,
@@ -180,10 +180,11 @@ def main():
                         elapsed_minutes = (df.index[-1] - entry_times.get(sym, df.index[-1])).total_seconds() / 60
                         max_hold = False
                         if elapsed_minutes >= MAX_HOLD_BARS:
-                            move = abs(last - avg_entry)
                             atr_val = atr.iloc[-1]
-                            if move < 0.5 * atr_val:
-                                max_hold = True
+                            if not pd.isna(atr_val):
+                                move = abs(last - avg_entry)
+                                if move < 0.5 * atr_val:
+                                    max_hold = True
 
                         reason = None
                         if tp_hit or sl_hit:
@@ -203,20 +204,22 @@ def main():
                             )
                             trade_client.submit_order(order)
 
+                            # P/L logging
                             pl_per_share = last - avg_entry
                             pl_total = pl_per_share * qty_open
                             logging.info(
-                                "%s - SCALP SELL %d @ %.2f (%s) | Entry=%.2f Exit=%.2f P/L per share=%.4f Total P/L=%.2f",
+                                "%s - SCALP SELL %d @ %.2f (%s) | Entry=%.2f Exit=%.2f "
+                                "P/L per share=%.4f Total P/L=%.2f",
                                 sym, qty_open, last, reason, avg_entry, last, pl_per_share, pl_total
                             )
 
                             if sym in entry_times:
                                 del entry_times[sym]
-                    except Exception as e:
+
                     except Exception as e:
                         logging.exception("%s - SCALP SELL error: %s", sym, str(e))
 
-            else:
+                     else:
                 # --- Trendistrategia ---
                 pass
 
