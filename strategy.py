@@ -1,6 +1,7 @@
 import logging
 import os
 import time
+import argparse
 from datetime import datetime, timedelta, timezone
 import numpy as np
 import pandas as pd
@@ -21,8 +22,6 @@ EMA_FAST = 9
 EMA_SLOW = 20
 RSI_PERIOD = 7
 VOL_SPIKE_MULT = 1.05
-TP_PCT = 0.006   # widened to 0.6%
-SL_PCT = 0.003   # widened to 0.3%
 MAX_HOLD_BARS = 10   # minutes
 SCALP_SLEEP_SECONDS = 10
 BUY_POWER_LIMIT = 0.05
@@ -93,6 +92,30 @@ def position_value(symbol):
 
 # --- main loop ---
 def main():
+    # --- parse command-line arguments ---
+    parser = argparse.ArgumentParser(description="Scalping strategy runner")
+    parser.add_argument(
+        "--fast",
+        action="store_true",
+        help="Enable fast scalp mode (tight TP/SL, trailing stop)"
+    )
+    args = parser.parse_args()
+
+    FAST_SCALP_MODE = args.fast
+    print(f"FAST_SCALP_MODE = {FAST_SCALP_MODE}")
+
+    # --- set TP/SL based on mode ---
+    if FAST_SCALP_MODE:
+        TP_PCT = 0.003   # 0.3%
+        SL_PCT = 0.002   # 0.2%
+        TRAIL_TRIGGER = 0.003   # +0.3% profit
+        TRAIL_OFFSET = 0.001    # 0.1% below peak
+    else:
+        TP_PCT = 0.006   # 0.6%
+        SL_PCT = 0.003   # 0.3%
+        TRAIL_TRIGGER = None
+        TRAIL_OFFSET = None
+
     load_dotenv()
     logging.basicConfig(filename="trade_log.txt", level=logging.DEBUG,
                         format="%(asctime)s %(levelname)s %(message)s")
@@ -171,15 +194,21 @@ def main():
                         tp_hit = last >= avg_entry * (1 + TP_PCT)
                         sl_hit = last <= avg_entry * (1 - SL_PCT)
 
-                        # Confirmation: require 3 consecutive closes below VWAP
-                        vwap_fail = all(close.iloc[-i] < vwap.iloc[-i] for i in range(1, 4))
-                        # EMA fail: fast EMA consistently below slow EMA
-                        ema_fail = all(ema_fast.iloc[-i] < ema_slow.iloc[-i] for i in range(1, 4))
+                        # optional trailing stop
+                        trail_hit = False
+                        if TRAIL_TRIGGER and last >= avg_entry * (1 + TRAIL_TRIGGER):
+                            trail_stop = last * (1 - TRAIL_OFFSET)
+                            if close.iloc[-1] < trail_stop:
+                                trail_hit = True
 
-                        # Dynamic max hold
+                        # EMA/VWAP fail confirmation
+                        vwap_fail = all(close.iloc[-i] < vwap.iloc[-i] for i in range(1, 3))
+                        ema_fail = all(ema_fast.iloc[-i] < ema_slow.iloc[-i] for i in range(1, 3))
+
+                        # Dynamic max hold (only in normal mode)
                         elapsed_minutes = (df.index[-1] - entry_times.get(sym, df.index[-1])).total_seconds() / 60
                         max_hold = False
-                        if elapsed_minutes >= MAX_HOLD_BARS:
+                        if not FAST_SCALP_MODE and elapsed_minutes >= MAX_HOLD_BARS:
                             atr_val = atr.iloc[-1]
                             if not pd.isna(atr_val):
                                 move = abs(last - avg_entry)
@@ -187,8 +216,12 @@ def main():
                                     max_hold = True
 
                         reason = None
-                        if tp_hit or sl_hit:
-                            reason = "TP" if tp_hit else "SL"
+                        if tp_hit:
+                            reason = "TP_FAST" if FAST_SCALP_MODE else "TP_NORMAL"
+                        elif sl_hit:
+                            reason = "SL_TIGHT" if FAST_SCALP_MODE else "SL_NORMAL"
+                        elif trail_hit:
+                            reason = "TRAILING_STOP"
                         elif ema_fail or vwap_fail:
                             reason = "EMA/VWAP fail"
                         elif max_hold:
@@ -204,7 +237,6 @@ def main():
                             )
                             trade_client.submit_order(order)
 
-                            # P/L logging
                             pl_per_share = last - avg_entry
                             pl_total = pl_per_share * qty_open
                             logging.info(
@@ -219,9 +251,9 @@ def main():
                     except Exception as e:
                         logging.exception("%s - SCALP SELL error: %s", sym, str(e))
 
-                #     else:
-                # --- Trendistrategia ---
-                #  pass
+            else:
+                # --- Trend strategy placeholder ---
+                pass
 
         # wait before next loop
         time.sleep(SCALP_SLEEP_SECONDS if SCALP else 60)
@@ -229,3 +261,5 @@ def main():
 
 if __name__ == "__main__":
     main()
+
+                        
