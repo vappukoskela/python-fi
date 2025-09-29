@@ -111,6 +111,11 @@ def main():
         print("Kill switch active. Create 'run.flag' file to enable trading.")
         return
 
+    response = input("Trading is enabled. Do you want to proceed? (yes/no): ").strip().lower()
+    if response != "yes":
+        print("Execution aborted by user.")
+        return
+
     now = datetime.now().astimezone()
     if now.hour == 9 and now.minute < 35:
         print("Market just opened. Waiting period active.")
