@@ -28,6 +28,17 @@ SCALP_SLEEP_SECONDS = 10
 BUY_POWER_LIMIT = 0.05
 
 # --- helper functions ---
+def sleep_until(target_time, chunk_seconds=30):
+    """Pause until target_time (UTC) in small chunks for responsiveness."""
+    if target_time.tzinfo is None:
+        target_time = target_time.replace(tzinfo=timezone.utc)
+    while True:
+        now = datetime.now(timezone.utc)
+        remaining = (target_time - now).total_seconds()
+        if remaining <= 0:
+            break
+        time.sleep(min(remaining, chunk_seconds))
+        
 def compute_ema(series, period):
     return series.ewm(span=period, adjust=False).mean()
 
@@ -107,11 +118,33 @@ def main():
         os.getenv("ALPACA_PAPER_SECRET_KEY"),
         paper=True
     )
+    
+    clock = trade_client.get_clock()
+    market_open = clock.is_open
+    print(f"Market open: {market_open}")
 
     symbols = ["AAPL", "MSFT", "MU", "QCOM", "NVDA", "V", "AMD", "GOOG", "C", "EBAY", "OKTA", "TSLA", "AMZN", "ADSK", "DELL"]
     entry_times = {}
 
     while True:
+        
+               # Detect if the market has just transitioned from open to closed.
+        if market_open and not clock.is_open:
+            logging.info("Market closed. Sleeping until next open at %s", clock.next_open)
+            market_open = False
+            sleep_until(clock.next_open)
+            continue        # skip the rest of the loop while the market is shut
+
+        # Detect if the market has just transitioned from closed to open.
+        if (not market_open) and clock.is_open:
+            logging.info("Market opened. Resuming trading")
+            market_open = True           # fall through and run the trading logic
+
+        # Detect if the market is closed (e.g., at script start or unexpected state), exit to prevent trading.
+        if not clock.is_open:
+            logging.info("Market is closed. Exiting.")
+            exit(0)
+        
         for sym in symbols:
             if SCALP:
                 df = fetch_bars(stock_data_client, sym, TIMEFRAME_SCALP, days=1)
@@ -219,9 +252,10 @@ def main():
                     except Exception as e:
                         logging.exception("%s - SCALP SELL error: %s", sym, str(e))
 
-                     else:
+                    else:
+                        pass
                 # --- Trendistrategia ---
-                pass
+                
 
         # wait before next loop
         time.sleep(SCALP_SLEEP_SECONDS if SCALP else 60)
