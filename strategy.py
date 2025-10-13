@@ -11,6 +11,9 @@ from alpaca.trading.client import TradingClient
 from alpaca.trading.enums import OrderSide, OrderType, TimeInForce
 from alpaca.trading.requests import MarketOrderRequest
 
+import threading
+
+
 # --- settings ---
 SCALP = True
 SCALP_SLEEP_SECONDS = 1  # poll every second
@@ -79,6 +82,51 @@ def get_positions_map(trade_client):
     except Exception as e:
         logging.debug("get_all_positions failed: %s", e)
         return {}
+    
+def sell_all_positions(trade_client_local):
+    logging.info("User requested EXIT. Selling all open positions...")
+    try:
+        positions = trade_client_local.get_all_positions()
+        for pos in positions:
+            symbol = pos.symbol
+            qty = int(pos.qty)
+            if qty > 0:
+                try:
+                    order = MarketOrderRequest(
+                        symbol=symbol,
+                        qty=qty,
+                        side=OrderSide.SELL,
+                        type=OrderType.MARKET,
+                        time_in_force=TimeInForce.DAY
+                    )
+                    trade_client_local.submit_order(order)
+                    logging.info("EXIT SELL %s - Qty: %d", symbol, qty)
+                except Exception as e:
+                    logging.exception("EXIT SELL error for %s: %s", symbol, str(e))
+    except Exception as e:
+        logging.exception("Failed to fetch positions during EXIT: %s", str(e))
+    logging.info("All EXIT orders (attempted) completed.")
+def input_listener(stop_event, trade_client_local):
+    """Blocking input loop running in a separate thread. Type 'exit' to stop and liquidate."""
+    try:
+        while not stop_event.is_set():
+            try:
+                user = input().strip().lower()
+            except EOFError:
+                # No stdin available (e.g., running as service). Sleep and continue.
+                time.sleep(0.5)
+                continue
+
+            if user == "exit":
+                logging.info("Input listener received 'exit' command.")
+                # sell positions and set stop flag
+                sell_all_positions(trade_client_local)
+                stop_event.set()
+                break
+            # optional: support 'status' or other commands here
+    except Exception as e:
+        logging.exception("Input listener error: %s", e)
+        stop_event.set()
 
 # --- main loop ---
 def main():
@@ -92,6 +140,9 @@ def main():
     trade_client = TradingClient(
         os.getenv("ALPACA_PAPER_API_KEY"), os.getenv("ALPACA_PAPER_SECRET_KEY"), paper=True
     )
+    stop_event = threading.Event()
+    input_thread = threading.Thread(target=input_listener, args=(stop_event, trade_client), daemon=True)
+    input_thread.start()
 
     try:
         clock = trade_client.get_clock()
@@ -122,6 +173,9 @@ def main():
     logging.info("Starting tick-scalper main loop (1s ticks).")
 
     while True:
+        if stop_event.is_set():
+            logging.info("Stop event set — exiting main loop.")
+            break
         now = datetime.now(timezone.utc)
 
         # Optional: check market clock
@@ -132,32 +186,6 @@ def main():
                 return
         except Exception as e:
             logging.debug("Clock check failed: %s", e)
-
-        # --- EXIT command check ---
-        if os.path.exists("EXIT"):
-            logging.info("EXIT command detected. Attempting to liquidate all open positions...")
-            try:
-                positions = trade_client.get_all_positions()
-                for pos in positions:
-                    symbol = pos.symbol
-                    qty = int(pos.qty)
-                    if qty > 0:
-                        try:
-                            order = MarketOrderRequest(
-                                symbol=symbol,
-                                qty=qty,
-                                side=OrderSide.SELL,
-                                type=OrderType.MARKET,
-                                time_in_force=TimeInForce.DAY
-                            )
-                            trade_client.submit_order(order)
-                            logging.info("EXIT SELL %s - Qty: %d", symbol, qty)
-                        except Exception as e:
-                            logging.exception("EXIT SELL error for %s: %s", symbol, str(e))
-            except Exception as e:
-                logging.exception("Failed to fetch positions during EXIT: %s", str(e))
-            logging.info("All EXIT orders submitted. Exiting script.")
-            return
 
         # refresh account buying power occasionally
         if buying_power_limit_cached is None or (now.timestamp() - last_account_fetch) > account_fetch_interval:
@@ -290,6 +318,15 @@ def main():
                 time.sleep(time_to_sleep)
         except Exception:
             time.sleep(SCALP_SLEEP_SECONDS)
+    try:
+        if input_thread.is_alive():
+            logging.debug("Waiting for input thread to finish...")
+            input_thread.join(timeout=1.0)
+    except Exception:
+        pass
+
+    logging.info("Main exiting.")
+    return
 
 if __name__ == "__main__":
     main()
