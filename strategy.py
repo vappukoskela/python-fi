@@ -213,8 +213,7 @@ def main():
                         tp_hit = last >= avg_entry * (1 + TP_PCT)
                         sl_hit = last <= avg_entry * (1 - SL_PCT)
                         vwap_fail = all(close.iloc[-i] < vwap.iloc[-i] for i in range(1, 4))
-                        ema_fail = all(ema_fast.iloc[-i] < ema_slow.iloc
-                                                       ema_fail = all(ema_fast.iloc[-i] < ema_slow.iloc[-i] for i in range(1, 4))
+                        ema_fail = all(ema_fast.iloc[-i] < ema_slow.iloc[-i] for i in range(1, 4))
                         time_exceeded = False
                         if sym in entry_times:
                             bars_since_entry = len(df[df.index > entry_times[sym]])
