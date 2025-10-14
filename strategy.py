@@ -24,7 +24,7 @@ RSI_PERIOD = 7
 VOL_SPIKE_MULT = 1.05
 TP_PCT = 0.006
 SL_PCT = 0.003
-MAX_HOLD_SECONDS = 10 * 60  # fallback: max hold 10 minutes expressed in seconds
+MAX_HOLD_SECONDS = 15 * 60  # fallback: max hold 10 minutes expressed in seconds
 BUY_POWER_LIMIT = 0.05  # fraction of buying power
 
 # --- helper functions ---
