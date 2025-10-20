@@ -288,7 +288,6 @@ def main():
 
                     now = datetime.now(timezone.utc)
                     last_exit = last_exit_time.get(sym, datetime.min.replace(tzinfo=timezone.utc))
-
                     if (qty_open == 0
                         and ema_trend_up
                         and price_above_vwap
@@ -317,7 +316,8 @@ def main():
                                 logging.info("%s - ENTRY recorded assumed qty=%d price=%.4f rsi=%.2f avg_size=%.1f",
                                              sym, entry_qty[sym], price, rsi_val or -1, avg_size or 0)
                                 inflight_orders.pop(sym, None)
-
+                    logging.info("%s - price=%.2f size=%d ema_fast=%.2f ema_slow=%.2f rsi=%.2f vwap=%.2f qty_open=%d",
+                                  sym, price, size, ema_fast_val, ema_slow_val, rsi_val or -1, vwap_val or -1, qty_open)
                     if qty_open > 0:
                         entry_price = entry_prices.get(sym, avg_entry or price)
                         tp_hit = price >= entry_price * (1 + TP_PCT)
@@ -327,6 +327,9 @@ def main():
                             elapsed = (now - entry_times[sym]).total_seconds()
                             if elapsed >= MAX_HOLD_SECONDS:
                                 time_exceeded = True
+                        logging.info("%s - price=%.2f entry_price=%.2f qty=%d tp_hit=%s sl_hit=%s time_exceeded=%s",
+                            sym, price, entry_price, qty_open, tp_hit, sl_hit, time_exceeded)
+
 
                         if tp_hit or sl_hit or time_exceeded:
                             intended_qty = entry_qty.get(sym, qty_open)
@@ -342,9 +345,8 @@ def main():
                                 entry_qty.pop(sym, None)
                                 last_exit_time[sym] = datetime.now(timezone.utc)
                                 positions_snapshot[sym] = (0, positions_snapshot.get(sym, (0,0))[1])
-
                 time.sleep(0.03)
-
+        
             elapsed_loop = (datetime.now(timezone.utc) - loop_start).total_seconds()
             to_sleep = max(0.0, LOOP_SLEEP - elapsed_loop)
             time.sleep(to_sleep)
