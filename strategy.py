@@ -123,32 +123,56 @@ def get_position_qty(trade_client_local, symbol):
     except Exception:
         return 0
 
-def safe_market_buy(trade_client_local, symbol, cash_amount, order_lock):
-    """Calculate conservative qty and place a market buy under lock. Return order object or None."""
+def safe_market_buy(trade_client_local, symbol, cash_amount, order_lock, retries=3, wait_sec=0.5):
+    """Place a conservative market buy. Only return after confirming shares filled."""
     with order_lock:
         try:
-            # try to estimate price from latest trade endpoint for sizing; fallback to cash_amount / 1
+            # estimate price from latest trade
             est_price = None
             try:
-                resp = stock_data_client.get_stock_latest_trade(StockLatestTradeRequest(symbol_or_symbols=symbol))
+                resp = stock_data_client.get_stock_latest_trade(
+                    StockLatestTradeRequest(symbol_or_symbols=symbol)
+                )
                 est_price = float(resp[symbol].price)
             except Exception:
                 est_price = None
+
             if est_price and est_price > 0:
                 qty = int((cash_amount * BUY_CASH_BUFFER) // est_price)
             else:
-                # minimum attempt: buy 1 share if cash affords it
                 qty = 1
+
             if qty <= 0 or (est_price and qty * est_price < MIN_TRADE_USD):
-                logging.debug("Computed buy qty too small for %s (qty=%s est_price=%s cash=%.2f)", symbol, qty, est_price, cash_amount)
+                logging.debug(
+                    "Computed buy qty too small for %s (qty=%s est_price=%s cash=%.2f)",
+                    symbol, qty, est_price, cash_amount
+                )
                 return None
-            order = MarketOrderRequest(symbol=symbol, qty=qty, side=OrderSide.BUY, type=OrderType.MARKET, time_in_force=TimeInForce.DAY)
+
+            order = MarketOrderRequest(
+                symbol=symbol, qty=qty, side=OrderSide.BUY,
+                type=OrderType.MARKET, time_in_force=TimeInForce.DAY
+            )
             submitted = trade_client_local.submit_order(order)
             logging.info("%s - BUY submitted qty=%d (est_price=%s cash=%.2f)", symbol, qty, str(est_price), cash_amount)
-            return submitted
+
+            # Poll actual position until filled or max retries
+            actual_qty = 0
+            for attempt in range(retries):
+                time.sleep(wait_sec)
+                actual_qty = get_position_qty(trade_client_local, symbol)
+                logging.debug("%s - poll attempt %d: position qty=%d", symbol, attempt+1, actual_qty)
+                if actual_qty > 0:
+                    logging.info("%s - BUY filled qty=%d", symbol, actual_qty)
+                    return submitted  # filled order confirmed
+
+            logging.warning("%s - BUY did not fill after %d attempts (qty=0)", symbol, retries)
+            return None
+
         except Exception as e:
             logging.exception("safe_market_buy error for %s: %s", symbol, e)
             return None
+
 
 def safe_market_sell(trade_client_local, symbol, intended_qty, order_lock):
     """Sell up to intended_qty but never more than current position qty. Uses lock."""
@@ -302,26 +326,10 @@ def main():
                     except Exception:
                         pass
 
-                    # --- ENTRY CONDITIONS ---
+                            # --- ENTRY CONDITIONS ---
                     now = datetime.now(timezone.utc)
                     last_exit = last_exit_time.get(sym, datetime.min.replace(tzinfo=timezone.utc))
-                    
-                    # logging.info(
-                    #     "%s PARAMS | price=%.4f size=%d ema_fast=%.4f ema_slow=%.4f "
-                    #     "rsi=%.2f vwap=%.4f avg_size=%.2f vol_ok=%s qty_open=%d last_exit=%s inflight=%s",
-                    #     sym,
-                    #     price,
-                    #     size,
-                    #     ema_fast_val,
-                    #     ema_slow_val,
-                    #     rsi_val or -1,
-                    #     vwap_val or -1,
-                    #     avg_size or 0,
-                    #     vol_ok,
-                    #     qty_open,
-                    #     last_exit.isoformat(),
-                    #     bool(inflight_orders.get(sym))
-                    # )
+
                     if (qty_open == 0
                         and ema_trend_up
                         and price_above_vwap
@@ -334,7 +342,7 @@ def main():
                         # throttle per-symbol rapid attempts
                         if (now - last_trade_attempt[sym]).total_seconds() < 1.0:
                             continue
-                        last_trade_attempt[sym] = datetime.now(timezone.utc)
+                        last_trade_attempt[sym] = now
 
                         # compute qty using cached buying power
                         limit_cash = buying_power_limit_cached or calculate_buying_power_limit(trade_client, BUY_POWER_LIMIT)
@@ -344,21 +352,32 @@ def main():
                             cash_for_order = limit_cash * BUY_CASH_BUFFER
                             submitted = safe_market_buy(trade_client, sym, cash_for_order, order_lock)
                             if submitted:
-                                # mark inflight and reconcile
-                                try:
-                                    order_id = getattr(submitted, "id", None) or getattr(submitted, "order_id", None)
-                                except Exception:
-                                    order_id = None
+                                # mark inflight
+                                order_id = getattr(submitted, "id", None) or getattr(submitted, "order_id", None)
                                 inflight_orders[sym] = order_id or True
-                                time.sleep(0.5)  # brief wait to allow fill
-                                actual_qty = get_position_qty(trade_client, sym)
-                                if actual_qty > 0:
-                                    entry_qty[sym] = actual_qty
-                                    entry_times[sym] = now
-                                    entry_prices[sym] = price
-                                    logging.info("%s - ENTRY recorded qty=%d price=%.4f rsi=%.2f avg_size=%.1f", sym, actual_qty, price, rsi_val or -1, avg_size or 0)
-                                else:
-                                    logging.info("%s - ENTRY attempt had no fill (qty=0) - will clear inflight", sym)
+
+                                # allow a brief moment for the order to process
+                                time.sleep(1.0)
+
+                                try:
+                                    filled_order = trade_client.get_order(order_id)
+                                    filled_qty = int(float(getattr(filled_order, "filled_qty", 0)))
+                                    filled_avg_price = float(getattr(filled_order, "filled_avg_price", price))
+
+                                    if filled_qty > 0:
+                                        entry_qty[sym] = filled_qty
+                                        entry_prices[sym] = filled_avg_price
+                                        entry_times[sym] = now
+                                        logging.info(
+                                            "%s - ENTRY recorded qty=%d avg_price=%.4f rsi=%.2f avg_size=%.1f",
+                                            sym, filled_qty, filled_avg_price, rsi_val or -1, avg_size or 0
+                                        )
+                                    else:
+                                        logging.info("%s - ENTRY not yet filled, inflight remains", sym)
+
+                                except Exception as e:
+                                    logging.exception("Failed to reconcile buy order %s: %s", sym, e)
+
                                 inflight_orders.pop(sym, None)
 
                     # --- EXIT CONDITIONS (only for longs) ---
