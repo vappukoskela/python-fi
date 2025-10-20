@@ -222,6 +222,7 @@ def main():
     last_trade_attempt = defaultdict(lambda: datetime.min.replace(tzinfo=timezone.utc))
     order_lock = threading.Lock()
     stop_event = threading.Event()
+    pending_entries = set()   # prevent duplicate buys
 
     def input_listener():
         try:
@@ -303,6 +304,7 @@ def main():
                     # === BUY LOGIC ===
                     if (
                         qty_open == 0 and
+                        sym not in pending_entries and
                         ema_trend_up and
                         price_above_vwap and
                         vol_ok and
@@ -319,21 +321,23 @@ def main():
                             logging.info(f"{sym} - Skipping buy: budget exceeded. est_cost={est_trade_cost:.2f} spent={spent_this_loop:.2f}")
                             continue
 
+                        pending_entries.add(sym)
                         try:
+                            spent_this_loop += est_trade_cost  # reserve budget immediately
                             submitted = safe_market_buy(trade_client, sym, max_loop_budget * BUY_CASH_BUFFER, order_lock)
                             if submitted:
                                 inflight_orders[sym] = getattr(submitted, "id", None) or True
                                 entry_qty[sym] = int((max_loop_budget * BUY_CASH_BUFFER) // price)
                                 entry_prices[sym] = price
                                 entry_times[sym] = datetime.now(timezone.utc)
-                                spent_this_loop += est_trade_cost
                                 logging.info(f"{sym} - ENTRY recorded qty={entry_qty[sym]} price={price:.2f} rsi={rsi_val:.2f}")
                         finally:
                             inflight_orders.pop(sym, None)
+                            pending_entries.discard(sym)
 
                     # === SELL LOGIC ===
-                    if qty_open > 0 and sym in entry_times:
-                        entry_time = entry_times[sym]
+                    if qty_open > 0:
+                        entry_time = entry_times.get(sym, datetime.now(timezone.utc))
                         entry_price = entry_prices.get(sym, avg_entry or price)
                         elapsed = (datetime.now(timezone.utc) - entry_time).total_seconds()
 
@@ -342,7 +346,7 @@ def main():
                             price <= entry_price * (1 - SL_PCT) or
                             elapsed >= MAX_HOLD_SECONDS
                         ):
-                            safe_market_sell(trade_client, sym, entry_qty.get(sym, qty_open), order_lock)
+                            safe_market_sell(trade_client, sym, qty_open, order_lock)
 
             time.sleep(LOOP_SLEEP)
 
