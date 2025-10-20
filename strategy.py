@@ -42,7 +42,10 @@ logging.getLogger().addHandler(console)
 # === helpers: indicators ===
 def compute_ema_from_series(series, period):
     if len(series) < 2:
-        return series.iloc[-1] if len(series) else float("nan")
+        if len(series):
+            return pd.Series([series.iloc[-1]])
+        else:
+            return pd.Series([float("nan")])
     return series.ewm(span=period, adjust=False).mean()
 
 def compute_rsi_from_series(series, period=14):
@@ -53,14 +56,15 @@ def compute_rsi_from_series(series, period=14):
     loss = (-delta.where(delta < 0, 0)).rolling(period).mean()
     rs = gain / loss
     rsi = 100 - (100 / (1 + rs))
-    return rsi
+    return rsi if isinstance(rsi, pd.Series) else pd.Series([rsi])
 
 def compute_vwap_from_ticks(prices, sizes):
     if sizes.sum() == 0:
         return pd.Series([float("nan")] * len(prices))
     cumulative_pv = (prices * sizes).cumsum()
     cumulative_vol = sizes.cumsum()
-    return cumulative_pv / cumulative_vol
+    vwap = cumulative_pv / cumulative_vol
+    return vwap if isinstance(vwap, pd.Series) else pd.Series([vwap])
 
 # === Alpaca helpers: defensive ===
 def fetch_latest_trade_price_and_size_batch(stock_data_client, symbols):
@@ -215,7 +219,8 @@ def main():
                     try:
                         order = MarketOrderRequest(
                             symbol=s, qty=q, side=OrderSide.SELL,
-                            type=OrderType.MARKET, time_in_force=TimeInForce.DAY
+                            type=OrderType.MARKET,
+                                                      time_in_force=TimeInForce.DAY
                         )
                         trade_client_local.submit_order(order)
                         logging.info("%s - Forced SELL qty=%d", s, q)
@@ -245,7 +250,7 @@ def main():
 
                 for sym in chunk:
                     price, size = trades.get(sym, (None, None))
-                    if price is None or size is None:
+                    if price is None or size is None or price <= 0:
                         continue
 
                     # Update deques
@@ -261,6 +266,9 @@ def main():
                     rsi_val = compute_rsi_from_series(prices, RSI_PERIOD).iloc[-1]
                     vwap_val = compute_vwap_from_ticks(prices, sizes).iloc[-1]
 
+                    if pd.isna(ema_fast) or pd.isna(ema_slow) or pd.isna(rsi_val) or pd.isna(vwap_val):
+                        continue
+
                     ema_trend_up = ema_fast > ema_slow
                     price_above_vwap = price > vwap_val
                     vol_ok = size > (sizes.mean() * VOL_SPIKE_MULT)
@@ -274,7 +282,6 @@ def main():
                         ema_trend_up and
                         price_above_vwap and
                         vol_ok and
-                        rsi_val is not None and
                         MIN_RSI_FOR_ENTRY <= rsi_val <= MAX_RSI_FOR_ENTRY and
                         (datetime.now(timezone.utc) - last_exit).total_seconds() >= COOLDOWN_SECONDS and
                         inflight_orders.get(sym) is None
@@ -328,4 +335,3 @@ def main():
 
 if __name__ == "__main__":
     main()
-
