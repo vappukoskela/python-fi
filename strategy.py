@@ -166,7 +166,6 @@ def safe_market_sell(trade_client_local, symbol, intended_qty, order_lock):
             logging.info("%s - SELL submitted qty=%d (available=%d intended=%s) order_id=%s",
                          symbol, qty_to_sell, available, intended_qty, order_id)
 
-            # Post-sell verification with retry loop and state cleanup guard
             if order_id:
                 try:
                     max_retries = 5
@@ -208,10 +207,8 @@ def main():
         os.getenv("ALPACA_PAPER_SECRET_KEY"),
         paper=True
     )
-
-    symbols = ["AAPL", "MSFT", "MU", "QCOM", "NVDA", "V", "AMD", "GOOG", "C", "EBAY", "OKTA", "TSLA", "AMZN", "ADSK", "DELL"]
-
-    price_deques = {s: deque(maxlen=TICKS_WINDOW) for s in symbols}
+symbols = ["AAPL", "MSFT", "MU", "QCOM", "NVDA", "V", "AMD", "GOOG", "C", "EBAY", "OKTA", "TSLA", "AMZN", "ADSK", "DELL"]
+      price_deques = {s: deque(maxlen=TICKS_WINDOW) for s in symbols}
     size_deques = {s: deque(maxlen=TICKS_WINDOW) for s in symbols}
     time_deques = {s: deque(maxlen=TICKS_WINDOW) for s in symbols}
     entry_times = {}
@@ -301,6 +298,10 @@ def main():
                     qty_open, avg_entry = positions_map.get(sym, (0, 0.0))
                     last_exit = last_exit_time.get(sym, datetime.min.replace(tzinfo=timezone.utc))
 
+                    # clear pending once position is visible
+                    if qty_open > 0 and sym in pending_entries:
+                        pending_entries.discard(sym)
+
                     # === BUY LOGIC ===
                     if (
                         qty_open == 0 and
@@ -333,7 +334,6 @@ def main():
                                 logging.info(f"{sym} - ENTRY recorded qty={entry_qty[sym]} price={price:.2f} rsi={rsi_val:.2f}")
                         finally:
                             inflight_orders.pop(sym, None)
-                            pending_entries.discard(sym)
 
                     # === SELL LOGIC ===
                     if qty_open > 0:
