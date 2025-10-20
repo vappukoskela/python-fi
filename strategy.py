@@ -206,8 +206,7 @@ def main():
         os.getenv("ALPACA_PAPER_SECRET_KEY")
     )
     trade_client = TradingClient(
-        os
-          trade_client = TradingClient(
+        os trade_client = TradingClient(
         os.getenv("ALPACA_PAPER_API_KEY"),
         os.getenv("ALPACA_PAPER_SECRET_KEY"),
         paper=True
