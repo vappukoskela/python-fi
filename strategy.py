@@ -99,15 +99,15 @@ def calculate_buying_power_limit(trade_client_local, limit_fraction):
 
 def get_positions_map(trade_client_local):
     try:
-        positions = trade_client_local.get_all_positions()
+        positions = trade_client_local.get_open_positions()
         return {pos.symbol: (int(float(pos.qty)), float(pos.avg_entry_price)) for pos in positions}
     except Exception as e:
-        logging.debug("get_all_positions failed: %s", e)
+        logging.debug("get_open_positions failed: %s", e)
         return {}
 
 def get_position_qty(trade_client_local, symbol):
     try:
-        pos = trade_client_local.get_position(symbol)
+        pos = trade_client_local.get_open_position(symbol)
         return int(float(pos.qty))
     except Exception as e:
         logging.warning(f"get_position_qty failed for {symbol}: {e}")
@@ -147,7 +147,6 @@ def safe_market_buy(trade_client_local, symbol, cash_amount, order_lock):
 def safe_market_sell(trade_client_local, symbol, intended_qty, order_lock):
     with order_lock:
         available = get_position_qty(trade_client_local, symbol)
-        # retry once if API lag returns 0
         if available == 0 and intended_qty > 0:
             time.sleep(1.0)
             available = get_position_qty(trade_client_local, symbol)
@@ -167,7 +166,7 @@ def safe_market_sell(trade_client_local, symbol, intended_qty, order_lock):
             logging.info("%s - SELL submitted qty=%d (available=%d intended=%s) order_id=%s",
                          symbol, qty_to_sell, available, intended_qty, order_id)
 
-            # === Post-sell verification with retry loop and state cleanup guard ===
+            # Post-sell verification with retry loop and state cleanup guard
             if order_id:
                 try:
                     max_retries = 5
@@ -178,7 +177,6 @@ def safe_market_sell(trade_client_local, symbol, intended_qty, order_lock):
                         logging.info("%s - SELL order %s status=%s (attempt %d/%d)",
                                      symbol, order_id, status, attempt+1, max_retries)
                         if status == "filled":
-                            # Only clear state once confirmed filled
                             entry_times.pop(symbol, None)
                             entry_prices.pop(symbol, None)
                             entry_qty.pop(symbol, None)
@@ -213,7 +211,8 @@ def main():
 
     symbols = ["AAPL", "MSFT", "MU", "QCOM", "NVDA", "V", "AMD", "GOOG", "C", "EBAY", "OKTA", "TSLA", "AMZN", "ADSK", "DELL"]
 
-    price_deques = {s: deque(maxlen=TICKS_WINDOW) for s in symbols}
+    price_deques
+      price_deques = {s: deque(maxlen=TICKS_WINDOW) for s in symbols}
     size_deques = {s: deque(maxlen=TICKS_WINDOW) for s in symbols}
     time_deques = {s: deque(maxlen=TICKS_WINDOW) for s in symbols}
     entry_times = {}
@@ -244,7 +243,7 @@ def main():
 
     def sell_all_positions(trade_client_local, order_lock_local):
         try:
-            positions = trade_client_local.get_all_positions()
+            positions = trade_client_local.get_open_positions()
             for p in positions:
                 s = p.symbol
                 q = int(float(p.qty))
@@ -354,4 +353,3 @@ def main():
 
 if __name__ == "__main__":
     main()
-
