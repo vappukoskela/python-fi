@@ -207,8 +207,8 @@ def main():
         os.getenv("ALPACA_PAPER_SECRET_KEY"),
         paper=True
     )
-symbols = ["AAPL", "MSFT", "MU", "QCOM", "NVDA", "V", "AMD", "GOOG", "C", "EBAY", "OKTA", "TSLA", "AMZN", "ADSK", "DELL"]
-      price_deques = {s: deque(maxlen=TICKS_WINDOW) for s in symbols}
+    symbols = ["AAPL", "MSFT", "MU", "QCOM", "NVDA", "V", "AMD", "GOOG", "C", "EBAY", "OKTA", "TSLA", "AMZN", "ADSK", "DELL"]
+    price_deques = {s: deque(maxlen=TICKS_WINDOW) for s in symbols}
     size_deques = {s: deque(maxlen=TICKS_WINDOW) for s in symbols}
     time_deques = {s: deque(maxlen=TICKS_WINDOW) for s in symbols}
     entry_times = {}
