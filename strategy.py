@@ -337,16 +337,18 @@ def main():
 
                     # === SELL LOGIC ===
                     if qty_open > 0:
-                        entry_time = entry_times.get(sym, datetime.now(timezone.utc))
-                        entry_price = entry_prices.get(sym, avg_entry or price)
-                        elapsed = (datetime.now(timezone.utc) - entry_time).total_seconds()
-
-                        if (
+                        entry_time = entry_times.get(sym)
+                        if not entry_time:
+                        logging.warning(f"{sym} - Missing entry_time during sell check. Skipping MAX_HOLD_SECONDS enforcement.")
+                        continue # skip this symbol
+                            entry_price = entry_prices.get(sym, avg_entry or price)
+                            elapsed = (datetime.now(timezone.utc) - entry_time).total_seconds()
+                            if (
                             price >= entry_price * (1 + TP_PCT) or
                             price <= entry_price * (1 - SL_PCT) or
                             elapsed >= MAX_HOLD_SECONDS
-                        ):
-                            safe_market_sell(trade_client, sym, qty_open, order_lock)
+                            ):
+                            safe_market_sell(trade_client, sym, qty_open, order_lock)  
 
             time.sleep(LOOP_SLEEP)
 
