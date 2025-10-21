@@ -341,7 +341,7 @@ def main():
                     if not entry_time:
                         logging.warning(f"{sym} - Missing entry_time during sell check. Skipping MAX_HOLD_SECONDS enforcement.")
                         continue # skip this symbol
-                            entry_price = entry_prices.get(sym, avg_entry or price)
+                        entry_price = entry_prices.get(sym, avg_entry or price)
                             elapsed = (datetime.now(timezone.utc) - entry_time).total_seconds()
                             if (
                             price >= entry_price * (1 + TP_PCT) or
