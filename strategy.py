@@ -207,15 +207,14 @@ def main():
 
         if (
             price >= entry_price * (1 + TP_PCT)
-            or price <= entry_price * (1
-                   or price <= entry_price * (1 - SL_PCT)
-    ):
-        reason = "TP" if price >= entry_price * (1 + TP_PCT) else "SL"
-        logging.info(f"{sym} - Price-based SELL triggered ({reason}) price={price:.2f} entry={entry_price:.2f}")
-        if not check_kill_switch():
-            safe_market_sell(trade_client, sym, qty_open, order_lock)
-        else:
-            logging.warning(f"{sym} - Kill switch active, sell aborted")
+            or price <= entry_price * (1 - SL_PCT)
+        ):
+            reason = "TP" if price >= entry_price * (1 + TP_PCT) else "SL"
+            logging.info(f"{sym} - Price-based SELL triggered ({reason}) price={price:.2f} entry={entry_price:.2f}")
+            if not check_kill_switch():
+                safe_market_sell(trade_client, sym, qty_open, order_lock)
+            else:
+                logging.warning(f"{sym} - Kill switch active, sell aborted")
       if __name__ == "__main__":
           main()
                       
