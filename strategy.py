@@ -335,19 +335,39 @@ def main():
                         finally:
                             inflight_orders.pop(sym, None)
 
-                    # === SELL LOGIC ===
-                    if qty_open > 0:
-                        entry_time = entry_times.get(sym, datetime.now(timezone.utc))
-                        entry_price = entry_prices.get(sym, avg_entry or price)
-                        elapsed = (datetime.now(timezone.utc) - entry_time).total_seconds()
+                  # === SELL LOGIC ===
+if qty_open > 0:
+    entry_time = entry_times.get(sym)
+    if not entry_time:
+        logging.warning(f"{sym} - Missing entry_time, skipping time-based exit check")
+        continue
 
-                        if (
-                            price >= entry_price * (1 + TP_PCT) or
-                            price <= entry_price * (1 - SL_PCT) or
-                            elapsed >= MAX_HOLD_SECONDS
-                        ):
-                            safe_market_sell(trade_client, sym, qty_open, order_lock)
+    entry_price = entry_prices.get(sym, avg_entry or price)
+    elapsed = (datetime.now(timezone.utc) - entry_time).total_seconds()
 
+    # Time-based exit
+    if elapsed >= MAX_HOLD_SECONDS:
+        logging.info(f"{sym} - Time-based SELL triggered (held {elapsed:.1f}s ≥ {MAX_HOLD_SECONDS}s)")
+        if not check_kill_switch():
+            safe_market_sell(trade_client, sym, qty_open, order_lock)
+        else:
+            logging.warning(f"{sym} - Kill switch active, sell aborted")
+        continue  # Skip further checks after time-based exit
+
+    # Price-based exit
+    if (
+        price >= entry_price * (1 + TP_PCT)
+        or price <= entry_price * (1 - SL_PCT)
+    ):
+        reason = "TP" if price >= entry_price * (1 + TP_PCT) else "SL"
+        logging.info(f"{sym} - Price-based SELL triggered ({reason}) price={price:.2f} entry={entry_price:.2f}")
+        if not check_kill_switch():
+            safe_market_sell(trade_client, sym, qty_open, order_lock)
+        else:
+            logging.warning(f"{sym} - Kill switch active, sell aborted")
+                 
+
+          
             time.sleep(LOOP_SLEEP)
 
         except Exception as e:
