@@ -336,7 +336,7 @@ def main():
                             inflight_orders.pop(sym, None)
 
                   # === SELL LOGIC ===
-if qty_open > 0:
+    if qty_open > 0:
     entry_time = entry_times.get(sym)
     if not entry_time:
         logging.warning(f"{sym} - Missing entry_time, skipping time-based exit check")
