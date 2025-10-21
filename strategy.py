@@ -215,6 +215,6 @@ def main():
                 safe_market_sell(trade_client, sym, qty_open, order_lock)
             else:
                 logging.warning(f"{sym} - Kill switch active, sell aborted")
-      if __name__ == "__main__":
-          main()
+        if __name__ == "__main__":
+            main()
                       
