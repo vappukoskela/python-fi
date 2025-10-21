@@ -336,13 +336,11 @@ def main():
                             inflight_orders.pop(sym, None)
 
                   # === SELL LOGIC ===
-    if qty_open > 0:
+ if qty_open > 0:
     entry_time = entry_times.get(sym)
-    if entry_time is None:
-    logging.warning(...)
-    continue
-    assert isinstance(entry_time, datetime)
-
+    if not entry_time:
+        logging.warning(f"{sym} - Missing entry_time, skipping time-based exit check")
+        continue
 
     entry_price = entry_prices.get(sym, avg_entry or price)
     elapsed = (datetime.now(timezone.utc) - entry_time).total_seconds()
