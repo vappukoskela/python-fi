@@ -338,7 +338,7 @@ def main():
                     # === SELL LOGIC ===
                     if qty_open > 0:
                         entry_time = entry_times.get(sym)
-                    if not entry_time:
+                    if not isinstance (entry_time, datetime):
                         logging.warning(f"{sym} - Missing entry_time during sell check. Skipping MAX_HOLD_SECONDS enforcement.")
                         continue # skip this symbol
                         entry_price = entry_prices.get(sym, avg_entry or price)
