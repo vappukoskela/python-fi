@@ -343,7 +343,7 @@ def main():
                         continue # skip this symbol
                         entry_price = entry_prices.get(sym, avg_entry or price)
                         elapsed = (datetime.now(timezone.utc) - entry_time).total_seconds()
-                            if (
+                        if (
                             price >= entry_price * (1 + TP_PCT) or
                             price <= entry_price * (1 - SL_PCT) or
                             elapsed >= MAX_HOLD_SECONDS
