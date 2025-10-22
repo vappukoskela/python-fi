@@ -80,6 +80,20 @@ def get_positions_map(trade_client_local):
         logging.debug("get_open_positions failed: %s", e)
         return {}
 
+def calculate_buying_power_limit(trade_client_local, fraction):
+    """
+    Return the maximum dollar amount allowed for trading this loop,
+    based on a fraction of Alpaca's current buying power.
+    """
+    try:
+        account = trade_client_local.get_account()
+        buying_power = float(account.buying_power)
+        return buying_power * fraction
+    except Exception as e:
+        logging.exception("Error fetching buying power: %s", e)
+        return 0.0
+
+
 # (Other helpers like fetch_latest_trade_price_and_size_batch, calculate_buying_power_limit,
 #  get_position_qty, safe_market_buy, safe_market_sell, check_kill_switch remain unchanged)
 
