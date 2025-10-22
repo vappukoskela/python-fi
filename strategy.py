@@ -212,7 +212,7 @@ def main():
                             continue
                         last_trade_attempt[sym] = datetime.now(timezone.utc)
 
-                                                est_trade_cost = price * int((max_loop_budget * BUY_CASH_BUFFER) // price)
+                        est_trade_cost = price * int((max_loop_budget * BUY_CASH_BUFFER) // price)
                         if spent_this_loop + est_trade_cost > max_loop_budget:
                             logging.info(f"{sym} - Skipping buy: budget exceeded. est_cost={est_trade_cost:.2f} spent={spent_this_loop:.2f}")
                             continue
