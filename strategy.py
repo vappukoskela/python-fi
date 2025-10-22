@@ -65,7 +65,23 @@ def compute_vwap_from_ticks(prices, sizes):
     return vwap if isinstance(vwap, pd.Series) else pd.Series([vwap])
 
 # === Alpaca helpers: defensive ===
-# [unchanged helper functions: fetch_latest_trade_price_and_size_batch, calculate_buying_power_limit, get_positions_map, get_position_qty, safe_market_buy, safe_market_sell...]
+def get_positions_map(trade_client_local):
+    """Return dict: symbol -> (qty, avg_entry_price)."""
+    try:
+        positions = trade_client_local.get_open_positions()
+        return {
+            pos.symbol: (
+                int(float(pos.qty)),
+                float(pos.avg_entry_price) if pos.avg_entry_price else 0.0
+            )
+            for pos in positions
+        }
+    except Exception as e:
+        logging.debug("get_open_positions failed: %s", e)
+        return {}
+
+# (Other helpers like fetch_latest_trade_price_and_size_batch, calculate_buying_power_limit,
+#  get_position_qty, safe_market_buy, safe_market_sell, check_kill_switch remain unchanged)
 
 # === MAIN ===
 def main():
@@ -196,7 +212,7 @@ def main():
                             continue
                         last_trade_attempt[sym] = datetime.now(timezone.utc)
 
-                        est_trade_cost = price * int((max_loop_budget * BUY_CASH_BUFFER) // price)
+                                                est_trade_cost = price * int((max_loop_budget * BUY_CASH_BUFFER) // price)
                         if spent_this_loop + est_trade_cost > max_loop_budget:
                             logging.info(f"{sym} - Skipping buy: budget exceeded. est_cost={est_trade_cost:.2f} spent={spent_this_loop:.2f}")
                             continue
@@ -263,3 +279,5 @@ def main():
 
 if __name__ == "__main__":
     main()
+
+                                                      
