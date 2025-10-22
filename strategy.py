@@ -93,6 +93,26 @@ def calculate_buying_power_limit(trade_client_local, fraction):
         logging.exception("Error fetching buying power: %s", e)
         return 0.0
 
+def fetch_latest_trade_price_and_size_batch(data_client, symbols):
+    """
+    Fetch the latest trade price and size for a batch of symbols.
+    Returns a dict: {symbol: (price, size)}.
+    """
+    results = {}
+    try:
+        req = StockLatestTradeRequest(symbol_or_symbols=symbols)
+        trades = data_client.get_stock_latest_trade(req)
+        for sym in symbols:
+            trade = trades.get(sym)
+            if trade and trade.price and trade.size:
+                results[sym] = (float(trade.price), int(trade.size))
+            else:
+                results[sym] = (None, None)
+    except Exception as e:
+        logging.exception("Error fetching latest trades: %s", e)
+        for sym in symbols:
+            results[sym] = (None, None)
+    return results
 
 # (Other helpers like fetch_latest_trade_price_and_size_batch, calculate_buying_power_limit,
 #  get_position_qty, safe_market_buy, safe_market_sell, check_kill_switch remain unchanged)
