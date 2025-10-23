@@ -380,4 +380,4 @@ def main():
             logging.exception("Main loop error: %s", e)
             time.sleep(5.0)
 if __name__ == "__main__":
-    mai
+    main()
