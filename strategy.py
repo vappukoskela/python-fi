@@ -373,31 +373,31 @@ def main():
                                 time_in_force=TimeInForce.DAY
                             )
                             trade_client.submit_order(order)
-                        logging.info("%s - SCALP SELL %d @ %.4f (tp=%s sl=%s vwap_fail=%s ema_fail=%s time_exceeded=%s)",
-                                     sym, qty_open, last_price, tp_hit, sl_hit, vwap_fail, ema_fail, time_exceeded)
-                        entry_times.pop(sym, None)
-                        entry_prices.pop(sym, None)
-                except Exception as e:
-                    logging.exception("%s - SCALP SELL error: %s", sym, str(e))
+                            logging.info("%s - SCALP SELL %d @ %.4f (tp=%s sl=%s vwap_fail=%s ema_fail=%s time_exceeded=%s)",
+                                         sym, qty_open, last_price, tp_hit, sl_hit, vwap_fail, ema_fail, time_exceeded)
+                            entry_times.pop(sym, None)
+                            entry_prices.pop(sym, None)
+                    except Exception as e:
+                        logging.exception("%s - SCALP SELL error: %s", sym, str(e))
 
-        # end for symbols
+            # end for symbols
 
-        # sleep til next second boundary to keep things rhythmic
+            # sleep til next second boundary to keep things rhythmic
+            try:
+                time_to_sleep = SCALP_SLEEP_SECONDS - (datetime.now(timezone.utc).microsecond / 1_000_000.0)
+                if time_to_sleep > 0:
+                    time.sleep(time_to_sleep)
+            except Exception:
+                time.sleep(SCALP_SLEEP_SECONDS)
         try:
-            time_to_sleep = SCALP_SLEEP_SECONDS - (datetime.now(timezone.utc).microsecond / 1_000_000.0)
-            if time_to_sleep > 0:
-                time.sleep(time_to_sleep)
+            if input_thread.is_alive():
+                logging.debug("Waiting for input thread to finish...")
+                input_thread.join(timeout=1.0)
         except Exception:
-            time.sleep(SCALP_SLEEP_SECONDS)
-    try:
-        if input_thread.is_alive():
-            logging.debug("Waiting for input thread to finish...")
-            input_thread.join(timeout=1.0)
-    except Exception:
-        pass
-
-    logging.info("Main exiting.")
-    return
+            pass
+    
+        logging.info("Main exiting.")
+        return
 
 
 
