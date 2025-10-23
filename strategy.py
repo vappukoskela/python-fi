@@ -359,20 +359,20 @@ def main():
                             ema_fail = False
     
                         time_exceeded = False
-                    if sym in entry_times:
-                        elapsed = (now - entry_times[sym]).total_seconds()
-                        if elapsed >= MAX_HOLD_SECONDS:
-                            time_exceeded = True
+                        if sym in entry_times:
+                            elapsed = (now - entry_times[sym]).total_seconds()
+                            if elapsed >= MAX_HOLD_SECONDS:
+                                time_exceeded = True
 
-                    if tp_hit or sl_hit or vwap_fail or ema_fail or time_exceeded:
-                        order = MarketOrderRequest(
-                            symbol=sym,
-                            qty=qty_open,
-                            side=OrderSide.SELL,
-                            type=OrderType.MARKET,
-                            time_in_force=TimeInForce.DAY
-                        )
-                        trade_client.submit_order(order)
+                        if tp_hit or sl_hit or vwap_fail or ema_fail or time_exceeded:
+                            order = MarketOrderRequest(
+                                symbol=sym,
+                                qty=qty_open,
+                                side=OrderSide.SELL,
+                                type=OrderType.MARKET,
+                                time_in_force=TimeInForce.DAY
+                            )
+                            trade_client.submit_order(order)
                         logging.info("%s - SCALP SELL %d @ %.4f (tp=%s sl=%s vwap_fail=%s ema_fail=%s time_exceeded=%s)",
                                      sym, qty_open, last_price, tp_hit, sl_hit, vwap_fail, ema_fail, time_exceeded)
                         entry_times.pop(sym, None)
