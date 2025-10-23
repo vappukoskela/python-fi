@@ -332,6 +332,8 @@ def main():
                                 entry_prices[sym] = price
                                 entry_times[sym] = datetime.now(timezone.utc)
                                 logging.info(f"{sym} - ENTRY recorded qty={entry_qty[sym]} price={price:.2f} rsi={rsi_val:.2f}")
+                        except Exception as e:
+                            logging.exception("%s - BUY error: %s", sym, str(e))
                         finally:
                             inflight_orders.pop(sym, None)
 
