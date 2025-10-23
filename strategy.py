@@ -360,7 +360,7 @@ def main():
     
                             time_exceeded = False
                             if sym in entry_times:
-                                elapsed = (now - entry_times[sym]).total_seconds()
+                                elapsed = datetime.now(timezone.utc)
                                 if elapsed >= MAX_HOLD_SECONDS:
                                     time_exceeded = True
     
