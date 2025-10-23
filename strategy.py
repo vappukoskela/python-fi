@@ -337,47 +337,70 @@ def main():
 
                     # === SELL LOGIC ===
                     if qty_open > 0:
-                        entry_time = entry_times.get(sym)
-                        if not entry_time:
-                            logging.warning(f"{sym} - Missing entry_time, skipping time-based exit check")
-                            continue
+                    try:
+                    last_price = price
+                    tp_hit = last_price >= avg_entry * (1 + TP_PCT)
+                    sl_hit = last_price <= avg_entry * (1 - SL_PCT)
 
-                        # Ensure entry_time is a datetime
-                        if isinstance(entry_time, str):
-                            try:
-                                entry_time = datetime.fromisoformat(entry_time)
-                            except Exception:
-                                logging.error(f"{sym} - Invalid entry_time format: {entry_time}")
-                                continue
+                    # vwap fail: last 3 ticks under vwap
+                    vwap_fail = False
+                    try:
+                        if len(prices) >= 3 and pd.notna(vwap_series.iloc[-1]):
+                            vwap_fail = all(prices.iloc[-i] < vwap_series.iloc[-i] for i in range(1, min(4, len(prices)+1)))
+                    except Exception:
+                        vwap_fail = False
 
-                        entry_price = entry_prices.get(sym, avg_entry or price)
-                        elapsed = (datetime.now(timezone.utc) - entry_time).total_seconds()
+                    # ema fail: last 3 ticks ema_fast < ema_slow
+                    ema_fail = False
+                    try:
+                        if len(ema_fast_series) >= 3:
+                            ema_fail = all(ema_fast_series.iloc[-i] < ema_slow_series.iloc[-i] for i in range(1, min(4, len(ema_fast_series)+1)))
+                    except Exception:
+                        ema_fail = False
 
+                    time_exceeded = False
+                    if sym in entry_times:
+                        elapsed = (now - entry_times[sym]).total_seconds()
                         if elapsed >= MAX_HOLD_SECONDS:
-                            logging.info(f"{sym} - Time-based SELL triggered (held {elapsed:.1f}s ≥ {MAX_HOLD_SECONDS}s)")
-                            if not check_kill_switch():
-                                safe_market_sell(trade_client, sym, qty_open, order_lock)
-                                last_exit_time[sym] = datetime.now(timezone.utc)
-                            else:
-                                logging.warning(f"{sym} - Kill switch active, sell aborted")
-                            continue
+                            time_exceeded = True
 
-                        if (
-                            price >= entry_price * (1 + TP_PCT)
-                            or price <= entry_price * (1 - SL_PCT)
-                        ):
-                            reason = "TP" if price >= entry_price * (1 + TP_PCT) else "SL"
-                            logging.info(f"{sym} - Price-based SELL triggered ({reason}) price={price:.2f} entry={entry_price:.2f}")
-                            if not check_kill_switch():
-                                safe_market_sell(trade_client, sym, qty_open, order_lock)
-                                last_exit_time[sym] = datetime.now(timezone.utc)
-                            else:
-                                logging.warning(f"{sym} - Kill switch active, sell aborted")
+                    if tp_hit or sl_hit or vwap_fail or ema_fail or time_exceeded:
+                        order = MarketOrderRequest(
+                            symbol=sym,
+                            qty=qty_open,
+                            side=OrderSide.SELL,
+                            type=OrderType.MARKET,
+                            time_in_force=TimeInForce.DAY
+                        )
+                        trade_client.submit_order(order)
+                        logging.info("%s - SCALP SELL %d @ %.4f (tp=%s sl=%s vwap_fail=%s ema_fail=%s time_exceeded=%s)",
+                                     sym, qty_open, last_price, tp_hit, sl_hit, vwap_fail, ema_fail, time_exceeded)
+                        entry_times.pop(sym, None)
+                        entry_prices.pop(sym, None)
+                except Exception as e:
+                    logging.exception("%s - SCALP SELL error: %s", sym, str(e))
 
-            time.sleep(LOOP_SLEEP)
+        # end for symbols
 
-        except Exception as e:
-            logging.exception("Main loop error: %s", e)
-            time.sleep(5.0)
+        # sleep til next second boundary to keep things rhythmic
+        try:
+            time_to_sleep = SCALP_SLEEP_SECONDS - (datetime.now(timezone.utc).microsecond / 1_000_000.0)
+            if time_to_sleep > 0:
+                time.sleep(time_to_sleep)
+        except Exception:
+            time.sleep(SCALP_SLEEP_SECONDS)
+    try:
+        if input_thread.is_alive():
+            logging.debug("Waiting for input thread to finish...")
+            input_thread.join(timeout=1.0)
+    except Exception:
+        pass
+
+    logging.info("Main exiting.")
+    return
+
+
+
+
 if __name__ == "__main__":
     main()
