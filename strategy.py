@@ -360,10 +360,7 @@ def main():
                           else:
                               pass
                       # --- Trendistrategia ---
-                      
-      
-              # wait before next loop
-              time.sleep(SCALP_SLEEP_SECONDS if SCALP else 60)
+        
       
 if __name__ == "__main__":
     main()
