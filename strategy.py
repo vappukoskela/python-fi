@@ -341,71 +341,14 @@ def main():
                         try:
                             last_price = float(price)
                     
-                            # Hard exits
+                            # --- exit conditions ---
                             tp_hit = last_price >= avg_entry * (1 + TP_PCT)
                             sl_hit = last_price <= avg_entry * (1 - SL_PCT)
+                            # ... vwap_fail, ema_fail, rsi_cool, trailing_stop_hit, time_exceeded ...
                     
-                            # Indicator-based exits (3-bar confirmation where applicable)
-                            vwap_series = compute_vwap_from_ticks(pd.Series(price_deques[sym]), pd.Series(size_deques[sym]))
-                            ema_fast_series = compute_ema_from_series(pd.Series(price_deques[sym]), EMA_FAST)
-                            ema_slow_series = compute_ema_from_series(pd.Series(price_deques[sym]), EMA_SLOW)
-                            rsi_series = compute_rsi_from_series(pd.Series(price_deques[sym]), RSI_PERIOD)
-                    
-                            vwap_fail = False
-                            try:
-                                if len(vwap_series) >= 3 and not pd.isna(vwap_series.iloc[-1]):
-                                    vwap_fail = all(pd.Series(price_deques[sym]).iloc[-i] < vwap_series.iloc[-i] for i in range(1, 4))
-                            except Exception:
-                                vwap_fail = False
-                    
-                            ema_fail = False
-                            try:
-                                if len(ema_fast_series) >= 3 and len(ema_slow_series) >= 3:
-                                    ema_fail = all(ema_fast_series.iloc[-i] < ema_slow_series.iloc[-i] for i in range(1, 4))
-                            except Exception:
-                                ema_fail = False
-                    
-                            rsi_cool = False
-                            try:
-                                if len(rsi_series) >= 1 and not pd.isna(rsi_series.iloc[-1]):
-                                    rsi_cool = rsi_series.iloc[-1] < MIN_RSI_FOR_ENTRY  # below entry threshold indicates momentum fading
-                            except Exception:
-                                rsi_cool = False
-                    
-                            # Trailing stop from peak since entry (price_deques as proxy)
-                            trailing_stop_hit = False
-                            try:
-                                if sym in entry_times:
-                                    # Consider only prices since entry_time
-                                    entry_t = entry_times[sym]
-                                    times = pd.Series(time_deques[sym])
-                                    ps = pd.Series(price_deques[sym])
-                                    if len(times) == len(ps) and len(ps) >= 2:
-                                        mask = times >= entry_t
-                                        if mask.any():
-                                            since_entry_prices = ps[mask]
-                                            peak = float(since_entry_prices.max())
-                                            drawdown_pct = (peak - last_price) / peak if peak > 0 else 0.0
-                                            # Typical scalping trailing stop ~0.3% from peak
-                                            trailing_stop_hit = drawdown_pct >= 0.003
-                            except Exception:
-                                trailing_stop_hit = False
-                    
-                            # Max hold time
-                            time_exceeded = False
-                            if sym in entry_times:
-                                elapsed = (datetime.now(timezone.utc) - entry_times[sym]).total_seconds()
-                                time_exceeded = elapsed >= MAX_HOLD_SECONDS
-                    
-                            # Final decision
                             should_sell = (
-                                tp_hit or
-                                sl_hit or
-                                vwap_fail or
-                                ema_fail or
-                                rsi_cool or
-                                trailing_stop_hit or
-                                time_exceeded
+                                tp_hit or sl_hit or vwap_fail or ema_fail or rsi_cool or
+                                trailing_stop_hit or time_exceeded
                             )
                     
                             if should_sell:
@@ -420,7 +363,6 @@ def main():
                     
                                 reason = ", ".join(reason_parts) if reason_parts else "Exit"
                     
-                                # Use safe sell with confirmation and state cleanup
                                 submitted = safe_market_sell(trade_client, sym, qty_open, order_lock)
                                 logging.info(
                                     "%s - SCALP SELL trigger qty=%d @ %.4f (%s) | Entry=%.4f",
