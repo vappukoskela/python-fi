@@ -358,46 +358,46 @@ def main():
                             except Exception:
                                 ema_fail = False
     
-                        time_exceeded = False
-                        if sym in entry_times:
-                            elapsed = (now - entry_times[sym]).total_seconds()
-                            if elapsed >= MAX_HOLD_SECONDS:
-                                time_exceeded = True
-
-                        if tp_hit or sl_hit or vwap_fail or ema_fail or time_exceeded:
-                            order = MarketOrderRequest(
-                                symbol=sym,
-                                qty=qty_open,
-                                side=OrderSide.SELL,
-                                type=OrderType.MARKET,
-                                time_in_force=TimeInForce.DAY
-                            )
-                            trade_client.submit_order(order)
-                            logging.info("%s - SCALP SELL %d @ %.4f (tp=%s sl=%s vwap_fail=%s ema_fail=%s time_exceeded=%s)",
-                                         sym, qty_open, last_price, tp_hit, sl_hit, vwap_fail, ema_fail, time_exceeded)
-                            entry_times.pop(sym, None)
-                            entry_prices.pop(sym, None)
-                    except Exception as e:
-                        logging.exception("%s - SCALP SELL error: %s", sym, str(e))
-
-            # end for symbols
-
-            # sleep til next second boundary to keep things rhythmic
-            try:
-                time_to_sleep = SCALP_SLEEP_SECONDS - (datetime.now(timezone.utc).microsecond / 1_000_000.0)
-                if time_to_sleep > 0:
-                    time.sleep(time_to_sleep)
-            except Exception:
-                time.sleep(SCALP_SLEEP_SECONDS)
-        try:
-            if input_thread.is_alive():
-                logging.debug("Waiting for input thread to finish...")
-                input_thread.join(timeout=1.0)
-        except Exception:
-            pass
+                            time_exceeded = False
+                            if sym in entry_times:
+                                elapsed = (now - entry_times[sym]).total_seconds()
+                                if elapsed >= MAX_HOLD_SECONDS:
+                                    time_exceeded = True
     
-        logging.info("Main exiting.")
-        return
+                            if tp_hit or sl_hit or vwap_fail or ema_fail or time_exceeded:
+                                order = MarketOrderRequest(
+                                    symbol=sym,
+                                    qty=qty_open,
+                                    side=OrderSide.SELL,
+                                    type=OrderType.MARKET,
+                                    time_in_force=TimeInForce.DAY
+                                )
+                                trade_client.submit_order(order)
+                                logging.info("%s - SCALP SELL %d @ %.4f (tp=%s sl=%s vwap_fail=%s ema_fail=%s time_exceeded=%s)",
+                                             sym, qty_open, last_price, tp_hit, sl_hit, vwap_fail, ema_fail, time_exceeded)
+                                entry_times.pop(sym, None)
+                                entry_prices.pop(sym, None)
+                        except Exception as e:
+                            logging.exception("%s - SCALP SELL error: %s", sym, str(e))
+    
+                # end for symbols
+    
+                # sleep til next second boundary to keep things rhythmic
+                try:
+                    time_to_sleep = SCALP_SLEEP_SECONDS - (datetime.now(timezone.utc).microsecond / 1_000_000.0)
+                    if time_to_sleep > 0:
+                        time.sleep(time_to_sleep)
+                except Exception:
+                    time.sleep(SCALP_SLEEP_SECONDS)
+            try:
+                if input_thread.is_alive():
+                    logging.debug("Waiting for input thread to finish...")
+                    input_thread.join(timeout=1.0)
+            except Exception:
+                pass
+        
+            logging.info("Main exiting.")
+            return
 
 
 
