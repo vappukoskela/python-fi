@@ -303,101 +303,68 @@ def main():
                         pending_entries.discard(sym)
 
                     # === BUY LOGIC ===
-                    if (
-                        qty_open == 0 and
-                        sym not in pending_entries and
-                        ema_trend_up and
-                        price_above_vwap and
-                        vol_ok and
-                        MIN_RSI_FOR_ENTRY <= rsi_val <= MAX_RSI_FOR_ENTRY and
-                        (datetime.now(timezone.utc) - last_exit).total_seconds() >= COOLDOWN_SECONDS and
-                        inflight_orders.get(sym) is None
-                    ):
-                        if (datetime.now(timezone.utc) - last_trade_attempt[sym]).total_seconds() < 1.0:
-                            continue
-                        last_trade_attempt[sym] = datetime.now(timezone.utc)
+                     if qty_open > 0:
+                    try:
+                        last = float(close.iloc[-1])
+                        tp_hit = last >= avg_entry * (1 + TP_PCT)
+                        sl_hit = last <= avg_entry * (1 - SL_PCT)
 
-                        est_trade_cost = price * int((max_loop_budget * BUY_CASH_BUFFER) // price)
-                        if spent_this_loop + est_trade_cost > max_loop_budget:
-                            logging.info(f"{sym} - Skipping buy: budget exceeded. est_cost={est_trade_cost:.2f} spent={spent_this_loop:.2f}")
-                            continue
+                        # Confirmation: require 3 consecutive closes below VWAP
+                        vwap_fail = all(close.iloc[-i] < vwap.iloc[-i] for i in range(1, 4))
+                        # EMA fail: fast EMA consistently below slow EMA
+                        ema_fail = all(ema_fast.iloc[-i] < ema_slow.iloc[-i] for i in range(1, 4))
 
-                        pending_entries.add(sym)
-                        try:
-                            spent_this_loop += est_trade_cost  # reserve budget immediately
-                            submitted = safe_market_buy(trade_client, sym, max_loop_budget * BUY_CASH_BUFFER, order_lock)
-                            if submitted:
-                                inflight_orders[sym] = getattr(submitted, "id", None) or True
-                                entry_qty[sym] = int((max_loop_budget * BUY_CASH_BUFFER) // price)
-                                entry_prices[sym] = price
-                                entry_times[sym] = datetime.now(timezone.utc)
-                                logging.info(f"{sym} - ENTRY recorded qty={entry_qty[sym]} price={price:.2f} rsi={rsi_val:.2f}")
-                        finally:
-                            inflight_orders.pop(sym, None)
+                        # Dynamic max hold
+                        elapsed_minutes = (df.index[-1] - entry_times.get(sym, df.index[-1])).total_seconds() / 60
+                        max_hold = False
+                        if elapsed_minutes >= MAX_HOLD_BARS:
+                            atr_val = atr.iloc[-1]
+                            if not pd.isna(atr_val):
+                                move = abs(last - avg_entry)
+                                if move < 0.5 * atr_val:
+                                    max_hold = True
 
-                    # === SELL LOGIC ===
-                    if qty_open > 0:
-                        try:
-                            last_price = price
-                            tp_hit = last_price >= avg_entry * (1 + TP_PCT)
-                            sl_hit = last_price <= avg_entry * (1 - SL_PCT)
-        
-                            # vwap fail: last 3 ticks under vwap
-                            vwap_fail = False
-                            try:
-                                if len(prices) >= 3 and pd.notna(vwap_series.iloc[-1]):
-                                    vwap_fail = all(prices.iloc[-i] < vwap_series.iloc[-i] for i in range(1, min(4, len(prices)+1)))
-                            except Exception:
-                                vwap_fail = False
-    
-                            # ema fail: last 3 ticks ema_fast < ema_slow
-                            ema_fail = False
-                            try:
-                                if len(ema_fast_series) >= 3:
-                                    ema_fail = all(ema_fast_series.iloc[-i] < ema_slow_series.iloc[-i] for i in range(1, min(4, len(ema_fast_series)+1)))
-                            except Exception:
-                                ema_fail = False
-    
-                            time_exceeded = False
+                        reason = None
+                        if tp_hit or sl_hit:
+                            reason = "TP" if tp_hit else "SL"
+                        elif ema_fail or vwap_fail:
+                            reason = "EMA/VWAP fail"
+                        elif max_hold:
+                            reason = "DYNAMIC_MAX_HOLD"
+
+                        if reason:
+                            order = MarketOrderRequest(
+                                symbol=sym,
+                                qty=qty_open,
+                                side=OrderSide.SELL,
+                                type=OrderType.MARKET,
+                                time_in_force=TimeInForce.DAY
+                            )
+                            trade_client.submit_order(order)
+
+                            # P/L logging
+                            pl_per_share = last - avg_entry
+                            pl_total = pl_per_share * qty_open
+                            logging.info(
+                                "%s - SCALP SELL %d @ %.2f (%s) | Entry=%.2f Exit=%.2f "
+                                "P/L per share=%.4f Total P/L=%.2f",
+                                sym, qty_open, last, reason, avg_entry, last, pl_per_share, pl_total
+                            )
+
                             if sym in entry_times:
-                                elapsed = (datetime.now(timezone.utc) - entry_times[sym]).total_seconds()
-                                if elapsed >= MAX_HOLD_SECONDS:
-                                    time_exceeded = True
-    
-                            if tp_hit or sl_hit or vwap_fail or ema_fail or time_exceeded:
-                                order = MarketOrderRequest(
-                                    symbol=sym,
-                                    qty=qty_open,
-                                    side=OrderSide.SELL,
-                                    type=OrderType.MARKET,
-                                    time_in_force=TimeInForce.DAY
-                                )
-                                trade_client.submit_order(order)
-                                logging.info("%s - SCALP SELL %d @ %.4f (tp=%s sl=%s vwap_fail=%s ema_fail=%s time_exceeded=%s)",
-                                             sym, qty_open, last_price, tp_hit, sl_hit, vwap_fail, ema_fail, time_exceeded)
-                                entry_times.pop(sym, None)
-                                entry_prices.pop(sym, None)
-                        except Exception as e:
-                            logging.exception("%s - SCALP SELL error: %s", sym, str(e))
-    
-                # end for symbols
-    
-                # sleep til next second boundary to keep things rhythmic
-                try:
-                    time_to_sleep = SCALP_SLEEP_SECONDS - (datetime.now(timezone.utc).microsecond / 1_000_000.0)
-                    if time_to_sleep > 0:
-                        time.sleep(time_to_sleep)
-                except Exception:
-                    time.sleep(SCALP_SLEEP_SECONDS)
-            try:
-                if input_thread.is_alive():
-                    logging.debug("Waiting for input thread to finish...")
-                    input_thread.join(timeout=1.0)
-            except Exception:
-                pass
-        
-            logging.info("Main exiting.")
-            return
+                                del entry_times[sym]
 
-        if __name__ == "__main__":
-            main()
+                    except Exception as e:
+                        logging.exception("%s - SCALP SELL error: %s", sym, str(e))
+
+                    else:
+                        pass
+                # --- Trendistrategia ---
+                
+
+        # wait before next loop
+        time.sleep(SCALP_SLEEP_SECONDS if SCALP else 60)
+
+
+if __name__ == "__main__":
+    main()
