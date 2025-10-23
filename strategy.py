@@ -400,7 +400,9 @@ def main():
                             time_exceeded = False
                             if sym in entry_times:
                                 elapsed = (datetime.now(timezone.utc) - entry_times[sym]).total_seconds()
-                                time_exceeded = elapsed >= MAX_HOLD_SECONDS
+                                logging.debug("%s - Hold time check: elapsed=%.1f / max=%d", sym, elapsed, MAX_HOLD_SECONDS)
+                                if elapsed >= MAX_HOLD_SECONDS:
+                                   time_exceeded = elapsed >= MAX_HOLD_SECONDS
                     
                             # Final decision
                             should_sell = (tp_hit or sl_hit or vwap_fail or ema_fail or rsi_cool or trailing_stop_hit or time_exceeded)
