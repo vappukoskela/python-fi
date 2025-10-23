@@ -303,7 +303,7 @@ def main():
                         pending_entries.discard(sym)
 
                     # === BUY LOGIC ===
-                     if qty_open > 0:
+                    if qty_open > 0:
                           try:
                               last = float(close.iloc[-1])
                               tp_hit = last >= avg_entry * (1 + TP_PCT)
