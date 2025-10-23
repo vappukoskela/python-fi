@@ -336,23 +336,48 @@ def main():
                             inflight_orders.pop(sym, None)
 
                     # === SELL LOGIC ===
-                    if qty_open > 0:
-                        entry_time = entry_times.get(sym, datetime.now(timezone.utc))
+                     if qty_open > 0:
+                        entry_time = entry_times.get(sym)
+                        if not entry_time:
+                            logging.warning(f"{sym} - Missing entry_time, skipping time-based exit check")
+                            continue
+
+                        # Ensure entry_time is a datetime
+                        if isinstance(entry_time, str):
+                            try:
+                                entry_time = datetime.fromisoformat(entry_time)
+                            except Exception:
+                                logging.error(f"{sym} - Invalid entry_time format: {entry_time}")
+                                continue
+
                         entry_price = entry_prices.get(sym, avg_entry or price)
                         elapsed = (datetime.now(timezone.utc) - entry_time).total_seconds()
 
+                        if elapsed >= MAX_HOLD_SECONDS:
+                            logging.info(f"{sym} - Time-based SELL triggered (held {elapsed:.1f}s ≥ {MAX_HOLD_SECONDS}s)")
+                            if not check_kill_switch():
+                                safe_market_sell(trade_client, sym, qty_open, order_lock)
+                                last_exit_time[sym] = datetime.now(timezone.utc)
+                            else:
+                                logging.warning(f"{sym} - Kill switch active, sell aborted")
+                            continue
+
                         if (
-                            price >= entry_price * (1 + TP_PCT) or
-                            price <= entry_price * (1 - SL_PCT) or
-                            elapsed >= MAX_HOLD_SECONDS
+                            price >= entry_price * (1 + TP_PCT)
+                            or price <= entry_price * (1 - SL_PCT)
                         ):
-                            safe_market_sell(trade_client, sym, qty_open, order_lock)
+                            reason = "TP" if price >= entry_price * (1 + TP_PCT) else "SL"
+                            logging.info(f"{sym} - Price-based SELL triggered ({reason}) price={price:.2f} entry={entry_price:.2f}")
+                            if not check_kill_switch():
+                                safe_market_sell(trade_client, sym, qty_open, order_lock)
+                                last_exit_time[sym] = datetime.now(timezone.utc)
+                            else:
+                                logging.warning(f"{sym} - Kill switch active, sell aborted")
 
             time.sleep(LOOP_SLEEP)
 
         except Exception as e:
             logging.exception("Main loop error: %s", e)
-            time.sleep(2.0)
-
+            time.sleep(5.0)
 if __name__ == "__main__":
     mai
