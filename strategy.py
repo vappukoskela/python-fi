@@ -4,7 +4,6 @@ import time
 from datetime import datetime, timezone
 from collections import deque, defaultdict
 import threading
-
 import pandas as pd
 from dotenv import load_dotenv
 from alpaca.data.historical.stock import StockHistoricalDataClient, StockLatestTradeRequest
@@ -33,7 +32,9 @@ MARKET_DATA_CHUNK = 5
 MAX_INFLIGHT_PER_SYMBOL = 1
 
 # === LOGGING ===
-logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s", filename="scalper_safe.log")
+logging.basicConfig(level=logging.INFO,
+                    format="%(asctime)s %(levelname)s %(message)s",
+                    filename="scalper_safe.log")
 console = logging.StreamHandler()
 console.setLevel(logging.INFO)
 logging.getLogger().addHandler(console)
@@ -41,7 +42,10 @@ logging.getLogger().addHandler(console)
 # === helpers: indicators ===
 def compute_ema_from_series(series, period):
     if len(series) < 2:
-        return series.iloc[-1] if len(series) else float("nan")
+        if len(series):
+            return pd.Series([series.iloc[-1]])
+        else:
+            return pd.Series([float("nan")])
     return series.ewm(span=period, adjust=False).mean()
 
 def compute_rsi_from_series(series, period=14):
@@ -52,14 +56,15 @@ def compute_rsi_from_series(series, period=14):
     loss = (-delta.where(delta < 0, 0)).rolling(period).mean()
     rs = gain / loss
     rsi = 100 - (100 / (1 + rs))
-    return rsi
+    return rsi if isinstance(rsi, pd.Series) else pd.Series([rsi])
 
 def compute_vwap_from_ticks(prices, sizes):
     if sizes.sum() == 0:
         return pd.Series([float("nan")] * len(prices))
     cumulative_pv = (prices * sizes).cumsum()
     cumulative_vol = sizes.cumsum()
-    return cumulative_pv / cumulative_vol
+    vwap = cumulative_pv / cumulative_vol
+    return vwap if isinstance(vwap, pd.Series) else pd.Series([vwap])
 
 # === Alpaca helpers: defensive ===
 def fetch_latest_trade_price_and_size_batch(stock_data_client, symbols):
@@ -94,21 +99,21 @@ def calculate_buying_power_limit(trade_client_local, limit_fraction):
 
 def get_positions_map(trade_client_local):
     try:
-        positions = trade_client_local.get_all_positions()
+        positions = trade_client_local.get_open_positions()
         return {pos.symbol: (int(float(pos.qty)), float(pos.avg_entry_price)) for pos in positions}
     except Exception as e:
-        logging.debug("get_all_positions failed: %s", e)
+        logging.debug("get_open_positions failed: %s", e)
         return {}
 
 def get_position_qty(trade_client_local, symbol):
     try:
-        pos = trade_client_local.get_position(symbol)
+        pos = trade_client_local.get_open_position(symbol)
         return int(float(pos.qty))
-    except Exception:
+    except Exception as e:
+        logging.warning(f"get_position_qty failed for {symbol}: {e}")
         return 0
 
 def safe_market_buy(trade_client_local, symbol, cash_amount, order_lock):
-    """Place a market buy and assume it fills immediately (no polling)."""
     with order_lock:
         try:
             try:
@@ -118,30 +123,23 @@ def safe_market_buy(trade_client_local, symbol, cash_amount, order_lock):
                 est_price = float(resp[symbol].price)
             except Exception:
                 est_price = None
-
             if est_price and est_price > 0:
                 qty = int((cash_amount * BUY_CASH_BUFFER) // est_price)
             else:
                 qty = 1
-
             if qty <= 0 or (est_price and qty * est_price < MIN_TRADE_USD):
-                logging.debug(
-                    "Computed buy qty too small for %s (qty=%s est_price=%s cash=%.2f)",
-                    symbol, qty, est_price, cash_amount
-                )
+                logging.debug("Computed buy qty too small for %s (qty=%s est_price=%s cash=%.2f)",
+                              symbol, qty, est_price, cash_amount)
                 return None
-
             order = MarketOrderRequest(
                 symbol=symbol, qty=qty, side=OrderSide.BUY,
                 type=OrderType.MARKET, time_in_force=TimeInForce.DAY
             )
             submitted = trade_client_local.submit_order(order)
-            logging.info("%s - BUY submitted qty=%d (est_price=%s cash=%.2f)", symbol, qty, str(est_price), cash_amount)
-
-            # assume filled immediately
+            logging.info("%s - BUY submitted qty=%d (est_price=%s cash=%.2f)",
+                         symbol, qty, str(est_price), cash_amount)
             logging.info("%s - BUY assumed filled qty=%d", symbol, qty)
             return submitted
-
         except Exception as e:
             logging.exception("safe_market_buy error for %s: %s", symbol, e)
             return None
@@ -149,14 +147,48 @@ def safe_market_buy(trade_client_local, symbol, cash_amount, order_lock):
 def safe_market_sell(trade_client_local, symbol, intended_qty, order_lock):
     with order_lock:
         available = get_position_qty(trade_client_local, symbol)
+        if available == 0 and intended_qty > 0:
+            time.sleep(1.0)
+            available = get_position_qty(trade_client_local, symbol)
+
         qty_to_sell = min(int(intended_qty), available)
         if qty_to_sell <= 0:
-            logging.info("safe_market_sell: nothing to sell for %s (available=%d intended=%s)", symbol, available, intended_qty)
+            logging.info("safe_market_sell: nothing to sell for %s (available=%d intended=%s)",
+                         symbol, available, intended_qty)
             return None
         try:
-            order = MarketOrderRequest(symbol=symbol, qty=qty_to_sell, side=OrderSide.SELL, type=OrderType.MARKET, time_in_force=TimeInForce.DAY)
+            order = MarketOrderRequest(
+                symbol=symbol, qty=qty_to_sell, side=OrderSide.SELL,
+                type=OrderType.MARKET, time_in_force=TimeInForce.DAY
+            )
             submitted = trade_client_local.submit_order(order)
-            logging.info("%s - SELL submitted qty=%d (available=%d intended=%s)", symbol, qty_to_sell, available, intended_qty)
+            order_id = getattr(submitted, "id", None)
+            logging.info("%s - SELL submitted qty=%d (available=%d intended=%s) order_id=%s",
+                         symbol, qty_to_sell, available, intended_qty, order_id)
+
+            if order_id:
+                try:
+                    max_retries = 5
+                    status = None
+                    for attempt in range(max_retries):
+                        confirmed = trade_client_local.get_order_by_id(order_id)
+                        status = getattr(confirmed, "status", None)
+                        logging.info("%s - SELL order %s status=%s (attempt %d/%d)",
+                                     symbol, order_id, status, attempt+1, max_retries)
+                        if status == "filled":
+                            entry_times.pop(symbol, None)
+                            entry_prices.pop(symbol, None)
+                            entry_qty.pop(symbol, None)
+                            last_exit_time[symbol] = datetime.now(timezone.utc)
+                            logging.info("%s - EXIT state cleanup completed", symbol)
+                            break
+                        time.sleep(1.0)
+                    else:
+                        logging.warning("%s - SELL order %s not filled after %d retries (last status=%s)",
+                                        symbol, order_id, max_retries, status)
+                except Exception as e:
+                    logging.warning("%s - Could not verify SELL order %s: %s", symbol, order_id, e)
+
             return submitted
         except Exception as e:
             logging.exception("safe_market_sell error for %s: %s", symbol, e)
@@ -165,25 +197,29 @@ def safe_market_sell(trade_client_local, symbol, intended_qty, order_lock):
 # === MAIN ===
 def main():
     load_dotenv()
-    global stock_data_client, trade_client
-    stock_data_client = StockHistoricalDataClient(os.getenv("ALPACA_PAPER_API_KEY"), os.getenv("ALPACA_PAPER_SECRET_KEY"))
-    trade_client = TradingClient(os.getenv("ALPACA_PAPER_API_KEY"), os.getenv("ALPACA_PAPER_SECRET_KEY"), paper=True)
-
+    global stock_data_client, trade_client, entry_times, entry_prices, entry_qty, last_exit_time
+    stock_data_client = StockHistoricalDataClient(
+        os.getenv("ALPACA_PAPER_API_KEY"),
+        os.getenv("ALPACA_PAPER_SECRET_KEY")
+    )
+    trade_client = TradingClient(
+        os.getenv("ALPACA_PAPER_API_KEY"),
+        os.getenv("ALPACA_PAPER_SECRET_KEY"),
+        paper=True
+    )
     symbols = ["AAPL", "MSFT", "MU", "QCOM", "NVDA", "V", "AMD", "GOOG", "C", "EBAY", "OKTA", "TSLA", "AMZN", "ADSK", "DELL"]
-
     price_deques = {s: deque(maxlen=TICKS_WINDOW) for s in symbols}
     size_deques = {s: deque(maxlen=TICKS_WINDOW) for s in symbols}
     time_deques = {s: deque(maxlen=TICKS_WINDOW) for s in symbols}
-
     entry_times = {}
     entry_prices = {}
     entry_qty = {}
     inflight_orders = {}
     last_exit_time = {}
     last_trade_attempt = defaultdict(lambda: datetime.min.replace(tzinfo=timezone.utc))
-
     order_lock = threading.Lock()
     stop_event = threading.Event()
+    pending_entries = set()   # prevent duplicate buys
 
     def input_listener():
         try:
@@ -204,162 +240,119 @@ def main():
 
     def sell_all_positions(trade_client_local, order_lock_local):
         try:
-            positions = trade_client_local.get_all_positions()
+            positions = trade_client_local.get_open_positions()
             for p in positions:
                 s = p.symbol
                 q = int(float(p.qty))
                 if q > 0:
-                    with order_lock_local:
-                        try:
-                            order = MarketOrderRequest(symbol=s, qty=q, side=OrderSide.SELL, type=OrderType.MARKET, time_in_force=TimeInForce.DAY)
-                            trade_client_local.submit_order(order)
-                            logging.info("EXIT SELL %s qty=%d", s, q)
-                        except Exception as e:
-                            logging.exception("EXIT SELL error for %s: %s", s, e)
+                    try:
+                        order = MarketOrderRequest(
+                            symbol=s, qty=q, side=OrderSide.SELL,
+                            type=OrderType.MARKET, time_in_force=TimeInForce.DAY
+                        )
+                        trade_client_local.submit_order(order)
+                        logging.info("%s - Forced SELL qty=%d", s, q)
+                    except Exception as e:
+                        logging.exception("Forced sell error for %s: %s", s, e)
         except Exception as e:
-            logging.exception("Failed to fetch positions during EXIT: %s", e)
+            logging.exception("sell_all_positions error: %s", e)
 
-    thr = threading.Thread(target=input_listener, daemon=True)
-    thr.start()
+    # Start input listener thread
+    threading.Thread(target=input_listener, daemon=True).start()
 
-    symbol_chunks = [symbols[i:i+MARKET_DATA_CHUNK] for i in range(0, len(symbols), MARKET_DATA_CHUNK)]
-    last_account_fetch = 0
-    account_fetch_interval = 10
-    buying_power_limit_cached = None
+    logging.info("Starting main loop with symbols: %s", symbols)
 
-    logging.info("Starting long-only scalper main loop.")
+    while not stop_event.is_set():
+        try:
+            positions_map = get_positions_map(trade_client)
+            spent_this_loop = 0.0
+            max_loop_budget = calculate_buying_power_limit(trade_client, BUY_POWER_LIMIT)
 
-    try:
-        while not stop_event.is_set():
-            loop_start = datetime.now(timezone.utc)
-
-            if buying_power_limit_cached is None or (time.time() - last_account_fetch) > account_fetch_interval:
-                buying_power_limit_cached = calculate_buying_power_limit(trade_client, BUY_POWER_LIMIT)
-                last_account_fetch = time.time()
-
-            try:
-                positions_snapshot = get_positions_map(trade_client)
-            except Exception:
-                positions_snapshot = {}
-
-            for chunk in symbol_chunks:
-                md = fetch_latest_trade_price_and_size_batch(stock_data_client, chunk)
-                tnow = datetime.now(timezone.utc)
+            for i in range(0, len(symbols), MARKET_DATA_CHUNK):
+                chunk = symbols[i:i+MARKET_DATA_CHUNK]
+                trades = fetch_latest_trade_price_and_size_batch(stock_data_client, chunk)
 
                 for sym in chunk:
-                    price, size = md.get(sym, (None, None))
-                    if price is None:
+                    price, size = trades.get(sym, (None, None))
+                    if price is None or size is None or price <= 0:
                         continue
 
                     price_deques[sym].append(price)
                     size_deques[sym].append(size)
-                    time_deques[sym].append(tnow)
+                    time_deques[sym].append(datetime.now(timezone.utc))
 
-                    if len(price_deques[sym]) < max(EMA_SLOW, RSI_PERIOD, 3):
+                    prices = pd.Series(price_deques[sym])
+                    sizes = pd.Series(size_deques[sym])
+                    ema_fast = compute_ema_from_series(prices, EMA_FAST).iloc[-1]
+                    ema_slow = compute_ema_from_series(prices, EMA_SLOW).iloc[-1]
+                    rsi_val = compute_rsi_from_series(prices, RSI_PERIOD).iloc[-1]
+                    vwap_val = compute_vwap_from_ticks(prices, sizes).iloc[-1]
+
+                    if pd.isna(ema_fast) or pd.isna(ema_slow) or pd.isna(rsi_val) or pd.isna(vwap_val):
                         continue
 
-                    prices = pd.Series(list(price_deques[sym]))
-                    sizes = pd.Series(list(size_deques[sym]))
-                    vwap_series = compute_vwap_from_ticks(prices, sizes)
-                    ema_fast = compute_ema_from_series(prices, EMA_FAST)
-                    ema_slow = compute_ema_from_series(prices, EMA_SLOW)
-                    rsi_series = compute_rsi_from_series(prices, RSI_PERIOD)
+                    ema_trend_up = ema_fast > ema_slow
+                    price_above_vwap = price > vwap_val
+                    vol_ok = size > (sizes.mean() * VOL_SPIKE_MULT) if not pd.isna(sizes.mean()) else False
 
-                    ema_fast_val = float(ema_fast.iloc[-1])
-                    ema_slow_val = float(ema_slow.iloc[-1])
-                    rsi_val = float(rsi_series.iloc[-1]) if pd.notna(rsi_series.iloc[-1]) else None
-                    vwap_val = float(vwap_series.iloc[-1]) if pd.notna(vwap_series.iloc[-1]) else None
-
-                    avg_size = sizes.rolling(window=min(len(sizes), 20)).mean().iloc[-1]
-                    vol_ok = False
-                    if pd.notna(avg_size) and avg_size > 0:
-                        vol_ok = size > (avg_size * VOL_SPIKE_MULT)
-
-                    price_above_vwap = (price > vwap_val) if vwap_val is not None else False
-                    ema_trend_up = ema_fast_val > ema_slow_val
-                    qty_open, avg_entry = positions_snapshot.get(sym, (0, 0.0))
-
-                    try:
-                        api_qty = get_position_qty(trade_client, sym)
-                        if api_qty != qty_open:
-                            qty_open = api_qty
-                    except Exception:
-                        pass
-
-                    now = datetime.now(timezone.utc)
+                    qty_open, avg_entry = positions_map.get(sym, (0, 0.0))
                     last_exit = last_exit_time.get(sym, datetime.min.replace(tzinfo=timezone.utc))
-                    if (qty_open == 0
-                        and ema_trend_up
-                        and price_above_vwap
-                        and vol_ok
-                        and rsi_val is not None
-                        and MIN_RSI_FOR_ENTRY <= rsi_val <= MAX_RSI_FOR_ENTRY
-                        and (now - last_exit).total_seconds() >= COOLDOWN_SECONDS
-                        and inflight_orders.get(sym) is None):
 
-                        if (now - last_trade_attempt[sym]).total_seconds() < 1.0:
+                    # clear pending once position is visible
+                    if qty_open > 0 and sym in pending_entries:
+                        pending_entries.discard(sym)
+
+                    # === BUY LOGIC ===
+                    if (
+                        qty_open == 0 and
+                        sym not in pending_entries and
+                        ema_trend_up and
+                        price_above_vwap and
+                        vol_ok and
+                        MIN_RSI_FOR_ENTRY <= rsi_val <= MAX_RSI_FOR_ENTRY and
+                        (datetime.now(timezone.utc) - last_exit).total_seconds() >= COOLDOWN_SECONDS and
+                        inflight_orders.get(sym) is None
+                    ):
+                        if (datetime.now(timezone.utc) - last_trade_attempt[sym]).total_seconds() < 1.0:
                             continue
-                        last_trade_attempt[sym] = now
+                        last_trade_attempt[sym] = datetime.now(timezone.utc)
 
-                        limit_cash = buying_power_limit_cached or calculate_buying_power_limit(trade_client, BUY_POWER_LIMIT)
-                        if limit_cash <= 0:
-                            logging.debug("No buying power available; skipping buys.")
-                        else:
-                            cash_for_order = limit_cash * BUY_CASH_BUFFER
-                            submitted = safe_market_buy(trade_client, sym, cash_for_order, order_lock)
+                        est_trade_cost = price * int((max_loop_budget * BUY_CASH_BUFFER) // price)
+                        if spent_this_loop + est_trade_cost > max_loop_budget:
+                            logging.info(f"{sym} - Skipping buy: budget exceeded. est_cost={est_trade_cost:.2f} spent={spent_this_loop:.2f}")
+                            continue
+
+                        pending_entries.add(sym)
+                        try:
+                            spent_this_loop += est_trade_cost  # reserve budget immediately
+                            submitted = safe_market_buy(trade_client, sym, max_loop_budget * BUY_CASH_BUFFER, order_lock)
                             if submitted:
-                                order_id = getattr(submitted, "id", None) or getattr(submitted, "order_id", None)
-                                inflight_orders[sym] = order_id or True
-                                entry_qty[sym] = int((cash_for_order * BUY_CASH_BUFFER) // price)
+                                inflight_orders[sym] = getattr(submitted, "id", None) or True
+                                entry_qty[sym] = int((max_loop_budget * BUY_CASH_BUFFER) // price)
                                 entry_prices[sym] = price
-                                entry_times[sym] = now
-                                logging.info("%s - ENTRY recorded assumed qty=%d price=%.4f rsi=%.2f avg_size=%.1f",
-                                             sym, entry_qty[sym], price, rsi_val or -1, avg_size or 0)
-                                inflight_orders.pop(sym, None)
-                    logging.info("%s - price=%.2f size=%d ema_fast=%.2f ema_slow=%.2f rsi=%.2f vwap=%.2f qty_open=%d",
-                                  sym, price, size, ema_fast_val, ema_slow_val, rsi_val or -1, vwap_val or -1, qty_open)
+                                entry_times[sym] = datetime.now(timezone.utc)
+                                logging.info(f"{sym} - ENTRY recorded qty={entry_qty[sym]} price={price:.2f} rsi={rsi_val:.2f}")
+                        finally:
+                            inflight_orders.pop(sym, None)
+
+                    # === SELL LOGIC ===
                     if qty_open > 0:
+                        entry_time = entry_times.get(sym, datetime.now(timezone.utc))
                         entry_price = entry_prices.get(sym, avg_entry or price)
-                        tp_hit = price >= entry_price * (1 + TP_PCT)
-                        sl_hit = price <= entry_price * (1 - SL_PCT)
-                        time_exceeded = False
-                        if sym in entry_times:
-                            elapsed = (now - entry_times[sym]).total_seconds()
-                            if elapsed >= MAX_HOLD_SECONDS:
-                                time_exceeded = True
-                        logging.info("%s - price=%.2f entry_price=%.2f qty=%d tp_hit=%s sl_hit=%s time_exceeded=%s",
-                            sym, price, entry_price, qty_open, tp_hit, sl_hit, time_exceeded)
+                        elapsed = (datetime.now(timezone.utc) - entry_time).total_seconds()
 
+                        if (
+                            price >= entry_price * (1 + TP_PCT) or
+                            price <= entry_price * (1 - SL_PCT) or
+                            elapsed >= MAX_HOLD_SECONDS
+                        ):
+                            safe_market_sell(trade_client, sym, qty_open, order_lock)
 
-                        if tp_hit or sl_hit or time_exceeded:
-                            intended_qty = entry_qty.get(sym, qty_open)
-                            logging.info("%s - EXIT condition triggered (tp=%s sl=%s time_exceeded=%s) intended_qty=%s entry_price=%.4f last=%.4f",
-                                         sym, tp_hit, sl_hit, time_exceeded, intended_qty, entry_price, price)
-                            submitted = safe_market_sell(trade_client, sym, intended_qty, order_lock)
-                            time.sleep(0.5)
-                            post_qty = get_position_qty(trade_client, sym)
-                            logging.info("%s - post-exit qty=%d", sym, post_qty)
-                            if post_qty == 0:
-                                entry_times.pop(sym, None)
-                                entry_prices.pop(sym, None)
-                                entry_qty.pop(sym, None)
-                                last_exit_time[sym] = datetime.now(timezone.utc)
-                                positions_snapshot[sym] = (0, positions_snapshot.get(sym, (0,0))[1])
-                time.sleep(0.03)
-        
-            elapsed_loop = (datetime.now(timezone.utc) - loop_start).total_seconds()
-            to_sleep = max(0.0, LOOP_SLEEP - elapsed_loop)
-            time.sleep(to_sleep)
+            time.sleep(LOOP_SLEEP)
 
-    except KeyboardInterrupt:
-        logging.info("KeyboardInterrupt - shutting down and liquidating positions.")
-        sell_all_positions(trade_client, order_lock)
-    except Exception:
-        logging.exception("Main loop crashed unexpectedly.")
-        sell_all_positions(trade_client, order_lock)
-    finally:
-        stop_event.set()
-        logging.info("Scalper stopped.")
+        except Exception as e:
+            logging.exception("Main loop error: %s", e)
+            time.sleep(2.0)
 
 if __name__ == "__main__":
-    main()
+    mai
