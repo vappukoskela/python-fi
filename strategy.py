@@ -344,11 +344,11 @@ def main():
         
                             # vwap fail: last 3 ticks under vwap
                             vwap_fail = False
-                        try:
-                            if len(prices) >= 3 and pd.notna(vwap_series.iloc[-1]):
-                                vwap_fail = all(prices.iloc[-i] < vwap_series.iloc[-i] for i in range(1, min(4, len(prices)+1)))
-                        except Exception:
-                            vwap_fail = False
+                            try:
+                                if len(prices) >= 3 and pd.notna(vwap_series.iloc[-1]):
+                                    vwap_fail = all(prices.iloc[-i] < vwap_series.iloc[-i] for i in range(1, min(4, len(prices)+1)))
+                            except Exception:
+                                vwap_fail = False
     
                         # ema fail: last 3 ticks ema_fast < ema_slow
                         ema_fail = False
