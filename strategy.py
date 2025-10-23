@@ -350,13 +350,13 @@ def main():
                             except Exception:
                                 vwap_fail = False
     
-                        # ema fail: last 3 ticks ema_fast < ema_slow
-                        ema_fail = False
-                        try:
-                            if len(ema_fast_series) >= 3:
-                                ema_fail = all(ema_fast_series.iloc[-i] < ema_slow_series.iloc[-i] for i in range(1, min(4, len(ema_fast_series)+1)))
-                        except Exception:
+                            # ema fail: last 3 ticks ema_fast < ema_slow
                             ema_fail = False
+                            try:
+                                if len(ema_fast_series) >= 3:
+                                    ema_fail = all(ema_fast_series.iloc[-i] < ema_slow_series.iloc[-i] for i in range(1, min(4, len(ema_fast_series)+1)))
+                            except Exception:
+                                ema_fail = False
     
                         time_exceeded = False
                         if sym in entry_times:
