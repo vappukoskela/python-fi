@@ -327,7 +327,7 @@ def main():
                             spent_this_loop += est_trade_cost  # reserve budget immediately
                             submitted = safe_market_buy(trade_client, sym, max_loop_budget * BUY_CASH_BUFFER, order_lock)
                                
-                          if submitted:
+                        if submitted:
                                 inflight_orders[sym] = getattr(submitted, "id", None) or True
                                 entry_qty[sym] = int((max_loop_budget * BUY_CASH_BUFFER) // price)
                                 entry_prices[sym] = price
