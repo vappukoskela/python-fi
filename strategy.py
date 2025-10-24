@@ -345,7 +345,7 @@ def main():
                     if qty_open > 0:
                             logging.debug(f"[TRACE] Entering sell block for {sym}, qty_open={qty_open}")
 
-                        try:
+                            try:
                             last_price = float(price)
                             logging.debug(f"[TRACE] Sell logic entered for {sym} at {datetime.now(timezone.utc)}")
                             logging.debug(f"[TRACE] Current price={last_price:.4f}, avg_entry={avg_entry:.4f}, qty_open={qty_open}")
