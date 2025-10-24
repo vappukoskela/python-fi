@@ -342,7 +342,7 @@ def main():
                    # === SELL LOGIC (scalping exits) ===
                             logging.debug(f"[TRACE] Pre-sell check: {sym} qty_open={qty_open}, entry_time={entry_times.get(sym)}")
 
-                   if qty_open > 0:
+                      if qty_open > 0:
                             logging.debug(f"[TRACE] Entering sell block for {sym}, qty_open={qty_open}")
                       try:
                           last_price = float(price)
