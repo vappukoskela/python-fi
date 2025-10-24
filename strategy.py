@@ -437,8 +437,8 @@ def main():
                         
                             except Exception as e:
                                 logging.exception("%s - SCALP SELL error: %s", sym, str(e))
-            except Exception as e:
-                    logging.exception("Main loop error: %s", e)
-                    time.sleep(1.0)
+                except Exception as e:
+                        logging.exception("Main loop error: %s", e)
+                        time.sleep(1.0)
 if __name__ == "__main__":
     main()
