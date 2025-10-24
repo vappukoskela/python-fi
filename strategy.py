@@ -340,7 +340,7 @@ def main():
                     # === SELL LOGIC ===
                    # === SELL LOGIC (scalping exits) ===
                     if qty_open > 0:
-                    logging.debug(f"[TRACE] Entering sell block for {sym}, qty_open={qty_open}")
+                        logging.debug(f"[TRACE] Entering sell block for {sym}, qty_open={qty_open}")
 
                         try:
                             last_price = float(price)
