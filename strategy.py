@@ -326,8 +326,7 @@ def main():
                         try:
                             spent_this_loop += est_trade_cost  # reserve budget immediately
                             submitted = safe_market_buy(trade_client, sym, max_loop_budget * BUY_CASH_BUFFER, order_lock)
-                                logging.debug(f"[TRACE] Buy submitted: {submitted}")
-
+                               
                           if submitted:
                                 inflight_orders[sym] = getattr(submitted, "id", None) or True
                                 entry_qty[sym] = int((max_loop_budget * BUY_CASH_BUFFER) // price)
@@ -341,6 +340,7 @@ def main():
 
                     # === SELL LOGIC ===
                    # === SELL LOGIC (scalping exits) ===
+                        logging.debug(f"[TRACE] Buy submitted: {submitted}")
                         logging.debug(f"[TRACE] Pre-sell check: {sym} qty_open={qty_open}, entry_time={entry_times.get(sym)}")
 
                     if qty_open > 0:
