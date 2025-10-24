@@ -352,7 +352,7 @@ def main():
                             # Hard exits
                             tp_hit = last_price >= avg_entry * (1 + TP_PCT)
                             sl_hit = last_price <= avg_entry * (1 - SL_PCT)
-                            logging.debug(f"[TRACE] TP hit: {tp_hit}, SL hit: {sl_hit}")
+                                logging.debug(f"[TRACE] TP hit: {tp_hit}, SL hit: {sl_hit}")
                             
 
                             # Build series from deques
