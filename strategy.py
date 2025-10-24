@@ -435,10 +435,10 @@ def main():
                                         sym, qty_open, last_price, reason, avg_entry
                                     )
                         
-                            except Exception as e:
+                                except Exception as e:
                                     logging.exception("%s - SCALP SELL error: %s", sym, str(e))
                             except Exception as e:
-                                    logging.exception("Main loop error: %s", e)
-                                    time.sleep(1.0)
-                            if __name__ == "__main__":
+                                logging.exception("Main loop error: %s", e)
+                                time.sleep(1.0)
+                        if __name__ == "__main__":
                                 main()
