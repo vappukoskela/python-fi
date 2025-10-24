@@ -356,8 +356,8 @@ def main():
                             
 
                             # Build series from deques
-                            prices_series = pd.Series(price_deques[sym])
-                            sizes_series = pd.Series(size_deques[sym])
+                                prices_series = pd.Series(price_deques[sym])
+                                sizes_series = pd.Series(size_deques[sym])
                     
                             # Compute indicators safely
                             vwap_series = compute_vwap_from_ticks(prices_series, sizes_series)
