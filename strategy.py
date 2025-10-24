@@ -39,6 +39,9 @@ console = logging.StreamHandler()
 console.setLevel(logging.INFO)
 logging.getLogger().addHandler(console)
 
+logging.debug("[TRACE] Logging system initialized")
+
+
 # === helpers: indicators ===
 def compute_ema_from_series(series, period):
     if len(series) < 2:
