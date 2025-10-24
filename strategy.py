@@ -326,13 +326,12 @@ def main():
                         try:
                             spent_this_loop += est_trade_cost  # reserve budget immediately
                             submitted = safe_market_buy(trade_client, sym, max_loop_budget * BUY_CASH_BUFFER, order_lock)
-                               
-                        if submitted:
-                            inflight_orders[sym] = getattr(submitted, "id", None) or True
-                            entry_qty[sym] = int((max_loop_budget * BUY_CASH_BUFFER) // price)
-                            entry_prices[sym] = price
-                            entry_times[sym] = datetime.now(timezone.utc)
-                            logging.info(f"{sym} - ENTRY recorded qty={entry_qty[sym]} price={price:.2f} rsi={rsi_val:.2f}")
+                            if submitted:
+                                inflight_orders[sym] = getattr(submitted, "id", None) or True
+                                entry_qty[sym] = int((max_loop_budget * BUY_CASH_BUFFER) // price)
+                                entry_prices[sym] = price
+                                entry_times[sym] = datetime.now(timezone.utc)
+                                logging.info(f"{sym} - ENTRY recorded qty={entry_qty[sym]} price={price:.2f} rsi={rsi_val:.2f}")
                         except Exception as e:
                             logging.exception("%s - BUY error: %s", sym, str(e))
                         finally:
