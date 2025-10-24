@@ -415,30 +415,30 @@ def main():
                                 logging.debug(f"[TRACE] Trailing stop hit: {trailing_stop_hit}, Time exceeded: {time_exceeded}")
 
                             # Final decision
-                            should_sell = (tp_hit or sl_hit or vwap_fail or ema_fail or rsi_cool or trailing_stop_hit or time_exceeded)
-                            logging.debug(f"[TRACE] Final sell decision: should_sell={should_sell}, qty_open={qty_open}, entry_time={entry_time}")
+                                should_sell = (tp_hit or sl_hit or vwap_fail or ema_fail or rsi_cool or trailing_stop_hit or time_exceeded)
+                                logging.debug(f"[TRACE] Final sell decision: should_sell={should_sell}, qty_open={qty_open}, entry_time={entry_time}")
 
-                            if should_sell:
-                                reason_parts = []
-                                if tp_hit: reason_parts.append("TP")
-                                if sl_hit: reason_parts.append("SL")
-                                if vwap_fail: reason_parts.append("VWAP fail")
-                                if ema_fail: reason_parts.append("EMA fail")
-                                if rsi_cool: reason_parts.append("RSI cool")
-                                if trailing_stop_hit: reason_parts.append("Trailing stop")
-                                if time_exceeded: reason_parts.append("Max hold")
-                                reason = ", ".join(reason_parts) if reason_parts else "Exit"
+                                if should_sell:
+                                    reason_parts = []
+                                    if tp_hit: reason_parts.append("TP")
+                                    if sl_hit: reason_parts.append("SL")
+                                    if vwap_fail: reason_parts.append("VWAP fail")
+                                    if ema_fail: reason_parts.append("EMA fail")
+                                    if rsi_cool: reason_parts.append("RSI cool")
+                                    if trailing_stop_hit: reason_parts.append("Trailing stop")
+                                    if time_exceeded: reason_parts.append("Max hold")
+                                    reason = ", ".join(reason_parts) if reason_parts else "Exit"
                     
-                                submitted = safe_market_sell(trade_client, sym, qty_open, order_lock)
-                                logging.info(
-                                    "%s - SCALP SELL trigger qty=%d @ %.4f (%s) | Entry=%.4f",
-                                    sym, qty_open, last_price, reason, avg_entry
-                                )
-                    
-                        except Exception as e:
-                            logging.exception("%s - SCALP SELL error: %s", sym, str(e))
-        except Exception as e:
-                logging.exception("Main loop error: %s", e)
-                time.sleep(1.0)
+                                    submitted = safe_market_sell(trade_client, sym, qty_open, order_lock)
+                                    logging.info(
+                                        "%s - SCALP SELL trigger qty=%d @ %.4f (%s) | Entry=%.4f",
+                                        sym, qty_open, last_price, reason, avg_entry
+                                    )
+                        
+                            except Exception as e:
+                                logging.exception("%s - SCALP SELL error: %s", sym, str(e))
+            except Exception as e:
+                    logging.exception("Main loop error: %s", e)
+                    time.sleep(1.0)
 if __name__ == "__main__":
     main()
