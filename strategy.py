@@ -342,11 +342,15 @@ def main():
                     if qty_open > 0:
                         try:
                             last_price = float(price)
-                    
+                            logging.debug(f"[TRACE] Sell logic entered for {sym} at {datetime.now(timezone.utc)}")
+                            logging.debug(f"[TRACE] Current price={last_price:.4f}, avg_entry={avg_entry:.4f}, qty_open={qty_open}")
+
                             # Hard exits
                             tp_hit = last_price >= avg_entry * (1 + TP_PCT)
                             sl_hit = last_price <= avg_entry * (1 - SL_PCT)
-                    
+                            logging.debug(f"[TRACE] TP hit: {tp_hit}, SL hit: {sl_hit}")
+                            
+
                             # Build series from deques
                             prices_series = pd.Series(price_deques[sym])
                             sizes_series = pd.Series(size_deques[sym])
@@ -380,7 +384,8 @@ def main():
                                     rsi_cool = rsi_series.iloc[-1] < MIN_RSI_FOR_ENTRY
                             except Exception:
                                 rsi_cool = False
-                    
+                            logging.debug(f"[TRACE] VWAP fail: {vwap_fail}, EMA fail: {ema_fail}, RSI cool: {rsi_cool}")
+
                             # Trailing stop ~0.3% from peak since entry
                             trailing_stop_hit = False
                             try:
@@ -403,7 +408,8 @@ def main():
                                 logging.debug("%s - Hold time check: elapsed=%.1f / max=%d", sym, elapsed, MAX_HOLD_SECONDS)
                                 if elapsed >= MAX_HOLD_SECONDS:
                                    time_exceeded = elapsed >= MAX_HOLD_SECONDS
-                    
+                            logging.debug(f"[TRACE] Trailing stop hit: {trailing_stop_hit}, Time exceeded: {time_exceeded}")
+
                             # Final decision
                             should_sell = (tp_hit or sl_hit or vwap_fail or ema_fail or rsi_cool or trailing_stop_hit or time_exceeded)
                     
