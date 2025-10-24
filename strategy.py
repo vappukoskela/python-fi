@@ -350,8 +350,8 @@ def main():
                                 logging.debug(f"[TRACE] Current price={last_price:.4f}, avg_entry={avg_entry:.4f}, qty_open={qty_open}")
 
                             # Hard exits
-                            tp_hit = last_price >= avg_entry * (1 + TP_PCT)
-                            sl_hit = last_price <= avg_entry * (1 - SL_PCT)
+                                tp_hit = last_price >= avg_entry * (1 + TP_PCT)
+                                sl_hit = last_price <= avg_entry * (1 - SL_PCT)
                                 logging.debug(f"[TRACE] TP hit: {tp_hit}, SL hit: {sl_hit}")
                             
 
