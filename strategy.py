@@ -32,11 +32,11 @@ MARKET_DATA_CHUNK = 5
 MAX_INFLIGHT_PER_SYMBOL = 1
 
 # === LOGGING ===
-logging.basicConfig(level=logging.INFO,
+logging.basicConfig(level=logging.DEBUG,
                     format="%(asctime)s %(levelname)s %(message)s",
                     filename="scalper_safe.log")
 console = logging.StreamHandler()
-console.setLevel(logging.INFO)
+console.setLevel(logging.DEBUG)
 logging.getLogger().addHandler(console)
 
 logging.debug("[TRACE] Logging system initialized")
