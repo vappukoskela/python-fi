@@ -330,12 +330,21 @@ def main():
                             spent_this_loop += est_trade_cost  # reserve budget immediately
                             submitted = safe_market_buy(trade_client, sym, max_loop_budget * BUY_CASH_BUFFER, order_lock)
                             logging.debug(f"[TRACE] Buy submitted: {submitted}")
-                            if submitted:
-                                inflight_orders[sym] = getattr(submitted, "id", None) or True
-                                entry_qty[sym] = int((max_loop_budget * BUY_CASH_BUFFER) // price)
+                      
+                      if submitted:
+                            inflight_orders[sym] = getattr(submitted, "id", None) or True
+                            # 🔍 Post-buy verification
+                            actual_qty = get_position_qty(trade_client, sym)
+                            logging.debug(f"[TRACE] Post-buy verification for {sym}: actual_qty={actual_qty}")
+                        
+                            if actual_qty > 0:
+                                entry_qty[sym] = actual_qty
                                 entry_prices[sym] = price
                                 entry_times[sym] = datetime.now(timezone.utc)
                                 logging.info(f"{sym} - ENTRY recorded qty={entry_qty[sym]} price={price:.2f} rsi={rsi_val:.2f}")
+                            else:
+                                logging.warning(f"[TRACE] Buy assumed filled but no position found for {sym}")
+    
                         except Exception as e:
                             logging.exception("%s - BUY error: %s", sym, str(e))
                         finally:
