@@ -25,7 +25,7 @@ MAX_HOLD_SECONDS = 5 * 60
 BUY_POWER_LIMIT = 0.05
 BUY_CASH_BUFFER = 0.95
 COOLDOWN_SECONDS = 30
-MIN_RSI_FOR_ENTRY = 52
+MIN_RSI_FOR_ENTRY = 50
 MAX_RSI_FOR_ENTRY = 70
 MIN_TRADE_USD = 25
 MARKET_DATA_CHUNK = 5
@@ -401,8 +401,16 @@ def main():
                             # RSI cooling below entry threshold
                             rsi_cool = False
                             try:
-                                if len(rsi_series) >= 1 and not pd.isna(rsi_series.iloc[-1]):
-                                    rsi_cool = rsi_series.iloc[-1] < MIN_RSI_FOR_ENTRY
+                                if len(rsi_series) >= 2 and sym in entry_times:
+                                    rsi_now = rsi_series.iloc[-1]
+                                    rsi_prev = rsi_series.iloc[-2]
+                                    rsi_entry = rsi_series.iloc[time_deques[sym].index(entry_times[sym])] if entry_times[sym] in time_deques[sym] else None
+
+                                    if not pd.isna(rsi_now) and not pd.isna(rsi_prev) and rsi_entry is not None: rsi_cool = (
+                                            rsi_now < MIN_RSI_FOR_ENTRY and
+                                            rsi_prev < MIN_RSI_FOR_ENTRY and
+                                            rsi_entry - rsi_now >= 10
+                                        )
                             except Exception:
                                 rsi_cool = False
                             logging.debug(f"[TRACE] VWAP fail: {vwap_fail}, EMA fail: {ema_fail}, RSI cool: {rsi_cool}")
