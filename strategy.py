@@ -419,13 +419,15 @@ def main():
                                             not pd.isna(rsi_entry)
                                         ):  
                                             rsi_cool = (
-                                                                
+                                                             
                                             rsi_now < MIN_RSI_FOR_ENTRY and
                                             rsi_prev < MIN_RSI_FOR_ENTRY and
+                                            rsi_entry > rsi_now and
                                             rsi_entry - rsi_now >= 10
                                         )
                             except Exception:
                                 rsi_cool = False
+                            import logging  
                             logging.debug(f"[TRACE] VWAP fail: {vwap_fail}, EMA fail: {ema_fail}, RSI cool: {rsi_cool}")
 
                             # Trailing stop ~0.3% from peak since entry
