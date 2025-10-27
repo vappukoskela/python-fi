@@ -333,7 +333,7 @@ def main():
                             if submitted:
                                 inflight_orders[sym] = getattr(submitted, "id", None) or True
                                 # 🔍 Retry loop for post-buy verification
-                                actual_qty = 0:
+                                actual_qty = 0
                                 for attempt in range(3)
                                     actual_qty = get_position_qty(trade_client, sym)
                                     logging.debug(f"[TRACE] Post-buy verification attempt {attempt+1} for {sym}: actual_qty={actual_qty}")
