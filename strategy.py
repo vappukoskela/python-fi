@@ -427,7 +427,6 @@ def main():
                                         )
                             except Exception:
                                 rsi_cool = False
-                            import logging  
                             logging.debug(f"[TRACE] VWAP fail: {vwap_fail}, EMA fail: {ema_fail}, RSI cool: {rsi_cool}")
 
                             # Trailing stop ~0.3% from peak since entry
