@@ -409,6 +409,8 @@ def main():
                                     times_series = pd.Series(time_deques[sym])
                                     entry_index = times_series[times_series >= entry_time].index.min()
 
+                                    # 🔍 Add trace logging for indexing
+                                    logging.debug(f"[TRACE] {sym} entry_time={entry_time}, entry_index={entry_index}, rsi_series_len={len(rsi_series)}")
                                     if entry_index is not None and entry_index < len(rsi_series):
                                         rsi_entry = rsi_series.iloc[entry_index]
 
