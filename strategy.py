@@ -401,12 +401,25 @@ def main():
                             # RSI cooling below entry threshold
                             rsi_cool = False
                             try:
-                                if len(rsi_series) >= 2 and sym in entry_times:
+                                if len(rsi_series) >= 3 and sym in entry_times:
                                     rsi_now = rsi_series.iloc[-1]
                                     rsi_prev = rsi_series.iloc[-2]
-                                    rsi_entry = rsi_series.iloc[time_deques[sym].index(entry_times[sym])] if entry_times[sym] in time_deques[sym] else None
+                                    # Etsi RSI-arvo ostohetkellä
+                                    entry_time = entry_times[sym]
+                                    times_series = pd.Series(time_deques[sym])
+                                    entry_index = times_series[times_series >= entry_time].index.min()
 
-                                    if not pd.isna(rsi_now) and not pd.isna(rsi_prev) and rsi_entry is not None: rsi_cool = (
+                                    if entry_index is not None and entry_index < len(rsi_series):
+                                        rsi_entry = rsi_series.iloc[entry_index]
+
+                                        # Ehto: kaksi peräkkäistä alle rajan ja laskua vähintään 10 yksikköä
+                                        if (
+                                            not pd.isna(rsi_now) and
+                                            not pd.isna(rsi_prev) and
+                                            not pd.isna(rsi_entry)
+                                        ):  
+                                            rsi_cool = (
+                                                                
                                             rsi_now < MIN_RSI_FOR_ENTRY and
                                             rsi_prev < MIN_RSI_FOR_ENTRY and
                                             rsi_entry - rsi_now >= 10
