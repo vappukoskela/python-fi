@@ -381,6 +381,7 @@ def main():
                             ema_fast_series = compute_ema_from_series(prices_series, EMA_FAST)
                             ema_slow_series = compute_ema_from_series(prices_series, EMA_SLOW)
                             rsi_series = compute_rsi_from_series(prices_series, RSI_PERIOD)
+                            rsi_smooth = rsi_series.rolling(window=3).mean()
                     
                             # VWAP fail: last 3 bars below VWAP
                             vwap_fail = False
@@ -404,6 +405,8 @@ def main():
                                 if len(rsi_series) >= 3 and sym in entry_times:
                                     rsi_now = rsi_series.iloc[-1]
                                     rsi_prev = rsi_series.iloc[-2]
+                                    rsi_entry = rsi_smooth.iloc[entry_index]
+                                  
                                     # Etsi RSI-arvo ostohetkellä
                                     entry_time = entry_times[sym]
                                     times_series = pd.Series(time_deques[sym])
