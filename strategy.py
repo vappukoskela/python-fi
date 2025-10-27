@@ -102,7 +102,7 @@ def calculate_buying_power_limit(trade_client_local, limit_fraction):
 
 def get_positions_map(trade_client_local):
     try:
-        positions = trade_client_local.get_open_positions()
+        positions = trade_client_local.get_all_positions()
         return {pos.symbol: (int(float(pos.qty)), float(pos.avg_entry_price)) for pos in positions}
     except Exception as e:
         logging.debug("get_open_positions failed: %s", e)
