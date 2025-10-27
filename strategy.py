@@ -394,11 +394,16 @@ def main():
                             # EMA trend fail: last 3 bars EMA_fast < EMA_slow
                             ema_fail = False
                             try:
-                                if len(ema_fast_series) >= 3 and len(ema_slow_series) >= 3:
-                                    ema_fail = (
-                                         ema_fast_series.iloc[-1] < ema_slow_series.iloc[-1] and
-                                         ema_fast_series.iloc[-2] < ema_slow_series.iloc[-2]
-                                    )     
+                                entry_time = entry_times.get(sym)
+                                elapsed = (datetime.now(timezone.utc) - entry_time).total_seconds() if entry_time else 0
+
+                                if elapsed >= MIN_HOLD_SECONDS:
+                                    if len(ema_fast_series) >= 3 and len(ema_slow_series) >= 3:
+                                        ema_fail = (
+                                             ema_fast_series.iloc[-1] < ema_slow_series.iloc[-1] and
+                                             ema_fast_series.iloc[-2] < ema_slow_series.iloc[-2] and
+                                             last_price < ema_slow_series.iloc[-1]
+                                        )     
                             except Exception:
                                 ema_fail = False
                                   
