@@ -395,10 +395,13 @@ def main():
                             ema_fail = False
                             try:
                                 if len(ema_fast_series) >= 3 and len(ema_slow_series) >= 3:
-                                    ema_fail = all(ema_fast_series.iloc[-i] < ema_slow_series.iloc[-i] for i in range(1, 4))
+                                    ema_fail = (
+                                      
                             except Exception:
                                 ema_fail = False
-                    
+                                    ema_fast_series.iloc[-1] < ema_slow_series.iloc[-1] and
+                                    ema_fast_series.iloc[-2] < ema_slow_series.iloc[-2]
+                                )   
                             # RSI cooling below entry threshold
                             rsi_cool = False
                             try:
