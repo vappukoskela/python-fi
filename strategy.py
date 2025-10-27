@@ -390,11 +390,12 @@ def main():
                                 elapsed = (datetime.now(timezone.utc) - entry_time).total_seconds() if entry_time else 0
                                 vwap_fail = False  
                                 if elapsed >= MIN_HOLD_SECONDS:
-                                    try: 
+                                     
                                         if len(vwap_series) >= 3 and not pd.isna(vwap_series.iloc[-1]):
                                               vwap_fail = all(prices_series.iloc[-i] < vwap_series.iloc[-i] for i in range(1, 4))
-                                    except Exception:
-                                        vwap_fail = False
+                                        )
+                            except Exception:
+                                vwap_fail = False
                     
                             # EMA trend fail: last 3 bars EMA_fast < EMA_slow
                             ema_fail = False
