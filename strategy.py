@@ -428,7 +428,7 @@ def main():
 
                             # Final decision
                             should_sell = (tp_hit or sl_hit or vwap_fail or ema_fail or rsi_cool or trailing_stop_hit or time_exceeded)
-                            logging.debug(f"[TRACE] Final sell decision: should_sell={should_sell}, qty_open={qty_open}, entry_time={entry_time}")
+                            logging.debug(f"[TRACE] Final sell decision: should_sell={should_sell}, qty_open={qty_open}, entry_time={entry_times.get(sym)}")
 
                             if should_sell:
                                 reason_parts = []
