@@ -17,7 +17,7 @@ LOOP_SLEEP = 1.0
 TICKS_WINDOW = 300
 EMA_FAST = 9
 EMA_SLOW = 20
-RSI_PERIOD = 21
+RSI_PERIOD = 14
 VOL_SPIKE_MULT = 1.4
 TP_PCT = 0.006
 SL_PCT = 0.004
@@ -393,6 +393,7 @@ def main():
                             )  
                           
                             # VWAP fail: last 3 bars below VWAP
+                            VWAP_DELTA = 0.02  # tighten from 0.05 to 0.02
                             vwap_fail = False
                             try:
                                 entry_time = entry_times.get(sym)
@@ -415,6 +416,7 @@ def main():
 
                                 if elapsed >= MIN_HOLD_SECONDS:
                                     if len(ema_fast_series) >= 3 and len(ema_slow_series) >= 3:
+                                        EMA_DELTA = 0.02
                                         ema_fail = (
                                             ema_fast_series.iloc[-1] < ema_slow_series.iloc[-1] and
                                             ema_fast_series.iloc[-2] < ema_slow_series.iloc[-2] and
@@ -448,13 +450,14 @@ def main():
                                             not pd.isna(rsi_now) and
                                             not pd.isna(rsi_prev) and
                                             not pd.isna(rsi_entry)
-                                        ):  
+                                        ):
+                                            RSI_DROP = 5  # was 10
                                             rsi_cool = (
                                                              
                                             rsi_now < MIN_RSI_FOR_ENTRY and
                                             rsi_prev < MIN_RSI_FOR_ENTRY and
                                             rsi_entry > rsi_now and
-                                            rsi_entry - rsi_now >= 10
+                                            rsi_entry - rsi_now >= RSI_DROP
                                         )
                             except Exception:
                                 rsi_cool = False
