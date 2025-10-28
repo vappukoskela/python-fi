@@ -484,9 +484,22 @@ def main():
                                    time_exceeded = elapsed >= MAX_HOLD_SECONDS
                             logging.debug(f"[TRACE] Trailing stop hit: {trailing_stop_hit}, Time exceeded: {time_exceeded}")
 
-                            # Final decision
-                            should_sell = (tp_hit or sl_hit or vwap_fail or ema_fail or rsi_cool or trailing_stop_hit or time_exceeded)
-                            logging.debug(f"[TRACE] Final sell decision: should_sell={should_sell}, qty_open={qty_open}, entry_time={entry_times.get(sym)}")
+                            # Soft confirmation scoring
+                            signal_score = sum([
+                                1 if vwap_fail else 0,
+                                1 if ema_fail else 0,
+                                1 if rsi_cool else 0
+                            ])  
+                            # Require at least 2 indicator fails, OR any hard exit (TP/SL/Trailing/Max hold)
+                            should_sell = (
+                                signal_score >= 2 or tp_hit or sl_hit or trailing_stop_hit or time_exceeded
+                            )
+                            logging.debug(
+                                f"[TRACE] Soft confirmation: score={signal_score}, "
+                                f"VWAP={vwap_fail}, EMA={ema_fail}, RSI={rsi_cool}, "
+                                f"TP={tp_hit}, SL={sl_hit}, Trailing={trailing_stop_hit}, TimeExceeded={time_exceeded}, "
+                                f"Final should_sell={should_sell}"
+                            )
 
                             if should_sell:
                                 reason_parts = []
