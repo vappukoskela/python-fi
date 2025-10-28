@@ -474,7 +474,7 @@ def main():
                                         peak = float(since_entry_prices.max())
                                         if peak > 0:
                                             drawdown_pct = (peak - last_price) / peak
-                                            trailing_stop_hit = drawdown_pct >= 0.003
+                                            trailing_stop_hit = drawdown_pct >= 0.005
                             except Exception:
                                 trailing_stop_hit = False
                     
