@@ -382,7 +382,16 @@ def main():
                             ema_slow_series = compute_ema_from_series(prices_series, EMA_SLOW)
                             rsi_series = compute_rsi_from_series(prices_series, RSI_PERIOD)
                             rsi_smooth = rsi_series.rolling(window=3).mean()
-                    
+
+                            logging.debug(
+                                f"[TRACE] {sym} Indicators | "
+                                f"Price={prices_series.iloc[-1]:.4f}, "
+                                f"VWAP={vwap_series.iloc[-1]:.4f}, "
+                                f"EMA_fast={ema_fast_series.iloc[-1]:.4f}, "
+                                f"EMA_slow={ema_slow_series.iloc[-1]:.4f}, "
+                                f"RSI={rsi_series.iloc[-1]:.2f}"
+                            )  
+                          
                             # VWAP fail: last 3 bars below VWAP
                             vwap_fail = False
                             try:
