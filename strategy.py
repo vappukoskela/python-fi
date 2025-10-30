@@ -463,7 +463,7 @@ def main():
                                 rsi_cool = False
                             logging.debug(f"[TRACE] VWAP fail: {vwap_fail}, EMA fail: {ema_fail}, RSI cool: {rsi_cool}")
 
-                            # Trailing stop ~0.3% from peak since entry
+                            # Trailing stop ~0.5% from peak since entry
                             trailing_stop_hit = False
                             try:
                                 if sym in entry_times and len(time_deques[sym]) == len(price_deques[sym]) and len(price_deques[sym]) >= 2:
@@ -475,8 +475,24 @@ def main():
                                         peak = float(since_entry_prices.max())
                                         if peak > 0:
                                             drawdown_pct = (peak - last_price) / peak
-                                            trailing_stop_hit = drawdown_pct >= 0.005
-                            except Exception:
+                                            trailing_stop_hit = drawdown_pct >= TRAILING_STOP_PCT
+
+                                            # 🔍 Generic diagnostic logging for ALL symbols
+                                            logging.debug(
+                                                "[TRACE][%s] Trailing stop | Entry=%.4f | Last=%.4f | Peak=%.4f | Drawdown=%.4f%% | Threshold=%.4f%% | Hit=%s",
+                                                sym,
+                                                entry_times[sym].timestamp(),
+                                                last_price,
+                                                peak,
+                                                drawdown_pct * 100,
+                                                TRAILING_STOP_PCT * 100,
+                                                trailing_stop_hit
+                                            )  
+                                        else:
+                                            logging.debug("[TRACE][%s] No post-entry ticks found for trailing stop evaluation", sym)
+                                          
+                            except Exception as e:
+                                logging.error("[ERROR][%s] Trailing stop evaluation failed: %s", sym, str(e))
                                 trailing_stop_hit = False
                     
                             # Max hold time
