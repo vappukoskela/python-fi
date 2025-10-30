@@ -356,119 +356,119 @@ def main():
                             inflight_orders.pop(sym, None)
 
                    # === SELL LOGIC (scalping exits) ===
-if qty_open > 0:
-    try:
-        last_price = float(price)
-        ref_entry = entry_prices.get(sym, avg_entry)
-
-        # --- Hard exits ---
-        tp_hit = last_price >= ref_entry * (1 + TP_PCT)
-        sl_hit = last_price <= ref_entry * (1 - SL_PCT)
-
-        # --- Indicators ---
-        prices_series = pd.Series(price_deques[sym])
-        sizes_series = pd.Series(size_deques[sym])
-        vwap_series = compute_vwap_from_ticks(prices_series, sizes_series)
-        ema_fast_series = compute_ema_from_series(prices_series, EMA_FAST)
-        ema_slow_series = compute_ema_from_series(prices_series, EMA_SLOW)
-        rsi_series = compute_rsi_from_series(prices_series, RSI_PERIOD)
-
-        # VWAP fail: last 3 bars below VWAP
-        vwap_fail = False
-        try:
-            entry_time = entry_times.get(sym)
-            elapsed = (datetime.now(timezone.utc) - entry_time).total_seconds() if entry_time else 0
-            if elapsed >= MIN_HOLD_SECONDS and len(vwap_series) >= 3:
-                vwap_fail = all(prices_series.iloc[-i] < vwap_series.iloc[-i] for i in range(1, 4))
-        except Exception:
-            vwap_fail = False
-
-        # EMA fail: last 3 bars EMA_fast < EMA_slow
-        ema_fail = False
-        try:
-            if elapsed >= MIN_HOLD_SECONDS and len(ema_fast_series) >= 3 and len(ema_slow_series) >= 3:
-                ema_fail = (
-                    ema_fast_series.iloc[-1] < ema_slow_series.iloc[-1] and
-                    ema_fast_series.iloc[-2] < ema_slow_series.iloc[-2] and
-                    last_price < ema_slow_series.iloc[-1]
-                )
-        except Exception:
-            ema_fail = False
-
-        # RSI cooling
-        rsi_cool = False
-        try:
-            if len(rsi_series) >= 3 and sym in entry_times:
-                entry_time_norm = entry_times[sym].replace(microsecond=0)
-                times_series = pd.Series(time_deques[sym]).dt.tz_convert('UTC').dt.floor('s')
-                entry_index = times_series[times_series >= entry_time_norm].index.min()
-                if entry_index is not None and entry_index < len(rsi_series):
-                    rsi_entry = rsi_series.iloc[entry_index]
-                    rsi_now = rsi_series.iloc[-1]
-                    rsi_prev = rsi_series.iloc[-2]
-                    RSI_DROP = 5
-                    rsi_cool = (
-                        rsi_now < MIN_RSI_FOR_ENTRY and
-                        rsi_prev < MIN_RSI_FOR_ENTRY and
-                        rsi_entry > rsi_now and
-                        (rsi_entry - rsi_now) >= RSI_DROP
-                    )
-        except Exception:
-            rsi_cool = False
-
-        # --- Trailing stop ---
-        trailing_stop_hit = False
-        try:
-            if sym in entry_times and len(time_deques[sym]) == len(price_deques[sym]) and len(price_deques[sym]) >= 2:
-                entry_time_norm = entry_times[sym].replace(microsecond=0)
-                times_series = pd.Series(time_deques[sym]).dt.tz_convert('UTC').dt.floor('s')
-                prices_series = pd.Series(price_deques[sym])
-                mask = times_series >= entry_time_norm
-                if mask.any():
-                    since_entry_prices = prices_series[mask]
-                    peak = float(since_entry_prices.max())
-                    if peak > 0:
-                        drawdown_pct = (peak - last_price) / peak
-                        trailing_stop_hit = drawdown_pct >= TRAILING_STOP_PCT
-                        logging.debug(
-                            "[TRACE][%s] TS | Entry=%.4f | Last=%.4f | Peak=%.4f | Drawdown=%.4f%% | Th=%.4f%% | Hit=%s",
-                            sym, ref_entry, last_price, peak,
-                            drawdown_pct * 100, TRAILING_STOP_PCT * 100, trailing_stop_hit
-                        )
-        except Exception as e:
-            logging.error("[ERROR][%s] TS evaluation failed: %s", sym, e)
-            trailing_stop_hit = False
-
-        # --- Max hold ---
-        time_exceeded = False
-        if sym in entry_times:
-            elapsed = (datetime.now(timezone.utc) - entry_times[sym]).total_seconds()
-            if elapsed >= MAX_HOLD_SECONDS:
-                time_exceeded = True
-
-        # --- Exit reason priority ---
-        exit_reason = None
-        if trailing_stop_hit:
-            exit_reason = "Trailing stop"
-        elif sl_hit:
-            exit_reason = "Stop-loss"
-        elif tp_hit:
-            exit_reason = "Take-profit"
-        elif vwap_fail or ema_fail or rsi_cool:
-            exit_reason = "Indicator fails"
-        elif time_exceeded:
-            exit_reason = "Max hold"
-
-        # --- Execute sell ---
-        if exit_reason:
-            submitted = safe_market_sell(trade_client, sym, qty_open, order_lock)
-            logging.info(
-                "%s - SCALP SELL qty=%d @ %.4f | Reason=%s | EntryRef=%.4f",
-                sym, qty_open, last_price, exit_reason, ref_entry
-            )
-
-    except Exception as e:
-        logging.exception("%s - SCALP SELL error: %s", sym, str(e))
+                    if qty_open > 0:
+                        try:
+                            last_price = float(price)
+                            ref_entry = entry_prices.get(sym, avg_entry)
+                    
+                            # --- Hard exits ---
+                            tp_hit = last_price >= ref_entry * (1 + TP_PCT)
+                            sl_hit = last_price <= ref_entry * (1 - SL_PCT)
+                    
+                            # --- Indicators ---
+                            prices_series = pd.Series(price_deques[sym])
+                            sizes_series = pd.Series(size_deques[sym])
+                            vwap_series = compute_vwap_from_ticks(prices_series, sizes_series)
+                            ema_fast_series = compute_ema_from_series(prices_series, EMA_FAST)
+                            ema_slow_series = compute_ema_from_series(prices_series, EMA_SLOW)
+                            rsi_series = compute_rsi_from_series(prices_series, RSI_PERIOD)
+                    
+                            # VWAP fail: last 3 bars below VWAP
+                            vwap_fail = False
+                            try:
+                                entry_time = entry_times.get(sym)
+                                elapsed = (datetime.now(timezone.utc) - entry_time).total_seconds() if entry_time else 0
+                                if elapsed >= MIN_HOLD_SECONDS and len(vwap_series) >= 3:
+                                    vwap_fail = all(prices_series.iloc[-i] < vwap_series.iloc[-i] for i in range(1, 4))
+                            except Exception:
+                                vwap_fail = False
+                    
+                            # EMA fail: last 3 bars EMA_fast < EMA_slow
+                            ema_fail = False
+                            try:
+                                if elapsed >= MIN_HOLD_SECONDS and len(ema_fast_series) >= 3 and len(ema_slow_series) >= 3:
+                                    ema_fail = (
+                                        ema_fast_series.iloc[-1] < ema_slow_series.iloc[-1] and
+                                        ema_fast_series.iloc[-2] < ema_slow_series.iloc[-2] and
+                                        last_price < ema_slow_series.iloc[-1]
+                                    )
+                            except Exception:
+                                ema_fail = False
+                    
+                            # RSI cooling
+                            rsi_cool = False
+                            try:
+                                if len(rsi_series) >= 3 and sym in entry_times:
+                                    entry_time_norm = entry_times[sym].replace(microsecond=0)
+                                    times_series = pd.Series(time_deques[sym]).dt.tz_convert('UTC').dt.floor('s')
+                                    entry_index = times_series[times_series >= entry_time_norm].index.min()
+                                    if entry_index is not None and entry_index < len(rsi_series):
+                                        rsi_entry = rsi_series.iloc[entry_index]
+                                        rsi_now = rsi_series.iloc[-1]
+                                        rsi_prev = rsi_series.iloc[-2]
+                                        RSI_DROP = 5
+                                        rsi_cool = (
+                                            rsi_now < MIN_RSI_FOR_ENTRY and
+                                            rsi_prev < MIN_RSI_FOR_ENTRY and
+                                            rsi_entry > rsi_now and
+                                            (rsi_entry - rsi_now) >= RSI_DROP
+                                        )
+                            except Exception:
+                                rsi_cool = False
+                    
+                            # --- Trailing stop ---
+                            trailing_stop_hit = False
+                            try:
+                                if sym in entry_times and len(time_deques[sym]) == len(price_deques[sym]) and len(price_deques[sym]) >= 2:
+                                    entry_time_norm = entry_times[sym].replace(microsecond=0)
+                                    times_series = pd.Series(time_deques[sym]).dt.tz_convert('UTC').dt.floor('s')
+                                    prices_series = pd.Series(price_deques[sym])
+                                    mask = times_series >= entry_time_norm
+                                    if mask.any():
+                                        since_entry_prices = prices_series[mask]
+                                        peak = float(since_entry_prices.max())
+                                        if peak > 0:
+                                            drawdown_pct = (peak - last_price) / peak
+                                            trailing_stop_hit = drawdown_pct >= TRAILING_STOP_PCT
+                                            logging.debug(
+                                                "[TRACE][%s] TS | Entry=%.4f | Last=%.4f | Peak=%.4f | Drawdown=%.4f%% | Th=%.4f%% | Hit=%s",
+                                                sym, ref_entry, last_price, peak,
+                                                drawdown_pct * 100, TRAILING_STOP_PCT * 100, trailing_stop_hit
+                                            )
+                            except Exception as e:
+                                logging.error("[ERROR][%s] TS evaluation failed: %s", sym, e)
+                                trailing_stop_hit = False
+                    
+                            # --- Max hold ---
+                            time_exceeded = False
+                            if sym in entry_times:
+                                elapsed = (datetime.now(timezone.utc) - entry_times[sym]).total_seconds()
+                                if elapsed >= MAX_HOLD_SECONDS:
+                                    time_exceeded = True
+                    
+                            # --- Exit reason priority ---
+                            exit_reason = None
+                            if trailing_stop_hit:
+                                exit_reason = "Trailing stop"
+                            elif sl_hit:
+                                exit_reason = "Stop-loss"
+                            elif tp_hit:
+                                exit_reason = "Take-profit"
+                            elif vwap_fail or ema_fail or rsi_cool:
+                                exit_reason = "Indicator fails"
+                            elif time_exceeded:
+                                exit_reason = "Max hold"
+                    
+                            # --- Execute sell ---
+                            if exit_reason:
+                                submitted = safe_market_sell(trade_client, sym, qty_open, order_lock)
+                                logging.info(
+                                    "%s - SCALP SELL qty=%d @ %.4f | Reason=%s | EntryRef=%.4f",
+                                    sym, qty_open, last_price, exit_reason, ref_entry
+                                )
+                    
+                        except Exception as e:
+                            logging.exception("%s - SCALP SELL error: %s", sym, str(e))
 
                     
         except Exception as e:
