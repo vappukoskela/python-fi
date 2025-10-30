@@ -467,8 +467,9 @@ def main():
                             trailing_stop_hit = False
                             try:
                                 if sym in entry_times and len(time_deques[sym]) == len(price_deques[sym]) and len(price_deques[sym]) >= 2:
-                                    times_series = pd.Series(time_deques[sym])
-                                    mask = times_series >= entry_times[sym]
+                                    entry_time = entry_times[sym].replace(microsecond=0)
+                                    times_series = pd.Series(time_deques[sym]).dt.tz_convert('UTC').dt.floor('s')
+                                    mask = times_series >= entry_time
                                     if mask.any():
                                         since_entry_prices = prices_series[mask]
                                         peak = float(since_entry_prices.max())
