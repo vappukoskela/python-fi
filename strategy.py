@@ -470,6 +470,7 @@ def main():
                                 if sym in entry_times and len(time_deques[sym]) == len(price_deques[sym]) and len(price_deques[sym]) >= 2:
                                     entry_time = entry_times[sym].replace(microsecond=0)
                                     times_series = pd.Series(time_deques[sym]).dt.tz_convert('UTC').dt.floor('s')
+                                    prices_series = pd.Series(price_deques[sym])
                                     mask = times_series >= entry_time
                                     if mask.any():
                                         since_entry_prices = prices_series[mask]
@@ -482,7 +483,7 @@ def main():
                                             logging.debug(
                                                 "[TRACE][%s] Trailing stop | Entry=%.4f | Last=%.4f | Peak=%.4f | Drawdown=%.4f%% | Threshold=%.4f%% | Hit=%s",
                                                 sym,
-                                                entry_times[sym].timestamp(),
+                                                entry_prices.get(sym, 0.0),
                                                 last_price,
                                                 peak,
                                                 drawdown_pct * 100,
@@ -490,10 +491,10 @@ def main():
                                                 trailing_stop_hit
                                             )  
                                         else:
-                                            logging.debug("[TRACE][%s] No post-entry ticks found for trailing stop evaluation", sym)
+                                            logging.debug("[TRACE][%s] TS skipped: empty post-entry mask", sym)
                                           
                             except Exception as e:
-                                logging.error("[ERROR][%s] Trailing stop evaluation failed: %s", sym, str(e))
+                                logging.error("[ERROR][%s] Trailing stop evaluation failed: %s", sym, e)
                                 trailing_stop_hit = False
                     
                             # Max hold time
