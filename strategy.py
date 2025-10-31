@@ -374,13 +374,22 @@ def main():
                             rsi_series = compute_rsi_from_series(prices_series, RSI_PERIOD)
                     
                             # VWAP fail: last 3 bars below VWAP
+                            VWAP_DELTA = 0.02  # buffer to avoid noise-triggered exits
                             vwap_fail = False
                             try:
                                 entry_time = entry_times.get(sym)
                                 elapsed = (datetime.now(timezone.utc) - entry_time).total_seconds() if entry_time else 0
-                                if elapsed >= MIN_HOLD_SECONDS and len(vwap_series) >= 3:
-                                    vwap_fail = all(prices_series.iloc[-i] < vwap_series.iloc[-i] for i in range(1, 4))
-                            except Exception:
+                                if elapsed >= MIN_HOLD_SECONDS and len(vwap_series) >= 3 and not pd.isna(vwap_series.iloc[-1]):
+                                    bars_below = [prices_series.iloc[-i] < (vwap_series.iloc[-i] - VWAP_DELTA) for i in range(1, 4)]
+                                    vwap_fail = all(bars_below)
+
+                                     # 🔍 Diagnostic logging
+                                      logging.debug(
+                                          "[TRACE][%s] VWAP | last=%.4f | vwap=%.4f | bars_below=%s | Fail=%s",
+                                          sym, prices_series.iloc[-1], vwap_series.iloc[-1], bars_below, vwap_fail
+                                      )
+                            except Exception as e:
+                                logging.error("[ERROR][%s] VWAP evaluation failed: %s", sym, e)
                                 vwap_fail = False
                     
                             # EMA fail: last 3 bars EMA_fast < EMA_slow
