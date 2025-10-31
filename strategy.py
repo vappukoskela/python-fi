@@ -398,11 +398,21 @@ def main():
                             try:
                                 if elapsed >= MIN_HOLD_SECONDS and len(ema_fast_series) >= 3 and len(ema_slow_series) >= 3:
                                     ema_fail = (
-                                        ema_fast_series.iloc[-1] < ema_slow_series.iloc[-1] and
-                                        ema_fast_series.iloc[-2] < ema_slow_series.iloc[-2] and
-                                        last_price < ema_slow_series.iloc[-1]
+                                        ema_fast_series.iloc[-1] < (ema_slow_series.iloc[-1] - EMA_DELTA) and
+                                        ema_fast_series.iloc[-2] < (ema_slow_series.iloc[-2] - EMA_DELTA) and
+                                        last_price < (ema_slow_series.iloc[-1] - EMA_DELTA)
                                     )
-                            except Exception:
+
+                                    # 🔍 Diagnostic logging
+                                    logging.debug(
+                                        "[TRACE][%s] EMA | ema_fast_now=%.4f | ema_slow_now=%.4f | ema_fast_prev=%.4f | ema_slow_prev=%.4f | last=%.4f | Fail=%s",
+                                        sym,
+                                        ema_fast_series.iloc[-1], ema_slow_series.iloc[-1],
+                                        ema_fast_series.iloc[-2], ema_slow_series.iloc[-2],
+                                        last_price, ema_fail
+                                    ) 
+                            except Exception as e:
+                                logging.error("[ERROR][%s] EMA evaluation failed: %s", sym, e)
                                 ema_fail = False
                     
                             # RSI cooling
