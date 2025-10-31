@@ -384,10 +384,10 @@ def main():
                                     vwap_fail = all(bars_below)
 
                                      # 🔍 Diagnostic logging
-                                      logging.debug(
-                                          "[TRACE][%s] VWAP | last=%.4f | vwap=%.4f | bars_below=%s | Fail=%s",
-                                          sym, prices_series.iloc[-1], vwap_series.iloc[-1], bars_below, vwap_fail
-                                      )
+                                    logging.debug(
+                                        "[TRACE][%s] VWAP | last=%.4f | vwap=%.4f | bars_below=%s | Fail=%s",
+                                        sym, prices_series.iloc[-1], vwap_series.iloc[-1], bars_below, vwap_fail
+                                    )
                             except Exception as e:
                                 logging.error("[ERROR][%s] VWAP evaluation failed: %s", sym, e)
                                 vwap_fail = False
