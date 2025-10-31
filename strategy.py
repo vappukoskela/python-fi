@@ -454,6 +454,14 @@ def main():
                                                     rsi_entry > rsi_now and
                                                     (rsi_entry - rsi_now) >= RSI_DROP
                                                 )
+
+                                                # 🔍 Diagnostic line for RSI values
+                                                logging.debug(
+                                                    "[TRACE][%s] RSI values | entry=%.2f | prev=%.2f | now=%.2f | drop=%.2f | threshold=%d | Cool=%s",
+                                                    sym, rsi_entry, rsi_prev, rsi_now,
+                                                    (rsi_entry - rsi_now), RSI_DROP, rsi_cool
+                                                )
+                          
                             except Exception as e:
                                 logging.error("[ERROR][%s] RSI evaluation failed: %s", sym, e)
                                 rsi_cool = False
