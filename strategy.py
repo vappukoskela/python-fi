@@ -415,26 +415,39 @@ def main():
                                 logging.error("[ERROR][%s] EMA evaluation failed: %s", sym, e)
                                 ema_fail = False
                     
-                            # RSI cooling
+                            # RSI cooling (with grace period + diagnostics)
                             rsi_cool = False
                             try:
-                                if len(rsi_series) >= 3 and sym in entry_times:
-                                    entry_time_norm = entry_times[sym].replace(microsecond=0)
-                                    times_series = pd.Series(time_deques[sym]).dt.tz_convert('UTC').dt.floor('s')
-                                    entry_index = times_series[times_series >= entry_time_norm].index.min()
-                                    if entry_index is not None and entry_index < len(rsi_series):
-                                        rsi_entry = rsi_series.iloc[entry_index]
-                                        rsi_now = rsi_series.iloc[-1]
-                                        rsi_prev = rsi_series.iloc[-2]
-                                        RSI_DROP = 5
-                                        rsi_cool = (
-                                            rsi_now < MIN_RSI_FOR_ENTRY and
-                                            rsi_prev < MIN_RSI_FOR_ENTRY and
-                                            rsi_entry > rsi_now and
-                                            (rsi_entry - rsi_now) >= RSI_DROP
-                                        )
-                            except Exception:
+                                if sym in entry_times:
+                                    elapsed = (datetime.now(timezone.utc) - entry_times[sym]).total_seconds()
+                                    if elapsed >= MIN_HOLD_SECONDS and len(rsi_series) >= 3:
+                                        entry_time_norm = entry_times[sym].replace(microsecond=0)
+                                        times_series = pd.Series(time_deques[sym]).dt.tz_convert('UTC').dt.floor('s')
+                                        entry_index = times_series[times_series >= entry_time_norm].index.min()
+                            
+                                        if entry_index is not None and entry_index < len(rsi_series):
+                                            rsi_entry = rsi_series.iloc[entry_index]
+                                            rsi_now = rsi_series.iloc[-1]
+                                            rsi_prev = rsi_series.iloc[-2]
+                                            RSI_DROP = 5
+                            
+                                            rsi_cool = (
+                                                rsi_now < MIN_RSI_FOR_ENTRY and
+                                                rsi_prev < MIN_RSI_FOR_ENTRY and
+                                                rsi_entry > rsi_now and
+                                                (rsi_entry - rsi_now) >= RSI_DROP
+                                            )
+                            
+                                            # 🔍 Diagnostic logging
+                                            logging.debug(
+                                                "[TRACE][%s] RSI | entry=%.2f | prev=%.2f | now=%.2f | drop=%.2f | threshold=%d | Cool=%s",
+                                                sym, rsi_entry, rsi_prev, rsi_now,
+                                                (rsi_entry - rsi_now), RSI_DROP, rsi_cool
+                                            )
+                            except Exception as e:
+                                logging.error("[ERROR][%s] RSI evaluation failed: %s", sym, e)
                                 rsi_cool = False
+
                     
                             # --- Trailing stop ---
                             trailing_stop_hit = False
