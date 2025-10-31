@@ -426,42 +426,40 @@ def main():
                             except Exception:
                                 ema_fail = False
                                   
-                                    
-                            
-                            # RSI cooling below entry threshold
+                            # RSI cooling (with grace period and correct ordering)
                             rsi_cool = False
                             try:
-                                if len(rsi_series) >= 3 and sym in entry_times:
-                                    rsi_now = rsi_series.iloc[-1]
-                                    rsi_prev = rsi_series.iloc[-2]
-                                    rsi_entry = rsi_smooth.iloc[entry_index]
-                                  
-                                    # Etsi RSI-arvo ostohetkellä
-                                    entry_time = entry_times[sym]
-                                    times_series = pd.Series(time_deques[sym])
-                                    entry_index = times_series[times_series >= entry_time].index.min()
-
-                                    # 🔍 Add trace logging for indexing
-                                    logging.debug(f"[TRACE] {sym} entry_time={entry_time}, entry_index={entry_index}, rsi_series_len={len(rsi_series)}")
-                                    if entry_index is not None and entry_index < len(rsi_series):
-                                        rsi_entry = rsi_series.iloc[entry_index]
-
-                                        # Ehto: kaksi peräkkäistä alle rajan ja laskua vähintään 10 yksikköä
-                                        if (
-                                            not pd.isna(rsi_now) and
-                                            not pd.isna(rsi_prev) and
-                                            not pd.isna(rsi_entry)
-                                        ):
-                                            RSI_DROP = 5  # was 10
-                                            rsi_cool = (
-                                                             
-                                            rsi_now < MIN_RSI_FOR_ENTRY and
-                                            rsi_prev < MIN_RSI_FOR_ENTRY and
-                                            rsi_entry > rsi_now and
-                                            rsi_entry - rsi_now >= RSI_DROP
+                                if sym in entry_times:
+                                    elapsed = (datetime.now(timezone.utc) - entry_times[sym]).total_seconds()
+                                    if elapsed >= MIN_HOLD_SECONDS and len(rsi_series) >= 3:
+                                        entry_time_norm = entry_times[sym].replace(microsecond=0)
+                                        times_series = pd.Series(time_deques[sym]).dt.tz_convert('UTC').dt.floor('s')
+                                        entry_index = times_series[times_series >= entry_time_norm].index.min()
+                            
+                                        logging.debug(
+                                            "[TRACE][%s] RSI | entry_time=%s | entry_index=%s | rsi_len=%d",
+                                            sym, entry_time_norm, entry_index, len(rsi_series)
                                         )
-                            except Exception:
+                            
+                                        if entry_index is not None and entry_index < len(rsi_series):
+                                            rsi_entry = rsi_series.iloc[entry_index]
+                                            rsi_now = rsi_series.iloc[-1]
+                                            rsi_prev = rsi_series.iloc[-2]
+                            
+                                            if not pd.isna(rsi_now) and not pd.isna(rsi_prev) and not pd.isna(rsi_entry):
+                                                RSI_DROP = 5  # adjust as needed
+                                                rsi_cool = (
+                                                    rsi_now < MIN_RSI_FOR_ENTRY and
+                                                    rsi_prev < MIN_RSI_FOR_ENTRY and
+                                                    rsi_entry > rsi_now and
+                                                    (rsi_entry - rsi_now) >= RSI_DROP
+                                                )
+                            except Exception as e:
+                                logging.error("[ERROR][%s] RSI evaluation failed: %s", sym, e)
                                 rsi_cool = False
+        
+                            
+                            
                             logging.debug(f"[TRACE] VWAP fail: {vwap_fail}, EMA fail: {ema_fail}, RSI cool: {rsi_cool}")
 
                             # Trailing stop ~0.5% from peak since entry
