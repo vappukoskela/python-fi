@@ -400,30 +400,51 @@ def main():
                                 entry_time = entry_times.get(sym)
                                 elapsed = (datetime.now(timezone.utc) - entry_time).total_seconds() if entry_time else 0
                                   
-                                if elapsed >= MIN_HOLD_SECONDS:
-                                   
-                                    if len(vwap_series) >= 3 and not pd.isna(vwap_series.iloc[-1]):
-                                         
-                                        vwap_fail = all(prices_series.iloc[-i] < vwap_series.iloc[-i] for i in range(1, 4))
-                                        
-                            except Exception:
+                                if elapsed >= MIN_HOLD_SECONDS and len(vwap_series) >= 3 and not pd.isna(vwap_series.iloc[-1]):
+                                    # Apply delta buffer
+                                    bars_below = [prices_series.iloc[-i] < (vwap_series.iloc[-i] - VWAP_DELTA) for i in range(1, 4)]
+                                    vwap_fail = all(bars_below)
+
+                                    # 🔍 Diagnostic logging
+                                    logging.debug(
+                                        "[TRACE][%s] VWAP check | last=%.4f | vwap=%.4f | bars_below=%s | Fail=%s",
+                                        sym,
+                                        prices_series.iloc[-1],
+                                        vwap_series.iloc[-1],
+                                        bars_below,
+                                        vwap_fail
+                                    )         
+                            except Exception as e:
+                                logging.error("[ERROR][%s] VWAP evaluation failed: %s", sym, e)
                                 vwap_fail = False
                     
-                            # EMA trend fail: last 3 bars EMA_fast < EMA_slow
+                            # EMA trend fail: last 2 bars EMA_fast < EMA_slow
+                            EMA_DELTA = 0.02
                             ema_fail = False
                             try:
                                 entry_time = entry_times.get(sym)
                                 elapsed = (datetime.now(timezone.utc) - entry_time).total_seconds() if entry_time else 0
 
-                                if elapsed >= MIN_HOLD_SECONDS:
-                                    if len(ema_fast_series) >= 3 and len(ema_slow_series) >= 3:
-                                        EMA_DELTA = 0.02
-                                        ema_fail = (
-                                            ema_fast_series.iloc[-1] < ema_slow_series.iloc[-1] and
-                                            ema_fast_series.iloc[-2] < ema_slow_series.iloc[-2] and
-                                            last_price < ema_slow_series.iloc[-1]
-                                        )     
-                            except Exception:
+                                if elapsed >= MIN_HOLD_SECONDS and len(ema_fast_series) >= 3 and len(ema_slow_series) >= 3:
+                                    ema_fail = (
+                                        ema_fast_series.iloc[-1] < (ema_slow_series.iloc[-1] - EMA_DELTA) and
+                                        ema_fast_series.iloc[-2] < (ema_slow_series.iloc[-2] - EMA_DELTA) and
+                                        last_price < (ema_slow_series.iloc[-1] - EMA_DELTA)
+                                    ) 
+
+                                    # 🔍 Diagnostic logging
+                                    logging.debug(
+                                        "[TRACE][%s] EMA check | ema_fast_now=%.4f | ema_slow_now=%.4f | ema_fast_prev=%.4f | ema_slow_prev=%.4f | last=%.4f | Fail=%s",
+                                        sym,
+                                        ema_fast_series.iloc[-1],
+                                        ema_slow_series.iloc[-1],
+                                        ema_fast_series.iloc[-2],
+                                        ema_slow_series.iloc[-2],
+                                        last_price,
+                                        ema_fail
+                                    )
+                            except Exception as e:
+                                logging.error("[ERROR][%s] EMA evaluation failed: %s", sym, e)
                                 ema_fail = False
                                   
                             # RSI cooling (with grace period and correct ordering)
