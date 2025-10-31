@@ -393,6 +393,7 @@ def main():
                                 vwap_fail = False
                     
                             # EMA fail: last 3 bars EMA_fast < EMA_slow
+                            EMA_DELTA = 0.02
                             ema_fail = False
                             try:
                                 if elapsed >= MIN_HOLD_SECONDS and len(ema_fast_series) >= 3 and len(ema_slow_series) >= 3:
