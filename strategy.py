@@ -490,8 +490,12 @@ def main():
                                 exit_reason = "Stop-loss"
                             elif tp_hit:
                                 exit_reason = "Take-profit"
-                            elif vwap_fail or ema_fail or rsi_cool:
-                                exit_reason = "Indicator fails"
+                            elif vwap_fail: 
+                                exit_reason = "VWAP fail"
+                            elif ema_fail:
+                                exit_reason = "EMA fail"
+                            elif rsi_cool:
+                                exit_reason = "RSI cooling"  
                             elif time_exceeded:
                                 exit_reason = "Max hold"
                     
