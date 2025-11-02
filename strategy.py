@@ -52,6 +52,10 @@ logging.getLogger().addHandler(console)
 
 logging.debug("[TRACE] Logging system initialized")
 
+def run_simulation(symbols, start, end):
+    print(f"Running simulation for {symbols} from {start} to {end}")
+
+
 # --- DEBUG PATCH: logita entry_times ja last_exit_time päivitykset ---
 def debug_log_state(sym, entry_times, last_exit_time):
     if sym in entry_times:
