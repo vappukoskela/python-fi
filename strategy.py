@@ -57,13 +57,13 @@ def run_simulation(symbols, start, end):
 
 
 # --- DEBUG PATCH: logita entry_times ja last_exit_time päivitykset ---
-def debug_log_state(sym, entry_times, last_exit_time):
-    if sym in entry_times:
-        logging.debug("[DEBUG] entry_times[%s] = %s (type=%s)",
-                      sym, entry_times[sym], type(entry_times[sym]))
-    if sym in last_exit_time:
-        logging.debug("[DEBUG] last_exit_time[%s] = %s (type=%s)",
-                      sym, last_exit_time[sym], type(last_exit_time[sym]))
+#def debug_log_state(sym, entry_times, last_exit_time):
+    #if sym in entry_times:
+        #logging.debug("[DEBUG] entry_times[%s] = %s (type=%s)",
+                      #sym, entry_times[sym], type(entry_times[sym]))
+    #if sym in last_exit_time:
+        #logging.debug("[DEBUG] last_exit_time[%s] = %s (type=%s)",
+                      #sym, last_exit_time[sym], type(last_exit_time[sym]))
 
 # === helpers: indicators ===
 def compute_ema_from_series(series, period):
