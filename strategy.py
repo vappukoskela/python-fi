@@ -536,7 +536,7 @@ def main():
                             if qty > 0:
                                 submitted = safe_market_buy(trade_client, sym, qty, order_lock)
                                 if submitted:
-                                    entry_times[sym] = datetime.now(timezone.utc)
+                                    entry_times[sym] = (datetime.now(timezone.utc), price)
                                     entry_prices[sym] = price
                                     entry_qty[sym] = qty
                                     inflight_orders[sym] = submitted
