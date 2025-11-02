@@ -384,78 +384,78 @@ def main():
     pending_entries = set()   # prevent duplicate buys
 
    # === SIMULATION BRANCH ===
-if RUN_MODE == "SIM":
-    from alpaca.data.requests import StockBarsRequest
-    from alpaca.data.timeframe import TimeFrame
-
-    # Choose symbol and day for replay
-    symbol = "MSFT"
-    start = datetime(2024, 10, 1, tzinfo=timezone.utc)
-    end   = datetime(2024, 10, 2, tzinfo=timezone.utc)
-
-    req = StockBarsRequest(
-        symbol_or_symbols=[symbol],
-        timeframe=TimeFrame.Minute,
-        start=start,
-        end=end
-    )
-    bars = stock_data_client.get_stock_bars(req).df
-
-    logging.info("Starting SIM replay for %s from %s to %s", symbol, start, end)
-
-    in_position = False
-    entry_price = None
-    entry_times = {}
-    last_exit_time[symbol] = datetime.min.replace(tzinfo=timezone.utc)
-
-    for idx, row in bars.iterrows():
-        price = float(row["close"])
-        size = int(row["volume"])
-
-        # --- tee ts_val heti alussa ---
-        ts_val = idx
-        if isinstance(ts_val, tuple):
-            ts_val = ts_val[0]
-        try:
-            ts_val = pd.to_datetime(ts_val).to_pydatetime()
-        except Exception:
-            logging.error("[SIM] Could not convert ts=%s to datetime", ts_val)
-            continue
-
-        # --- päivitä deques aina ---
-        price_deques[symbol].append(price)
-        size_deques[symbol].append(size)
-        time_deques[symbol].append(ts_val)
-
-        # --- laske indikaattorit ---
-        prices = pd.Series(price_deques[symbol])
-        sizes_series = pd.Series(size_deques[symbol])
-        ema_fast = compute_ema_from_series(prices, EMA_FAST).iloc[-1]
-        ema_slow = compute_ema_from_series(prices, EMA_SLOW).iloc[-1]
-        rsi_val = compute_rsi_from_series(prices, RSI_PERIOD).iloc[-1]
-        vwap_val = compute_vwap_from_ticks(prices, sizes_series).iloc[-1]
-
-        if pd.isna(ema_fast) or pd.isna(ema_slow) or pd.isna(rsi_val) or pd.isna(vwap_val):
-            continue
-
-        # --- BUY / SELL logiikka ---
-        if not in_position:
-            if buy_conditions_met(symbol, price, size, ema_fast, ema_slow, rsi_val, vwap_val,
-                                  sizes_series, last_exit_time[symbol], {}, {}, set()):
-                entry_price = price
-                entry_times[symbol] = (ts_val, price)
-                in_position = True
-                logging.info("%s [SIM] BUY @ %.4f | rsi=%.2f", symbol, price, rsi_val)
-        else:
-            sell, reason = evaluate_sell(symbol, price, entry_price,
-                                         price_deques[symbol], size_deques[symbol], entry_times)
-            if sell:
-                pnl = price - entry_price
-                logging.info("%s [SIM] SELL @ %.4f | Reason=%s | PnL=%.4f",
-                             symbol, price, reason, pnl)
-                in_position = False
-                entry_price = None
-                last_exit_time[symbol] = ts_val
+    if RUN_MODE == "SIM":
+        from alpaca.data.requests import StockBarsRequest
+        from alpaca.data.timeframe import TimeFrame
+    
+        # Choose symbol and day for replay
+        symbol = "MSFT"
+        start = datetime(2024, 10, 1, tzinfo=timezone.utc)
+        end   = datetime(2024, 10, 2, tzinfo=timezone.utc)
+    
+        req = StockBarsRequest(
+            symbol_or_symbols=[symbol],
+            timeframe=TimeFrame.Minute,
+            start=start,
+            end=end
+        )
+        bars = stock_data_client.get_stock_bars(req).df
+    
+        logging.info("Starting SIM replay for %s from %s to %s", symbol, start, end)
+    
+        in_position = False
+        entry_price = None
+        entry_times = {}
+        last_exit_time[symbol] = datetime.min.replace(tzinfo=timezone.utc)
+    
+        for idx, row in bars.iterrows():
+            price = float(row["close"])
+            size = int(row["volume"])
+    
+            # --- tee ts_val heti alussa ---
+            ts_val = idx
+            if isinstance(ts_val, tuple):
+                ts_val = ts_val[0]
+            try:
+                ts_val = pd.to_datetime(ts_val).to_pydatetime()
+            except Exception:
+                logging.error("[SIM] Could not convert ts=%s to datetime", ts_val)
+                continue
+    
+            # --- päivitä deques aina ---
+            price_deques[symbol].append(price)
+            size_deques[symbol].append(size)
+            time_deques[symbol].append(ts_val)
+    
+            # --- laske indikaattorit ---
+            prices = pd.Series(price_deques[symbol])
+            sizes_series = pd.Series(size_deques[symbol])
+            ema_fast = compute_ema_from_series(prices, EMA_FAST).iloc[-1]
+            ema_slow = compute_ema_from_series(prices, EMA_SLOW).iloc[-1]
+            rsi_val = compute_rsi_from_series(prices, RSI_PERIOD).iloc[-1]
+            vwap_val = compute_vwap_from_ticks(prices, sizes_series).iloc[-1]
+    
+            if pd.isna(ema_fast) or pd.isna(ema_slow) or pd.isna(rsi_val) or pd.isna(vwap_val):
+                continue
+    
+            # --- BUY / SELL logiikka ---
+            if not in_position:
+                if buy_conditions_met(symbol, price, size, ema_fast, ema_slow, rsi_val, vwap_val,
+                                      sizes_series, last_exit_time[symbol], {}, {}, set()):
+                    entry_price = price
+                    entry_times[symbol] = (ts_val, price)
+                    in_position = True
+                    logging.info("%s [SIM] BUY @ %.4f | rsi=%.2f", symbol, price, rsi_val)
+            else:
+                sell, reason = evaluate_sell(symbol, price, entry_price,
+                                             price_deques[symbol], size_deques[symbol], entry_times)
+                if sell:
+                    pnl = price - entry_price
+                    logging.info("%s [SIM] SELL @ %.4f | Reason=%s | PnL=%.4f",
+                                 symbol, price, reason, pnl)
+                    in_position = False
+                    entry_price = None
+                    last_exit_time[symbol] = ts_val
      
         logging.info("SIM replay finished for %s", symbol)
         return
