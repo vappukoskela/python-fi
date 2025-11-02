@@ -449,11 +449,11 @@ def main():
             # --- tee ts_val heti alussa ---
             ts_val = idx
             if isinstance(ts_val, tuple):
-                ts_val = ts_val[1]
+                ts_val = ts_val[1]).to_pydatetime()
             try:
-                ts_val = pd.to_datetime(ts_val).to_pydatetime()
-            except Exception:
-                logging.error("[SIM] Could not convert ts=%s to datetime", ts_val)
+                ts_val = pd.to_datetime(idx[1]).to_pydatetime()
+            except Exception as e:
+                logging.error("[SIM] Could not convert ts=%s to datetime", idx, e)
                 continue
     
             # --- päivitä deques aina ---
