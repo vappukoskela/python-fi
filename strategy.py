@@ -279,6 +279,11 @@ def evaluate_sell(sym, last_price, ref_entry, price_deque, size_deque, entry_tim
             else:
                 entry_time = entry_record
                 entry_price_at_entry = None
+            # Convert string to datetime if needed
+            if isinstance(entry_time, str):
+                from dateutil import parser
+                entry_time = parser.parse(entry_time)
+            
 
             elapsed = (datetime.now(timezone.utc) - entry_time).total_seconds()
         else:
