@@ -535,20 +535,47 @@ def main():
                     ema_slow = compute_ema_from_series(prices, EMA_SLOW).iloc[-1]
                     rsi_val = compute_rsi_from_series(prices, RSI_PERIOD).iloc[-1]
                     vwap_val = compute_vwap_from_ticks(prices, sizes).iloc[-1]
-
+                    
                     if pd.isna(ema_fast) or pd.isna(ema_slow) or pd.isna(rsi_val) or pd.isna(vwap_val):
                         continue
-
-                    ema_trend_up = ema_fast > ema_slow
-                    price_above_vwap = price > vwap_val
-                    vol_ok = size > (sizes.mean() * VOL_SPIKE_MULT) if not pd.isna(sizes.mean()) else False
-
+                    
                     qty_open, avg_entry = positions_map.get(sym, (0, 0.0))
                     last_exit = last_exit_time.get(sym, datetime.min.replace(tzinfo=timezone.utc))
-
+                    
                     # clear pending once position is visible
                     if qty_open > 0 and sym in pending_entries:
                         pending_entries.discard(sym)
+
+# --- BUY / SELL using helpers ---
+if qty_open == 0:  # not in position
+    if buy_conditions_met(sym, price, size, ema_fast, ema_slow, rsi_val, vwap_val,
+                          sizes, last_exit, positions_map, inflight_orders, pending_entries):
+        qty = calculate_buying_power_limit(trade_client, price)
+        if qty > 0:
+            submitted = safe_market_buy(trade_client, sym, qty, order_lock)
+            if submitted:
+                entry_times[sym] = datetime.now(timezone.utc)
+                entry_prices[sym] = price
+                entry_qty[sym] = qty
+                inflight_orders[sym] = submitted
+                pending_entries.add(sym)
+                logging.info("%s LIVE BUY @ %.4f | qty=%d | rsi=%.2f",
+                             sym, price, qty, rsi_val)
+else:  # already in position
+    ref_entry = entry_prices.get(sym)
+    if ref_entry:
+        sell, reason = evaluate_sell(sym, price, ref_entry,
+                                     price_deques[sym], size_deques[sym], entry_times)
+        if sell:
+            qty = entry_qty.get(sym, 0)
+            submitted = safe_market_sell(trade_client, sym, qty, order_lock)
+            if submitted:
+                pnl = (price - ref_entry) * qty
+                logging.info("%s LIVE SELL @ %.4f | Reason=%s | PnL=%.4f | qty=%d",
+                             sym, price, reason, pnl, qty)
+                inflight_orders[sym] = submitted
+                last_exit_time[sym] = datetime.now(timezone.utc)
+
 
                     # === BUY LOGIC ===
                     if (
