@@ -15,9 +15,11 @@ from alpaca.trading.requests import MarketOrderRequest
 SCALP = True
 LOOP_SLEEP = 1.0
 TICKS_WINDOW = 300
-EMA_FAST = 9
-EMA_SLOW = 20
+EMA_FAST = 12
+EMA_SLOW = 26
 RSI_PERIOD = 14
+RSI_COOL_THRESHOLD = 50    # esim. raja-arvo RSI:lle "cool down" -tilanteessa
+EMA_DELTA = 0.001
 VWAP_DELTA = 0.01 
 VOL_SPIKE_MULT = 1.4
 TP_PCT = 0.006
