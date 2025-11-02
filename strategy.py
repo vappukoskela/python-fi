@@ -447,7 +447,7 @@ def main():
         last_exit_time[symbol] = datetime.min.replace(tzinfo=timezone.utc)
     
         for idx, row in bars.iterrows():
-            print("DEBUG idx=", idx)
+            #print("DEBUG idx=", idx)
             price = float(row["close"])
             size = int(row["volume"])
     
@@ -455,7 +455,7 @@ def main():
             try:
                 # idx on muotoa (symbol, timestamp), joten otetaan aikaleima
                 ts_val = idx[1]
-                logging.debug("[TRACE] ts_val before to_datetime: %s (type=%s)", ts_val, type(ts_val))
+                #logging.debug("[TRACE] ts_val before to_datetime: %s (type=%s)", ts_val, type(ts_val))
                 ts_val = pd.to_datetime(ts_val).to_pydatetime()
             except Exception as e:
                 logging.error("[SIM] Could not convert ts=%s to datetime (%s)", idx, e)
