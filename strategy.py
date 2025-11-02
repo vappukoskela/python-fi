@@ -498,7 +498,7 @@ def main():
                     in_position = False
                     entry_price = None
                     last_exit_time[symbol] = ts_val
-                    debug_log_state(symbol, entry_times, last_exit_time)
+                    #debug_log_state(symbol, entry_times, last_exit_time)
      
         logging.info("SIM replay finished for %s", symbol)
         return
