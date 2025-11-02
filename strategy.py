@@ -416,7 +416,7 @@ def main():
             # --- tee ts_val heti alussa ---
             ts_val = idx
             if isinstance(ts_val, tuple):
-                ts_val = ts_val[0]
+                ts_val = ts_val[1]
             try:
                 ts_val = pd.to_datetime(ts_val).to_pydatetime()
             except Exception:
