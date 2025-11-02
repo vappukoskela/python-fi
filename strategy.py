@@ -261,16 +261,10 @@ def evaluate_sell(sym, last_price, ref_entry, price_deque, size_deque, entry_tim
                   ema_fast_period=EMA_FAST, ema_slow_period=EMA_SLOW, rsi_period=RSI_PERIOD):
     """
     Exit evaluation used by both SIM and LIVE loops.
-    Mirrors your SELL block:
-      - TP, SL, trailing stop
-      - VWAP fail (last 3 bars below VWAP with delta)
-      - EMA fail (fast < slow for 2 bars + price < slow with delta)
-      - RSI cooling (drop >= threshold)
-      - Max hold
     Returns (True, reason) or (False, None).
     """
     try:
-        # --- Handle entry_times as datetime, tuple, or string ---
+        # --- Unpack entry_times ---
         entry_record = entry_times.get(sym)
 
         if entry_record:
@@ -283,14 +277,10 @@ def evaluate_sell(sym, last_price, ref_entry, price_deque, size_deque, entry_tim
             # Convert string to datetime if needed
             if isinstance(entry_time, str):
                 from dateutil import parser
-                try:
-                    entry_time = parser.parse(entry_time)
-                except Exception:
-                    logging.error("[%s] Invalid entry_time string: %s", sym, entry_time)
-                    return False, None
+                entry_time = parser.parse(entry_time)
 
             if not isinstance(entry_time, datetime):
-                logging.error("[%s] entry_time is not datetime: %s", sym, type(entry_time))
+                logging.error("[%s] entry_time is not datetime after unpack: %s", sym, type(entry_time))
                 return False, None
 
             elapsed = (datetime.now(timezone.utc) - entry_time).total_seconds()
@@ -298,9 +288,9 @@ def evaluate_sell(sym, last_price, ref_entry, price_deque, size_deque, entry_tim
             entry_time = None
             entry_price_at_entry = None
             elapsed = 0
-        # --- End entry_times handling ---
+        # --- End unpack ---
 
-        # Hard exits
+        # --- Hard exits ---
         tp_hit = last_price >= ref_entry * (1 + TP_PCT)
         sl_hit = last_price <= ref_entry * (1 - SL_PCT)
 
@@ -311,17 +301,17 @@ def evaluate_sell(sym, last_price, ref_entry, price_deque, size_deque, entry_tim
         trailing_stop_hit = False
         if len(prices_series) > 0:
             peak = prices_series.max()
-            if peak > ref_entry * (1 + TP_PCT):  # only trail after some profit
+            if peak > ref_entry * (1 + TP_PCT):
                 trailing_stop_hit = last_price <= peak * (1 - TRAIL_PCT)
 
-        # VWAP fail: last 3 closes below VWAP with delta
+        # VWAP fail
         vwap_val = compute_vwap_from_ticks(prices_series, sizes_series).iloc[-1]
         vwap_fail = False
-        if len(prices_series) >= 3:
+        if len(prices_series) >= 3 and not pd.isna(vwap_val):
             if all(prices_series.iloc[-i] < vwap_val * (1 - VWAP_DELTA) for i in range(1, 4)):
                 vwap_fail = True
 
-        # EMA fail: fast < slow for 2 bars + price < slow with delta
+        # EMA fail
         ema_fast = compute_ema_from_series(prices_series, ema_fast_period).iloc[-1]
         ema_slow = compute_ema_from_series(prices_series, ema_slow_period).iloc[-1]
         ema_fail = False
@@ -331,7 +321,7 @@ def evaluate_sell(sym, last_price, ref_entry, price_deque, size_deque, entry_tim
             if ema_fast < ema_slow and ema_fast_prev < ema_slow_prev and last_price < ema_slow * (1 - EMA_DELTA):
                 ema_fail = True
 
-        # RSI cooling: drop >= threshold
+        # RSI cooling
         rsi_val = compute_rsi_from_series(prices_series, rsi_period).iloc[-1]
         rsi_cooling = False
         if not pd.isna(rsi_val):
@@ -339,10 +329,10 @@ def evaluate_sell(sym, last_price, ref_entry, price_deque, size_deque, entry_tim
             if rsi_peak - rsi_val >= RSI_COOL_THRESHOLD:
                 rsi_cooling = True
 
-        # Max hold time
+        # Max hold
         max_hold_hit = elapsed >= MAX_HOLD_SEC if entry_time else False
 
-        # Decision
+        # --- Decision ---
         if tp_hit:
             return True, "Take-profit"
         if sl_hit:
@@ -363,6 +353,7 @@ def evaluate_sell(sym, last_price, ref_entry, price_deque, size_deque, entry_tim
     except Exception as e:
         logging.error("[%s] Sell evaluation failed: %s", sym, str(e))
         return False, None
+
 
 
 # === MAIN ===
