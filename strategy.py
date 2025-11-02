@@ -21,6 +21,9 @@ RSI_PERIOD = 14
 VOL_SPIKE_MULT = 1.4
 TP_PCT = 0.006
 SL_PCT = 0.004
+# --- RUN MODE ---
+# "SIM" = backtest on historical bars; "LIVE" = live/paper trading loop
+RUN_MODE = "SIM"
 TRAILING_STOP_PCT = 0.005  # 0.5% trailing stop
 MAX_HOLD_SECONDS = 300   # example: 5 minutes
 MIN_HOLD_SECONDS = 30    # example: 30 seconds grace period before indicators can trigger
