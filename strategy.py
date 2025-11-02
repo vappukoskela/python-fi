@@ -205,13 +205,175 @@ def safe_market_sell(trade_client_local, symbol, intended_qty, order_lock):
             return None
 
 # === STRATEGY HELPERS: BUY/SELL CONDITIONS ===
+
 def buy_conditions_met(sym, price, size, ema_fast, ema_slow, rsi_val, vwap_val,
                        sizes_series, last_exit, positions_map, inflight_orders, pending_entries):
-    # NEW helper code here (entry conditions)
+    """
+    Entry filter used by both SIM and LIVE loops.
+    Mirrors your BUY block:
+      - Cooldown
+      - Trend (EMA fast > EMA slow)
+      - Price above VWAP
+      - RSI in allowed range
+      - Volume spike vs recent mean
+      - No open position / no pending order
+    """
+    try:
+        # Cooldown
+        if last_exit:
+            since_last = (datetime.now(timezone.utc) - last_exit).total_seconds()
+            if since_last < COOLDOWN_SECONDS:
+                return False
+
+        # Position/order checks
+        no_position = positions_map.get(sym, (0, 0.0))[0] == 0
+        inflight_none = inflight_orders.get(sym) is None
+        not_pending = sym not in pending_entries
+        if not (no_position and inflight_none and not_pending):
+            return False
+
+        # Trend filter
+        if pd.isna(ema_fast) or pd.isna(ema_slow) or ema_fast <= ema_slow:
+            return False
+
+        # VWAP filter
+        if pd.isna(vwap_val) or price <= vwap_val:
+            return False
+
+        # RSI filter
+        if pd.isna(rsi_val) or not (MIN_RSI_FOR_ENTRY <= rsi_val <= MAX_RSI_FOR_ENTRY):
+            return False
+
+        # Volume spike filter (guard against NaN)
+        mean_vol = sizes_series.mean() if len(sizes_series) > 0 else float('nan')
+        vol_ok = (not pd.isna(mean_vol)) and (size > (mean_vol * VOL_SPIKE_MULT))
+        if not vol_ok:
+            return False
+
+        return True
+
+    except Exception as e:
+        logging.error("[ERROR][%s] Buy evaluation failed: %s", sym, e)
+        return False
+
 
 def evaluate_sell(sym, last_price, ref_entry, price_deque, size_deque, entry_times,
                   ema_fast_period=EMA_FAST, ema_slow_period=EMA_SLOW, rsi_period=RSI_PERIOD):
-    # NEW helper code here (exit conditions)
+    """
+    Exit evaluation used by both SIM and LIVE loops.
+    Mirrors your SELL block:
+      - TP, SL, trailing stop
+      - VWAP fail (last 3 bars below VWAP with delta)
+      - EMA fail (fast < slow for 2 bars + price < slow with delta)
+      - RSI cooling (drop >= threshold)
+      - Max hold
+    Returns (True, reason) or (False, None).
+    """
+    try:
+        # Hard exits
+        tp_hit = last_price >= ref_entry * (1 + TP_PCT)
+        sl_hit = last_price <= ref_entry * (1 - SL_PCT)
+
+        prices_series = pd.Series(price_deque)
+        sizes_series = pd.Series(size_deque)
+
+        # Indicators from your existing helpers
+        vwap_series = compute_vwap_from_ticks(prices_series, sizes_series)
+        ema_fast_series = compute_ema_from_series(prices_series, ema_fast_period)
+        ema_slow_series = compute_ema_from_series(prices_series, ema_slow_period)
+        rsi_series = compute_rsi_from_series(prices_series, rsi_period)
+
+        # Buffers/deltas (use your configured values if you have them centralized)
+        VWAP_DELTA = 0.02
+        EMA_DELTA = 0.02
+        RSI_DROP = 5
+
+        # Elapsed since entry
+        elapsed = 0
+        entry_time = entry_times.get(sym)
+        if entry_time:
+            elapsed = (datetime.now(timezone.utc) - entry_time).total_seconds()
+
+        # Trailing stop (peak since entry within current window)
+        trailing_stop_hit = False
+        try:
+            # Peak since entry: we can use the max of current price window as proxy
+            peak = float(prices_series.max()) if len(prices_series) > 0 else 0.0
+            if peak > 0:
+                drawdown_pct = (peak - last_price) / peak
+                trailing_stop_hit = drawdown_pct >= TRAILING_STOP_PCT
+                logging.debug("[TRACE][%s] TS | Entry=%.4f | Last=%.4f | Peak=%.4f | Drawdown=%.4f%% | Th=%.4f%% | Hit=%s",
+                              sym, ref_entry, last_price, peak, drawdown_pct * 100, TRAILING_STOP_PCT * 100, trailing_stop_hit)
+        except Exception as e:
+            logging.error("[ERROR][%s] TS evaluation failed: %s", sym, e)
+            trailing_stop_hit = False
+
+        # Indicator-based exits (apply grace period)
+        vwap_fail = False
+        try:
+            if elapsed >= MIN_HOLD_SECONDS and len(vwap_series) >= 3 and not pd.isna(vwap_series.iloc[-1]):
+                bars_below = [prices_series.iloc[-i] < (vwap_series.iloc[-i] - VWAP_DELTA) for i in range(1, 4)]
+                vwap_fail = all(bars_below)
+                logging.debug("[TRACE][%s] VWAP | last=%.4f | vwap=%.4f | bars_below=%s | Fail=%s",
+                              sym, prices_series.iloc[-1], vwap_series.iloc[-1], bars_below, vwap_fail)
+        except Exception as e:
+            logging.error("[ERROR][%s] VWAP evaluation failed: %s", sym, e)
+            vwap_fail = False
+
+        ema_fail = False
+        try:
+            if elapsed >= MIN_HOLD_SECONDS and len(ema_fast_series) >= 3 and len(ema_slow_series) >= 3:
+                ema_fail = (
+                    ema_fast_series.iloc[-1] < (ema_slow_series.iloc[-1] - EMA_DELTA) and
+                    ema_fast_series.iloc[-2] < (ema_slow_series.iloc[-2] - EMA_DELTA) and
+                    last_price < (ema_slow_series.iloc[-1] - EMA_DELTA)
+                )
+                logging.debug("[TRACE][%s] EMA | ema_fast_now=%.4f | ema_slow_now=%.4f | ema_fast_prev=%.4f | ema_slow_prev=%.4f | last=%.4f | Fail=%s",
+                              sym,
+                              ema_fast_series.iloc[-1], ema_slow_series.iloc[-1],
+                              ema_fast_series.iloc[-2], ema_slow_series.iloc[-2],
+                              last_price, ema_fail)
+        except Exception as e:
+            logging.error("[ERROR][%s] EMA evaluation failed: %s", sym, e)
+            ema_fail = False
+
+        rsi_cool = False
+        try:
+            if elapsed >= MIN_HOLD_SECONDS and len(rsi_series) >= 3:
+                # Approximate RSI at entry: use a few bars back if exact timestamp alignment isn’t passed
+                rsi_entry = rsi_series.iloc[-3] if len(rsi_series) >= 3 else rsi_series.iloc[0]
+                rsi_now = rsi_series.iloc[-1]
+                rsi_prev = rsi_series.iloc[-2]
+                rsi_cool = (
+                    rsi_now < MIN_RSI_FOR_ENTRY and
+                    rsi_prev < MIN_RSI_FOR_ENTRY and
+                    rsi_entry > rsi_now and
+                    (rsi_entry - rsi_now) >= RSI_DROP
+                )
+                logging.debug("[TRACE][%s] RSI | entry=%.2f | prev=%.2f | now=%.2f | drop=%.2f | threshold=%d | Cool=%s",
+                              sym, rsi_entry, rsi_prev, rsi_now, (rsi_entry - rsi_now), RSI_DROP, rsi_cool)
+        except Exception as e:
+            logging.error("[ERROR][%s] RSI evaluation failed: %s", sym, e)
+            rsi_cool = False
+
+        # Max hold
+        time_exceeded = (elapsed >= MAX_HOLD_SECONDS)
+
+        # Exit reason priority (specific indicator reasons instead of generic)
+        if trailing_stop_hit:    return True, "Trailing stop"
+        if sl_hit:               return True, "Stop-loss"
+        if tp_hit:               return True, "Take-profit"
+        if vwap_fail:            return True, "VWAP fail"
+        if ema_fail:             return True, "EMA fail"
+        if rsi_cool:             return True, "RSI cooling"
+        if time_exceeded:        return True, "Max hold"
+
+        return False, None
+
+    except Exception as e:
+        logging.error("[ERROR][%s] Sell evaluation failed: %s", sym, e)
+        return False, None
+
 
 # === MAIN ===
 def main():
