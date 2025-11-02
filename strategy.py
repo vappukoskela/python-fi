@@ -448,15 +448,14 @@ def main():
                                              price_deques[symbol], size_deques[symbol], entry_times)
                 if sell:
                     pnl = price - entry_price
-                    logging.info("%s [SIM] SELL @ %.4f | Reason=%s | PnL=%.4f | EntryRef=%.4f",
-                                 symbol, price, reason, pnl, entry_price)
+                    logging.info("%s [SIM] SELL @ %.4f | Reason=%s | PnL=%.4f | EntryRef=%.4f | EntryTuplePrice=%.4f",
+                     symbol, price, reason, pnl, entry_price,
+                     entry_times[symbol][1] if isinstance(entry_times.get(symbol), tuple) else float('nan'))
                     in_position = False
                     entry_price = None
                     last_exit_time[symbol] = ts
 
-        logging.info("%s [SIM] SELL @ %.4f | Reason=%s | PnL=%.4f | EntryRef=%.4f | EntryTuplePrice=%.4f",
-                     symbol, price, reason, pnl, entry_price,
-                     entry_times[symbol][1] if isinstance(entry_times.get(symbol), tuple) else float('nan'))
+        logging.info("SIM replay finished for %s", symbol)
         return
     # === END SIMULATION BRANCH ===
 
