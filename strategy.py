@@ -426,7 +426,7 @@ def main():
         from alpaca.data.timeframe import TimeFrame
     
         # Choose symbol and day for replay
-        symbol = "MSFT"
+        symbol = "NVDA"
         start = datetime(2024, 10, 1, 0, 0)
         end   = datetime(2024, 10, 2, 0, 0)
         run_simulation(symbol, start, end)
