@@ -446,15 +446,17 @@ def main():
             price = float(row["close"])
             size = int(row["volume"])
     
-            # --- tee ts_val heti alussa ---
-            ts_val = idx
-            if isinstance(ts_val, tuple):
-                ts_val = ts_val[1].to_pydatetime()
+           # --- tee ts_val heti alussa ---
             try:
-                ts_val = pd.to_datetime(idx[1]).to_pydatetime()
+                # idx on muotoa (symbol, timestamp), joten otetaan aikaleima
+                ts_val = idx[1]
+                logging.debug("[TRACE] ts_val before to_datetime: %s (type=%s)", ts_val, type(ts_val))
+                ts_val = pd.to_datetime(ts_val).to_pydatetime()
             except Exception as e:
-                logging.error("[SIM] Could not convert ts=%s to datetime", idx, e)
+                logging.error("[SIM] Could not convert ts=%s to datetime (%s)", idx, e)
                 continue
+
+
     
             # --- päivitä deques aina ---
             price_deques[symbol].append(price)
