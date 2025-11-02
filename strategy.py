@@ -435,6 +435,12 @@ def main():
                     in_position = True
                     logging.info("%s [SIM] BUY @ %.4f | rsi=%.2f", symbol, price, rsi_val)
             else:
+                # DEBUG: tarkista mitä entry_times sisältää juuri ennen evaluate_sell
+                if symbol in entry_times:
+                    logging.debug("[DEBUG][SIM] entry_times[%s] raw value: %s", symbol, entry_times[symbol])
+                    logging.debug("[DEBUG][SIM] type(entry_times[%s]) = %s", symbol, type(entry_times[symbol]))
+                else:
+                    logging.debug("[DEBUG][SIM] entry_times[%s] not set", symbol)
                 sell, reason = evaluate_sell(symbol, price, entry_price,
                                              price_deques[symbol], size_deques[symbol], entry_times)
                 if sell:
@@ -697,15 +703,25 @@ def main():
                                 exit_reason = "RSI cooling"
                             elif time_exceeded:
                                 exit_reason = "Max hold"
-                    
                             # Execute sell
                             if exit_reason:
+                                # DEBUG: tarkista mitä entry_times sisältää juuri ennen myyntiä
+                                if sym in entry_times:
+                                    logging.debug("[DEBUG][LIVE] entry_times[%s] raw value: %s", sym, entry_times[sym])
+                                    logging.debug("[DEBUG][LIVE] type(entry_times[%s]) = %s", sym, type(entry_times[sym]))
+                                else:
+                                    logging.debug("[DEBUG][LIVE] entry_times[%s] not set", sym)
+                            
                                 submitted = safe_market_sell(trade_client, sym, qty_open, order_lock)
                                 logging.info(
                                     "%s - SCALP SELL qty=%d @ %.4f | Reason=%s | EntryRef=%.4f | EntryTuplePrice=%.4f",
                                     sym, qty_open, last_price, exit_reason, ref_entry,
                                     entry_price_at_entry if entry_price_at_entry is not None else float('nan')
                                 )
+                                in_position = False
+                                entry_price = None
+                                last_exit_time[sym] = datetime.now(timezone.utc)
+                            
                         except Exception as e:
                             logging.error("[ERROR][%s] Sell logic failed: %s", sym, e)
 
