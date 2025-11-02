@@ -409,6 +409,7 @@ def main():
         last_exit_time[symbol] = datetime.min.replace(tzinfo=timezone.utc)
     
         for idx, row in bars.iterrows():
+            print("DEBUG idx=", idx)
             price = float(row["close"])
             size = int(row["volume"])
     
