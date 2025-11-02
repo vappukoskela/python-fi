@@ -204,6 +204,15 @@ def safe_market_sell(trade_client_local, symbol, intended_qty, order_lock):
             logging.exception("safe_market_sell error for %s: %s", symbol, e)
             return None
 
+# === STRATEGY HELPERS: BUY/SELL CONDITIONS ===
+def buy_conditions_met(sym, price, size, ema_fast, ema_slow, rsi_val, vwap_val,
+                       sizes_series, last_exit, positions_map, inflight_orders, pending_entries):
+    # NEW helper code here (entry conditions)
+
+def evaluate_sell(sym, last_price, ref_entry, price_deque, size_deque, entry_times,
+                  ema_fast_period=EMA_FAST, ema_slow_period=EMA_SLOW, rsi_period=RSI_PERIOD):
+    # NEW helper code here (exit conditions)
+
 # === MAIN ===
 def main():
     load_dotenv()
