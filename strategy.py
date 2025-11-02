@@ -423,8 +423,9 @@ def main():
     
         # Choose symbol and day for replay
         symbol = "MSFT"
-        start = datetime(2024, 10, 1, tzinfo=timezone.utc)
-        end   = datetime(2024, 10, 2, tzinfo=timezone.utc)
+        start = datetime(2024, 10, 1, 0, 0)
+        end   = datetime(2024, 10, 2, 0, 0)
+        run_simulation(symbol, start, end)
     
         req = StockBarsRequest(
             symbol_or_symbols=[symbol],
