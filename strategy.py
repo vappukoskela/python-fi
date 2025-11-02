@@ -361,6 +361,14 @@ def evaluate_sell(sym, last_price, ref_entry, price_deque, size_deque, entry_tim
 
 
 # === MAIN ===
+# === Strategy parameters ===
+EMA_FAST = 12
+EMA_SLOW = 26
+RSI_PERIOD = 14
+VWAP_DELTA = 0.01
+RSI_COOL_THRESHOLD = 50
+EMA_DELTA = 0.001
+MAX_HOLD_SEC = 3600   # 1 hour
 def main():
     load_dotenv()
     global stock_data_client, trade_client, entry_times, entry_prices, entry_qty, last_exit_time
