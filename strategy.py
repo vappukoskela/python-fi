@@ -432,8 +432,8 @@ def main():
                                       sizes_series, last_exit_time[symbol], {}, {}, set()):
                     entry_price = price
                     ts_val = row.name                    
-                    if isinstance(ts, tuple):
-                        ts_val = ts[0]
+                    if isinstance(ts_val, tuple):
+                        ts_val = ts_val[0]
                     
                     try:
                         ts_val = pd.to_datetime(ts_val).to_pydatetime()
