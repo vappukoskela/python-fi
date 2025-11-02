@@ -546,21 +546,21 @@ def main():
                     if qty_open > 0 and sym in pending_entries:
                         pending_entries.discard(sym)
 
-# --- BUY / SELL using helpers ---
-if qty_open == 0:  # not in position
-    if buy_conditions_met(sym, price, size, ema_fast, ema_slow, rsi_val, vwap_val,
-                          sizes, last_exit, positions_map, inflight_orders, pending_entries):
-        qty = calculate_buying_power_limit(trade_client, price)
-        if qty > 0:
-            submitted = safe_market_buy(trade_client, sym, qty, order_lock)
-            if submitted:
-                entry_times[sym] = datetime.now(timezone.utc)
-                entry_prices[sym] = price
-                entry_qty[sym] = qty
-                inflight_orders[sym] = submitted
-                pending_entries.add(sym)
-                logging.info("%s LIVE BUY @ %.4f | qty=%d | rsi=%.2f",
-                             sym, price, qty, rsi_val)
+                    # --- BUY / SELL using helpers ---
+                    if qty_open == 0:  # not in position
+                        if buy_conditions_met(sym, price, size, ema_fast, ema_slow, rsi_val, vwap_val,
+                                              sizes, last_exit, positions_map, inflight_orders, pending_entries):
+                            qty = calculate_buying_power_limit(trade_client, price)
+                            if qty > 0:
+                                submitted = safe_market_buy(trade_client, sym, qty, order_lock)
+                                if submitted:
+                                    entry_times[sym] = datetime.now(timezone.utc)
+                                    entry_prices[sym] = price
+                                    entry_qty[sym] = qty
+                                    inflight_orders[sym] = submitted
+                                    pending_entries.add(sym)
+                                    logging.info("%s LIVE BUY @ %.4f | qty=%d | rsi=%.2f",
+                                                 sym, price, qty, rsi_val)
 else:  # already in position
     ref_entry = entry_prices.get(sym)
     if ref_entry:
