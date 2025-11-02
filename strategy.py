@@ -568,60 +568,19 @@ def main():
                                     last_exit_time[sym] = datetime.now(timezone.utc)
 
 
-                    # === BUY LOGIC ===
-                    if (
-                        qty_open == 0 and
-                        sym not in pending_entries and
-                        ema_trend_up and
-                        price_above_vwap and
-                        vol_ok and
-                        MIN_RSI_FOR_ENTRY <= rsi_val <= MAX_RSI_FOR_ENTRY and
-                        (datetime.now(timezone.utc) - last_exit).total_seconds() >= COOLDOWN_SECONDS and
-                        inflight_orders.get(sym) is None
-                    ):
-                        if (datetime.now(timezone.utc) - last_trade_attempt[sym]).total_seconds() < 1.0:
-                            continue
-                        last_trade_attempt[sym] = datetime.now(timezone.utc)
-
-                        est_trade_cost = price * int((max_loop_budget * BUY_CASH_BUFFER) // price)
-                        if spent_this_loop + est_trade_cost > max_loop_budget:
-                            logging.info(f"{sym} - Skipping buy: budget exceeded. est_cost={est_trade_cost:.2f} spent={spent_this_loop:.2f}")
-                            continue
-
-                        pending_entries.add(sym)
-                        try:
-                            spent_this_loop += est_trade_cost  # reserve budget immediately
-                            submitted = safe_market_buy(trade_client, sym, max_loop_budget * BUY_CASH_BUFFER, order_lock)
-                            logging.debug(f"[TRACE] Buy submitted: {submitted}")
-                            if submitted:
-                                inflight_orders[sym] = getattr(submitted, "id", None) or True
-                                # 🔍 Retry loop for post-buy verification
-                                actual_qty = 0
-                                for attempt in range(3):
-                                    actual_qty = get_position_qty(trade_client, sym)
-                                    logging.debug(f"[TRACE] Post-buy verification attempt {attempt+1} for {sym}: actual_qty={actual_qty}")
-                                    if actual_qty > 0:
-                                        break
-                                    time.sleep(1.0)
-                              
-                                if actual_qty > 0:
-                                    entry_qty[sym] = actual_qty
-                                    entry_prices[sym] = price
-                                    entry_times[sym] = (datetime.now(timezone.utc), price)
-                                    logging.info(f"{sym} - ENTRY recorded qty={entry_qty[sym]} price={price:.2f} rsi={rsi_val:.2f}")
-                                else:
-                                    logging.warning(f"[TRACE] Buy assumed filled but no position found for {sym}")
-      
-                        except Exception as e:
-                            logging.exception("%s - BUY error: %s", sym, str(e))
-                        finally:
-                            inflight_orders.pop(sym, None)
-
-                   # === SELL LOGIC (scalping exits) ===
+                    # === SELL LOGIC (scalping exits) ===
                     if qty_open > 0:
                         try:
                             last_price = float(price)
                             ref_entry = entry_prices.get(sym, avg_entry)
+                    
+                            # --- Unpack entry_times ---
+                            entry_record = entry_times.get(sym)
+                            if isinstance(entry_record, tuple):
+                                entry_time, entry_price_at_entry = entry_record
+                            else:
+                                entry_time = entry_record
+                                entry_price_at_entry = None
                     
                             # --- Hard exits ---
                             tp_hit = last_price >= ref_entry * (1 + TP_PCT)
@@ -636,16 +595,13 @@ def main():
                             rsi_series = compute_rsi_from_series(prices_series, RSI_PERIOD)
                     
                             # VWAP fail: last 3 bars below VWAP
-                            VWAP_DELTA = 0.02  # buffer to avoid noise-triggered exits
+                            VWAP_DELTA = 0.02
                             vwap_fail = False
                             try:
-                                entry_time = entry_times.get(sym)
                                 elapsed = (datetime.now(timezone.utc) - entry_time).total_seconds() if entry_time else 0
                                 if elapsed >= MIN_HOLD_SECONDS and len(vwap_series) >= 3 and not pd.isna(vwap_series.iloc[-1]):
                                     bars_below = [prices_series.iloc[-i] < (vwap_series.iloc[-i] - VWAP_DELTA) for i in range(1, 4)]
                                     vwap_fail = all(bars_below)
-
-                                     # 🔍 Diagnostic logging
                                     logging.debug(
                                         "[TRACE][%s] VWAP | last=%.4f | vwap=%.4f | bars_below=%s | Fail=%s",
                                         sym, prices_series.iloc[-1], vwap_series.iloc[-1], bars_below, vwap_fail
@@ -654,7 +610,7 @@ def main():
                                 logging.error("[ERROR][%s] VWAP evaluation failed: %s", sym, e)
                                 vwap_fail = False
                     
-                            # EMA fail: last 3 bars EMA_fast < EMA_slow
+                            # EMA fail
                             EMA_DELTA = 0.02
                             ema_fail = False
                             try:
@@ -664,43 +620,37 @@ def main():
                                         ema_fast_series.iloc[-2] < (ema_slow_series.iloc[-2] - EMA_DELTA) and
                                         last_price < (ema_slow_series.iloc[-1] - EMA_DELTA)
                                     )
-
-                                    # 🔍 Diagnostic logging
                                     logging.debug(
                                         "[TRACE][%s] EMA | ema_fast_now=%.4f | ema_slow_now=%.4f | ema_fast_prev=%.4f | ema_slow_prev=%.4f | last=%.4f | Fail=%s",
                                         sym,
                                         ema_fast_series.iloc[-1], ema_slow_series.iloc[-1],
                                         ema_fast_series.iloc[-2], ema_slow_series.iloc[-2],
                                         last_price, ema_fail
-                                    ) 
+                                    )
                             except Exception as e:
                                 logging.error("[ERROR][%s] EMA evaluation failed: %s", sym, e)
                                 ema_fail = False
                     
-                            # RSI cooling (with grace period + diagnostics)
+                            # RSI cooling
                             rsi_cool = False
                             try:
-                                if sym in entry_times:
-                                    elapsed = (datetime.now(timezone.utc) - entry_times[sym]).total_seconds()
-                                    if elapsed >= MIN_HOLD_SECONDS and len(rsi_series) >= 3:
-                                        entry_time_norm = entry_times[sym].replace(microsecond=0)
+                                if entry_time and len(rsi_series) >= 3:
+                                    elapsed = (datetime.now(timezone.utc) - entry_time).total_seconds()
+                                    if elapsed >= MIN_HOLD_SECONDS:
+                                        entry_time_norm = entry_time.replace(microsecond=0)
                                         times_series = pd.Series(time_deques[sym]).dt.tz_convert('UTC').dt.floor('s')
                                         entry_index = times_series[times_series >= entry_time_norm].index.min()
-                            
                                         if entry_index is not None and entry_index < len(rsi_series):
                                             rsi_entry = rsi_series.iloc[entry_index]
                                             rsi_now = rsi_series.iloc[-1]
                                             rsi_prev = rsi_series.iloc[-2]
                                             RSI_DROP = 5
-                            
                                             rsi_cool = (
                                                 rsi_now < MIN_RSI_FOR_ENTRY and
                                                 rsi_prev < MIN_RSI_FOR_ENTRY and
                                                 rsi_entry > rsi_now and
                                                 (rsi_entry - rsi_now) >= RSI_DROP
                                             )
-                            
-                                            # 🔍 Diagnostic logging
                                             logging.debug(
                                                 "[TRACE][%s] RSI | entry=%.2f | prev=%.2f | now=%.2f | drop=%.2f | threshold=%d | Cool=%s",
                                                 sym, rsi_entry, rsi_prev, rsi_now,
@@ -709,13 +659,12 @@ def main():
                             except Exception as e:
                                 logging.error("[ERROR][%s] RSI evaluation failed: %s", sym, e)
                                 rsi_cool = False
-
                     
-                            # --- Trailing stop ---
+                            # Trailing stop
                             trailing_stop_hit = False
                             try:
-                                if sym in entry_times and len(time_deques[sym]) == len(price_deques[sym]) and len(price_deques[sym]) >= 2:
-                                    entry_time_norm = entry_times[sym].replace(microsecond=0)
+                                if entry_time and len(time_deques[sym]) == len(price_deques[sym]) and len(price_deques[sym]) >= 2:
+                                    entry_time_norm = entry_time.replace(microsecond=0)
                                     times_series = pd.Series(time_deques[sym]).dt.tz_convert('UTC').dt.floor('s')
                                     prices_series = pd.Series(price_deques[sym])
                                     mask = times_series >= entry_time_norm
@@ -734,14 +683,14 @@ def main():
                                 logging.error("[ERROR][%s] TS evaluation failed: %s", sym, e)
                                 trailing_stop_hit = False
                     
-                            # --- Max hold ---
+                            # Max hold
                             time_exceeded = False
-                            if sym in entry_times:
-                                elapsed = (datetime.now(timezone.utc) - entry_times[sym]).total_seconds()
+                            if entry_time:
+                                elapsed = (datetime.now(timezone.utc) - entry_time).total_seconds()
                                 if elapsed >= MAX_HOLD_SECONDS:
                                     time_exceeded = True
                     
-                            # --- Exit reason priority ---
+                            # Exit reason priority
                             exit_reason = None
                             if trailing_stop_hit:
                                 exit_reason = "Trailing stop"
@@ -749,25 +698,26 @@ def main():
                                 exit_reason = "Stop-loss"
                             elif tp_hit:
                                 exit_reason = "Take-profit"
-                            elif vwap_fail: 
+                            elif vwap_fail:
                                 exit_reason = "VWAP fail"
                             elif ema_fail:
                                 exit_reason = "EMA fail"
                             elif rsi_cool:
-                                exit_reason = "RSI cooling"  
+                                exit_reason = "RSI cooling"
                             elif time_exceeded:
                                 exit_reason = "Max hold"
                     
-                            # --- Execute sell ---
+                            # Execute sell
                             if exit_reason:
                                 submitted = safe_market_sell(trade_client, sym, qty_open, order_lock)
                                 logging.info(
-                                    "%s - SCALP SELL qty=%d @ %.4f | Reason=%s | EntryRef=%.4f",
-                                    sym, qty_open, last_price, exit_reason, ref_entry
+                                    "%s - SCALP SELL qty=%d @ %.4f | Reason=%s | EntryRef=%.4f | EntryTuplePrice=%.4f",
+                                    sym, qty_open, last_price, exit_reason, ref_entry,
+                                    entry_price_at_entry if entry_price_at_entry is not None else float('nan')
                                 )
-                    
                         except Exception as e:
-                            logging.exception("%s - SCALP SELL error: %s", sym, str(e))
+                            logging.error("[ERROR][%s] Sell logic failed: %s", sym, e)
+
 
                     
         except Exception as e:
