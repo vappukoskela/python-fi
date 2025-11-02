@@ -435,8 +435,11 @@ def main():
                         ts_val = ts[0]
                     else:
                         ts_val = ts
-                    if hasattr(ts_val, "to_pydatetime"):
-                        ts_val = ts_val.to_pydatetime()                    
+                    try:
+                        ts_val = pd.to_datetime(ts_val).to_pydatetime()
+                    except Exception:
+                        logging.error("[SIM] Could not convert ts=%s to datetime", ts_val)       
+                                         
                     entry_times[symbol] = (ts_val, price)
                     in_position = True
                     logging.info("%s [SIM] BUY @ %.4f | rsi=%.2f", symbol, price, rsi_val)
