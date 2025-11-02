@@ -454,7 +454,9 @@ def main():
                     entry_price = None
                     last_exit_time[symbol] = ts
 
-        logging.info("SIM replay finished for %s", symbol)
+        logging.info("%s [SIM] SELL @ %.4f | Reason=%s | PnL=%.4f | EntryRef=%.4f | EntryTuplePrice=%.4f",
+                     symbol, price, reason, pnl, entry_price,
+                     entry_times[symbol][1] if isinstance(entry_times.get(symbol), tuple) else float('nan'))
         return
     # === END SIMULATION BRANCH ===
 
