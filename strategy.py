@@ -598,20 +598,7 @@ def main():
                                     pending_entries.add(sym)
                                     logging.info("%s LIVE BUY @ %.4f | qty=%d | rsi=%.2f",
                                                  sym, price, qty, rsi_val)
-                    else:  # already in position
-                        ref_entry = entry_prices.get(sym)
-                        if ref_entry:
-                            sell, reason = evaluate_sell(sym, price, ref_entry,
-                                                         price_deques[sym], size_deques[sym], entry_times)
-                            if sell:
-                                qty = entry_qty.get(sym, 0)
-                                submitted = safe_market_sell(trade_client, sym, qty, order_lock)
-                                if submitted:
-                                    pnl = (price - ref_entry) * qty
-                                    logging.info("%s LIVE SELL @ %.4f | Reason=%s | PnL=%.4f | qty=%d",
-                                                 sym, price, reason, pnl, qty)
-                                    inflight_orders[sym] = submitted
-                                    last_exit_time[sym] = datetime.now(timezone.utc)
+                    
 
 
                     # === SELL LOGIC (scalping exits) ===
