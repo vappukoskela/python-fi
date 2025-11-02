@@ -486,7 +486,7 @@ def main():
                     entry_price = price
                     entry_times[symbol] = (ts_val, price)
                     in_position = True
-                    debug_log_state(symbol, entry_times, last_exit_time)                    
+                    #debug_log_state(symbol, entry_times, last_exit_time)                    
                     logging.info("%s [SIM] BUY @ %.4f | rsi=%.2f", symbol, price, rsi_val)
             else:
                 sell, reason = evaluate_sell(symbol, price, entry_price,
