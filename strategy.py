@@ -431,7 +431,7 @@ def main():
                 if buy_conditions_met(symbol, price, size, ema_fast, ema_slow, rsi_val, vwap_val,
                                       sizes_series, last_exit_time[symbol], {}, {}, set()):
                     entry_price = price
-                    entry_times[symbol] = (ts, price)
+                    entry_times[symbol] = (ts.to_pydatetime(), price)
                     in_position = True
                     logging.info("%s [SIM] BUY @ %.4f | rsi=%.2f", symbol, price, rsi_val)
             else:
