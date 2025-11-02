@@ -369,6 +369,19 @@ VWAP_DELTA = 0.01
 RSI_COOL_THRESHOLD = 50
 EMA_DELTA = 0.001
 MAX_HOLD_SEC = 3600   # 1 hour
+TRAILING_STOP_PCT = 0.005  # 0.5% trailing stop
+MAX_HOLD_SECONDS = 300   # example: 5 minutes
+MIN_HOLD_SECONDS = 30    # example: 30 seconds grace period before indicators can trigger
+TRAILING_STOP_PCT = 0.005   # 0.5% trailing stop
+MAX_HOLD_SECONDS = 30 * 60
+BUY_POWER_LIMIT = 0.05
+BUY_CASH_BUFFER = 0.95
+COOLDOWN_SECONDS = 30
+MIN_RSI_FOR_ENTRY = 50
+MAX_RSI_FOR_ENTRY = 70
+MIN_TRADE_USD = 25
+MARKET_DATA_CHUNK = 5
+MAX_INFLIGHT_PER_SYMBOL = 1      
 def main():
     load_dotenv()
     global stock_data_client, trade_client, entry_times, entry_prices, entry_qty, last_exit_time
