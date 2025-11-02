@@ -52,6 +52,14 @@ logging.getLogger().addHandler(console)
 
 logging.debug("[TRACE] Logging system initialized")
 
+# --- DEBUG PATCH: logita entry_times ja last_exit_time päivitykset ---
+def debug_log_state(sym, entry_times, last_exit_time):
+    if sym in entry_times:
+        logging.debug("[DEBUG] entry_times[%s] = %s (type=%s)",
+                      sym, entry_times[sym], type(entry_times[sym]))
+    if sym in last_exit_time:
+        logging.debug("[DEBUG] last_exit_time[%s] = %s (type=%s)",
+                      sym, last_exit_time[sym], type(last_exit_time[sym]))
 
 # === helpers: indicators ===
 def compute_ema_from_series(series, period):
@@ -471,6 +479,7 @@ def main():
                     entry_price = price
                     entry_times[symbol] = (ts_val, price)
                     in_position = True
+                    debug_log_state(symbol, entry_times, last_exit_time)                    
                     logging.info("%s [SIM] BUY @ %.4f | rsi=%.2f", symbol, price, rsi_val)
             else:
                 sell, reason = evaluate_sell(symbol, price, entry_price,
@@ -482,6 +491,7 @@ def main():
                     in_position = False
                     entry_price = None
                     last_exit_time[symbol] = ts_val
+                    debug_log_state(symbol, entry_times, last_exit_time)
      
         logging.info("SIM replay finished for %s", symbol)
         return
@@ -576,6 +586,7 @@ def main():
                                     entry_times[sym] = (datetime.now(timezone.utc), price)
                                     entry_prices[sym] = price
                                     entry_qty[sym] = qty
+                                    debug_log_state(sym, entry_times, last_exit_time)
                                     inflight_orders[sym] = submitted
                                     pending_entries.add(sym)
                                     logging.info("%s LIVE BUY @ %.4f | qty=%d | rsi=%.2f",
@@ -752,6 +763,7 @@ def main():
                                 in_position = False
                                 entry_price = None
                                 last_exit_time[sym] = datetime.now(timezone.utc)
+                                debug_log_state(sym, entry_times, last_exit_time)
                             
                         except Exception as e:
                             logging.error("[ERROR][%s] Sell logic failed: %s", sym, e)
