@@ -270,6 +270,22 @@ def evaluate_sell(sym, last_price, ref_entry, price_deque, size_deque, entry_tim
     Returns (True, reason) or (False, None).
     """
     try:
+        # --- NEW: handle entry_times as datetime or tuple ---
+        entry_record = entry_times.get(sym)
+
+        if entry_record:
+            if isinstance(entry_record, tuple):
+                entry_time, entry_price_at_entry = entry_record
+            else:
+                entry_time = entry_record
+                entry_price_at_entry = None
+
+            elapsed = (datetime.now(timezone.utc) - entry_time).total_seconds()
+        else:
+            entry_time = None
+            entry_price_at_entry = None
+            elapsed = 0
+        # --- END NEW ---
         # Hard exits
         tp_hit = last_price >= ref_entry * (1 + TP_PCT)
         sl_hit = last_price <= ref_entry * (1 - SL_PCT)
@@ -616,7 +632,7 @@ def main():
                                 if actual_qty > 0:
                                     entry_qty[sym] = actual_qty
                                     entry_prices[sym] = price
-                                    entry_times[sym] = datetime.now(timezone.utc)
+                                    entry_times[sym] = (datetime.now(timezone.utc), proce)
                                     logging.info(f"{sym} - ENTRY recorded qty={entry_qty[sym]} price={price:.2f} rsi={rsi_val:.2f}")
                                 else:
                                     logging.warning(f"[TRACE] Buy assumed filled but no position found for {sym}")
