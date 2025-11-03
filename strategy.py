@@ -491,7 +491,7 @@ def main():
         print(trades.head())
 
                 
-        logging.info("Starting SIM replay for %s from %s to %s", symbol_or_symbols, start, end)
+        logging.info("Starting SIM replay for %s from %s to %s", "NVDA", start, end)
 
         in_position = False
         entry_price = None
