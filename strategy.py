@@ -449,17 +449,16 @@ def main():
     stop_event = threading.Event()
     pending_entries = set()   # prevent duplicate buys
 
-   # === SIMULATION BRANCH ===
+       # === SIMULATION BRANCH ===
     if RUN_MODE == "SIM":
         from alpaca.data.requests import StockBarsRequest
         from alpaca.data.timeframe import TimeFrame
-    
-        # Choose symbol and day for replay
+        from collections import defaultdict
+
         symbol = "NVDA"
         start = datetime(2024, 10, 1, 0, 0)
         end   = datetime(2024, 10, 2, 0, 0)
-        run_simulation(symbol, start, end)
-    
+
         req = StockBarsRequest(
             symbol_or_symbols=[symbol],
             timeframe=TimeFrame.Minute,
@@ -467,71 +466,86 @@ def main():
             end=end
         )
         bars = stock_data_client.get_stock_bars(req).df
-    
+
         logging.info("Starting SIM replay for %s from %s to %s", symbol, start, end)
-    
+
         in_position = False
         entry_price = None
         entry_times = {}
+        entry_prices = {}
+        entry_qty = {}
         last_exit_time[symbol] = datetime.min.replace(tzinfo=timezone.utc)
-    
+        highest_price_since_entry = defaultdict(float)
+
         for idx, row in bars.iterrows():
-            #print("DEBUG idx=", idx)
             price = float(row["close"])
             size = int(row["volume"])
-    
-           # --- tee ts_val heti alussa ---
+
             try:
-                # idx on muotoa (symbol, timestamp), joten otetaan aikaleima
                 ts_val = idx[1]
-                #logging.debug("[TRACE] ts_val before to_datetime: %s (type=%s)", ts_val, type(ts_val))
                 ts_val = pd.to_datetime(ts_val).to_pydatetime()
             except Exception as e:
                 logging.error("[SIM] Could not convert ts=%s to datetime (%s)", idx, e)
                 continue
 
-
-    
-            # --- päivitä deques aina ---
+            # Päivitä deques
             price_deques[symbol].append(price)
             size_deques[symbol].append(size)
             time_deques[symbol].append(ts_val)
-    
-            # --- laske indikaattorit ---
+
+            # Laske indikaattorit
             prices = pd.Series(price_deques[symbol])
             sizes_series = pd.Series(size_deques[symbol])
             ema_fast = compute_ema_from_series(prices, EMA_FAST).iloc[-1]
             ema_slow = compute_ema_from_series(prices, EMA_SLOW).iloc[-1]
             rsi_val = compute_rsi_from_series(prices, RSI_PERIOD).iloc[-1]
             vwap_val = compute_vwap_from_ticks(prices, sizes_series).iloc[-1]
-    
+
             if pd.isna(ema_fast) or pd.isna(ema_slow) or pd.isna(rsi_val) or pd.isna(vwap_val):
                 continue
-    
-            # --- BUY / SELL logiikka ---
+
+            # --- BUY / SELL logiikka (identtinen live-haaran kanssa) ---
             if not in_position:
                 if buy_conditions_met(symbol, price, size, ema_fast, ema_slow, rsi_val, vwap_val,
-                                      sizes_series, last_exit_time[symbol], {}, {}, set()):
+                                      sizes_series, last_exit_time[symbol],
+                                      {}, {}, set()):
                     entry_price = price
                     entry_times[symbol] = (ts_val, price)
+                    entry_prices[symbol] = price
+                    entry_qty[symbol] = 1
                     in_position = True
-                    #debug_log_state(symbol, entry_times, last_exit_time)                    
+                    highest_price_since_entry[symbol] = price
                     logging.info("%s [SIM] BUY @ %.4f | rsi=%.2f", symbol, price, rsi_val)
             else:
-                sell, reason = evaluate_sell(symbol, price, entry_price,
-                                             price_deques[symbol], size_deques[symbol], entry_times)
+                # Päivitä korkein hinta trailing stopia varten
+                highest_price_since_entry[symbol] = max(highest_price_since_entry[symbol], price)
+
+                sell, reason = evaluate_sell(
+                    symbol,
+                    price,
+                    ema_fast,
+                    ema_slow,
+                    rsi_val,
+                    vwap_val,
+                    entry_prices,
+                    entry_qty,
+                    entry_times,
+                    highest_price_since_entry,
+                    ts_val
+                )
                 if sell:
-                    pnl = price - entry_price
+                    pnl = (price - entry_price) * entry_qty.get(symbol, 1)
                     logging.info("%s [SIM] SELL @ %.4f | Reason=%s | PnL=%.4f",
                                  symbol, price, reason, pnl)
                     in_position = False
                     entry_price = None
                     last_exit_time[symbol] = ts_val
-                    #debug_log_state(symbol, entry_times, last_exit_time)
-     
+                    highest_price_since_entry.pop(symbol, None)
+
         logging.info("SIM replay finished for %s", symbol)
         return
     # === END SIMULATION BRANCH ===
+
 
   
     def input_listener():
