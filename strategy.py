@@ -528,15 +528,10 @@ def main():
                 sell, reason = evaluate_sell(
                     symbol,
                     price,
-                    ema_fast,
-                    ema_slow,
-                    rsi_val,
-                    vwap_val,
                     entry_prices,
-                    entry_qty,
                     entry_times,
-                    highest_price_since_entry,
-                    ts_val
+                    price_deques[symbol],
+                    size_deques[symbol]
                 )
                 if sell:
                     pnl = (price - entry_price) * entry_qty.get(symbol, 1)
