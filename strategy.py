@@ -19,6 +19,8 @@ from alpaca.data.models import Bar, Trade
 from alpaca.trading.client import TradingClient
 from alpaca.trading.enums import OrderSide, OrderType, TimeInForce
 from alpaca.trading.requests import MarketOrderRequest
+from alpaca.data.timeframe import TimeFrame, TimeFrameUnit
+
 # --- Lataa .env ---
 load_dotenv()
 # --- Lue API-avaimet ---
