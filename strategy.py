@@ -483,7 +483,7 @@ def main():
         from alpaca.data.requests import StockTradesRequest
 
         req = StockTradesRequest(
-            symbol = "NVDA"
+            symbol_or_symbols = "NVDA",
             start="2024-10-01T14:30:00Z",
             end="2024-10-01T14:31:00Z"
         )
