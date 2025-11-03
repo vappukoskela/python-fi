@@ -449,8 +449,6 @@ def main():
     entry_prices = {}
     entry_qty = {}
     inflight_orders = {}
-    last_exit_time = {}
-    last_trade_attempt = defaultdict(lambda: datetime.min.replace(tzinfo=timezone.utc))
     order_lock = threading.Lock()
     stop_event = threading.Event()
     pending_entries = set()   # prevent duplicate buys
