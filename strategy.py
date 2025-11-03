@@ -486,6 +486,11 @@ def main():
             symbol_or_symbols = "NVDA",
             start="2024-10-01T14:30:00Z",
             end="2024-10-01T14:31:00Z"
+
+            req = StockTradesRequest(
+                symbol_or_symbols=symbol,
+                start=start,
+                end=end            
         )
         trades = stock_data_client.get_stock_trades(req).df
         print(trades.head())
