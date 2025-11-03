@@ -528,8 +528,7 @@ def main():
                 # Päivitä korkein hinta trailing stopia varten
                 highest_price_since_entry[symbol] = max(highest_price_since_entry[symbol], price)
                 sell, reason = evaluate_sell(
-                    symbol, price, entry_prices, entry_times,
-                    price_deques[symbol], size_deques[symbol]
+                    symbol, price, entry_prices[symbol], price_deques[symbol], size_deques[symbol], entry_times
                 )
                 if sell:
                     pnl = (price - entry_price) * entry_qty.get(symbol, 1)
