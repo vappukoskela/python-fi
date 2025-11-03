@@ -483,7 +483,7 @@ def main():
         from alpaca.data.requests import StockTradesRequest
 
         
-        symbol_or_symbols = "NVDA",
+        symbol = "NVDA"
         start="2024-10-01T14:30:00Z",
         end="2024-10-01T14:31:00Z"
 
@@ -496,7 +496,7 @@ def main():
         print(trades.head())
 
                 
-        logging.info("Starting SIM replay for %s from %s to %s", "NVDA", start, end)
+        logging.info("Starting SIM replay for %s from %s to %s", symbol, start, end)
 
         in_position = False
         entry_price = None
