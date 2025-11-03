@@ -34,7 +34,9 @@ stock_data_client = StockHistoricalDataClient(API_KEY, API_SECRET)
 
 # Trading client (LIVE tai paper)
 trading_client = TradingClient(API_KEY, API_SECRET, paper=True)
-
+# Testitulostus (voit poistaa myöhemmin)
+print("API_KEY loaded:", API_KEY[:4], "...")
+print("BASE_URL:", BASE_URL)
 
 # === STATE / RUNTIME VARIABLES (ei CONFIG-arvoja) ===
 
