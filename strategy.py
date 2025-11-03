@@ -1,18 +1,22 @@
 import logging
-import os
 import time
-from datetime import datetime, timezone
+from datetime import datetime, timezone, timedelta
 from collections import deque, defaultdict
-import threading
+
 import pandas as pd
+import numpy as np
+from dateutil import parser
 from dotenv import load_dotenv
+
+# Alpaca data & trading
 from alpaca.data.historical.stock import StockHistoricalDataClient, StockLatestTradeRequest
+from alpaca.data.requests import StockBarsRequest
+from alpaca.data.timeframe import TimeFrame
+
 from alpaca.trading.client import TradingClient
 from alpaca.trading.enums import OrderSide, OrderType, TimeInForce
 from alpaca.trading.requests import MarketOrderRequest
-from collections import defaultdict
-from datetime import datetime, timezone
-from collections import defaultdict
+
 
 # === STATE / RUNTIME VARIABLES (ei CONFIG-arvoja) ===
 
