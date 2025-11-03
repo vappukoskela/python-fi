@@ -476,6 +476,7 @@ def main():
 
        # === SIMULATION BRANCH ===
     if RUN_MODE == "SIM":
+        import pandas as pd
         from alpaca.data.requests import StockBarsRequest
         from alpaca.data.timeframe import TimeFrame
         from collections import defaultdict
@@ -506,13 +507,13 @@ def main():
         last_exit_time[symbol] = datetime.min.replace(tzinfo=timezone.utc)
         highest_price_since_entry = defaultdict(float)
 
-        for idx, row in bars.iterrows():
+        for idx, row in trades.iterrows():
             price = float(row["close"])
             size = int(row["volume"])
 
             try:
                 ts_val = idx[1]
-                ts_val = pd.to_datetime(ts_val).to_pydatetime()
+                ts_val = pd.to_datetime(idx[1]).to_pydatetime()
             except Exception as e:
                 logging.error("[SIM] Could not convert ts=%s to datetime (%s)", idx, e)
                 continue
