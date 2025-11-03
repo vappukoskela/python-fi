@@ -22,9 +22,9 @@ from alpaca.trading.requests import MarketOrderRequest
 # --- Lataa .env ---
 load_dotenv()
 # --- Lue API-avaimet ---
-API_KEY = os.getenv("APCA_API_KEY_ID")
-API_SECRET = os.getenv("APCA_API_SECRET_KEY")
-BASE_URL = os.getenv("APCA_API_BASE_URL", "https://paper-api.alpaca.markets")
+API_KEY = os.getenv("ALPACA_PAPER_API_KEY")
+API_SECRET = os.getenv("ALPACA_PAPER_SECRET_KEY")
+BASE_URL = os.getenv("TRADE_API_URL", "https://paper-api.alpaca.markets")
 if not API_KEY or not API_SECRET:
     raise RuntimeError("API keys not found. Check your .env file.")
 
