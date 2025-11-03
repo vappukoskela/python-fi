@@ -12,6 +12,7 @@ from alpaca.trading.enums import OrderSide, OrderType, TimeInForce
 from alpaca.trading.requests import MarketOrderRequest
 from collections import defaultdict
 from datetime import datetime, timezone
+from collections import defaultdict
 
 # === STATE / RUNTIME VARIABLES (ei CONFIG-arvoja) ===
 
