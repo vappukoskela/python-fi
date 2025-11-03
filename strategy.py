@@ -18,6 +18,8 @@ from alpaca.data.timeframe import TimeFrame
 from alpaca.trading.client import TradingClient
 from alpaca.trading.enums import OrderSide, OrderType, TimeInForce
 from alpaca.trading.requests import MarketOrderRequest
+from alpaca.data.requests import StockTradesRequest
+from alpaca.data.models import Bar, Trade
 
 
 # === STATE / RUNTIME VARIABLES (ei CONFIG-arvoja) ===
