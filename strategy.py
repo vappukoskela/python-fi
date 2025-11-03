@@ -484,7 +484,7 @@ def main():
 
         req = StockBarsRequest(
             symbol_or_symbols=[symbol],
-            timeframe=TimeFrame(1, "Second"),
+            timeframe=TimeFrame(1, TimeFrameUnit.SECOND),
             start=start,
             end=end
         )
