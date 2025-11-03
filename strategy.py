@@ -274,38 +274,38 @@ def buy_conditions_met(sym, price, size, ema_fast, ema_slow, rsi_val, vwap_val,
         if last_exit:
             since_last = (datetime.now(timezone.utc) - last_exit).total_seconds()
             if since_last < COOLDOWN_SECONDS:
-                return False
+                return False, None
 
         # Position/order checks
         no_position = positions_map.get(sym, (0, 0.0))[0] == 0
         inflight_none = inflight_orders.get(sym) is None
         not_pending = sym not in pending_entries
         if not (no_position and inflight_none and not_pending):
-            return False
+            return False, None
 
         # Trend filter
         if pd.isna(ema_fast) or pd.isna(ema_slow) or ema_fast <= ema_slow:
-            return False
+            return False, None
 
         # VWAP filter
         if pd.isna(vwap_val) or price <= vwap_val:
-            return False
+            return False, None
 
         # RSI filter
         if pd.isna(rsi_val) or not (MIN_RSI_FOR_ENTRY <= rsi_val <= MAX_RSI_FOR_ENTRY):
-            return False
+            return False, None
 
         # Volume spike filter (guard against NaN)
         mean_vol = sizes_series.mean() if len(sizes_series) > 0 else float('nan')
         vol_ok = (not pd.isna(mean_vol)) and (size > (mean_vol * VOL_SPIKE_MULT))
         if not vol_ok:
-            return False
+            return False, None
 
-        return True
+        return True, "EMA trend + VWAP + RSI + Volume OK"
 
     except Exception as e:
         logging.error("[ERROR][%s] Buy evaluation failed: %s", sym, e)
-        return False
+        return False, None
 
 
 def evaluate_sell(sym, last_price, ref_entry, price_deque, size_deque, entry_times,
