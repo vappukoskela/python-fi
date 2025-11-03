@@ -35,6 +35,8 @@ last_trade_attempt = defaultdict(lambda: datetime.min.replace(tzinfo=timezone.ut
 # Loopin aikana käytetty budjetti (nollataan jokaisen loopin alussa)
 spent_this_loop = 0.0
 
+# Trailing stop seurantaan
+highest_price_since_entry = defaultdict(float)
 
 # === CONFIG ===
 SCALP = True
