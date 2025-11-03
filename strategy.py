@@ -480,18 +480,17 @@ def main():
         from alpaca.data.timeframe import TimeFrame
         from collections import defaultdict
 
-        symbol = "NVDA"
-        start = datetime(2024, 10, 1, 0, 0)
-        end   = datetime(2024, 10, 2, 0, 0)
+        from alpaca.data.requests import StockTradesRequest
 
-        req = StockBarsRequest(
-            symbol_or_symbols=[symbol],
-            timeframe=TimeFrame(1, TimeFrameUnit.SECOND),
-            start=start,
-            end=end
+        req = StockTradesRequest(
+            symbol_or_symbols=["NVDA"],
+            start="2024-10-01T14:30:00Z",
+            end="2024-10-01T14:31:00Z"
         )
-        bars = stock_data_client.get_stock_bars(req).df
+        trades = stock_data_client.get_stock_trades(req).df
+        print(trades.head())
 
+                
         logging.info("Starting SIM replay for %s from %s to %s", symbol, start, end)
 
         in_position = False
