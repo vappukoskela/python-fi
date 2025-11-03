@@ -10,6 +10,31 @@ from alpaca.data.historical.stock import StockHistoricalDataClient, StockLatestT
 from alpaca.trading.client import TradingClient
 from alpaca.trading.enums import OrderSide, OrderType, TimeInForce
 from alpaca.trading.requests import MarketOrderRequest
+from collections import defaultdict
+from datetime import datetime, timezone
+
+# === STATE / RUNTIME VARIABLES (ei CONFIG-arvoja) ===
+
+# Symbolit, joille on ostoyritys käynnissä
+pending_entries = set()
+
+# Avoimet toimeksiannot (symbol -> order_id tai True jos ei tiedossa)
+inflight_orders = {}
+
+# Entryjen seuranta
+entry_times = {}
+entry_prices = {}
+entry_qty = {}
+
+# Viimeiset poistumisajat (symbol -> datetime)
+last_exit_time = defaultdict(lambda: datetime.min.replace(tzinfo=timezone.utc))
+
+# Viimeiset ostoyritykset (symbol -> datetime)
+last_trade_attempt = defaultdict(lambda: datetime.min.replace(tzinfo=timezone.utc))
+
+# Loopin aikana käytetty budjetti (nollataan jokaisen loopin alussa)
+spent_this_loop = 0.0
+
 
 # === CONFIG ===
 SCALP = True
