@@ -21,15 +21,10 @@ from alpaca.trading.enums import OrderSide, OrderType, TimeInForce
 from alpaca.trading.requests import MarketOrderRequest
 # --- Lataa .env ---
 load_dotenv()
-APCA_API_KEY_ID=pk_your_alpaca_key
-APCA_API_SECRET_KEY=sk_your_alpaca_secret
-APCA_API_BASE_URL=https://paper-api.alpaca.markets
-
-
 # --- Lue API-avaimet ---
 API_KEY = os.getenv("APCA_API_KEY_ID")
 API_SECRET = os.getenv("APCA_API_SECRET_KEY")
-
+BASE_URL = os.getenv("APCA_API_BASE_URL", "https://paper-api.alpaca.markets")
 if not API_KEY or not API_SECRET:
     raise RuntimeError("API keys not found. Check your .env file.")
 
@@ -39,17 +34,6 @@ stock_data_client = StockHistoricalDataClient(API_KEY, API_SECRET)
 
 # Trading client (LIVE tai paper)
 trading_client = TradingClient(API_KEY, API_SECRET, paper=True)
-
-
-# --- API keys ---
-load_dotenv()
-API_KEY = os.getenv("APCA_API_KEY_ID")
-API_SECRET = os.getenv("APCA_API_SECRET_KEY")
-
-# --- Alpaca clients ---
-stock_data_client = StockHistoricalDataClient(API_KEY, API_SECRET)
-trading_client = TradingClient(API_KEY, API_SECRET, paper=True)  # jos käytät paper tradingiä
-
 
 
 # === STATE / RUNTIME VARIABLES (ei CONFIG-arvoja) ===
