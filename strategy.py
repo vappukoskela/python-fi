@@ -609,22 +609,54 @@ def main():
                     if qty_open > 0 and sym in pending_entries:
                         pending_entries.discard(sym)
 
-                    # --- BUY / SELL using helpers ---
-                    if qty_open == 0:  # not in position
-                        if buy_conditions_met(sym, price, size, ema_fast, ema_slow, rsi_val, vwap_val,
-                                              sizes, last_exit, positions_map, inflight_orders, pending_entries):
-                            qty = calculate_buying_power_limit(trade_client, price)
-                            if qty > 0:
-                                submitted = safe_market_buy(trade_client, sym, qty, order_lock)
-                                if submitted:
-                                    entry_times[sym] = (datetime.now(timezone.utc), price)
+                    # === BUY LOGIC ===
+                    if (
+                        qty_open == 0 and
+                        sym not in pending_entries and
+                        ema_trend_up and
+                        price_above_vwap and
+                        vol_ok and
+                        MIN_RSI_FOR_ENTRY <= rsi_val <= MAX_RSI_FOR_ENTRY and
+                        (datetime.now(timezone.utc) - last_exit).total_seconds() >= COOLDOWN_SECONDS and
+                        inflight_orders.get(sym) is None
+                    ):
+                        if (datetime.now(timezone.utc) - last_trade_attempt[sym]).total_seconds() < 1.0:
+                            continue
+                        last_trade_attempt[sym] = datetime.now(timezone.utc)
+
+                        est_trade_cost = price * int((max_loop_budget * BUY_CASH_BUFFER) // price)
+                        if spent_this_loop + est_trade_cost > max_loop_budget:
+                            logging.info(f"{sym} - Skipping buy: budget exceeded. est_cost={est_trade_cost:.2f} spent={spent_this_loop:.2f}")
+                            continue
+
+                        pending_entries.add(sym)
+                        try:
+                            spent_this_loop += est_trade_cost  # reserve budget immediately
+                            submitted = safe_market_buy(trade_client, sym, max_loop_budget * BUY_CASH_BUFFER, order_lock)
+                            logging.debug(f"[TRACE] Buy submitted: {submitted}")
+                            if submitted:
+                                inflight_orders[sym] = getattr(submitted, "id", None) or True
+                                # 🔍 Retry loop for post-buy verification
+                                actual_qty = 0
+                                for attempt in range(3):
+                                    actual_qty = get_position_qty(trade_client, sym)
+                                    logging.debug(f"[TRACE] Post-buy verification attempt {attempt+1} for {sym}: actual_qty={actual_qty}")
+                                    if actual_qty > 0:
+                                        break
+                                    time.sleep(1.0)
+                              
+                                if actual_qty > 0:
+                                    entry_qty[sym] = actual_qty
                                     entry_prices[sym] = price
-                                    entry_qty[sym] = qty
-                                    debug_log_state(sym, entry_times, last_exit_time)
-                                    inflight_orders[sym] = submitted
-                                    pending_entries.add(sym)
-                                    logging.info("%s LIVE BUY @ %.4f | qty=%d | rsi=%.2f",
-                                                 sym, price, qty, rsi_val)
+                                    entry_times[sym] = datetime.now(timezone.utc)
+                                    logging.info(f"{sym} - ENTRY recorded qty={entry_qty[sym]} price={price:.2f} rsi={rsi_val:.2f}")
+                                else:
+                                    logging.warning(f"[TRACE] Buy assumed filled but no position found for {sym}")
+      
+                        except Exception as e:
+                            logging.exception("%s - BUY error: %s", sym, str(e))
+                        finally:
+                            inflight_orders.pop(sym, None)
                     
 
 
