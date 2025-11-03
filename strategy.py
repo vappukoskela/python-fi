@@ -508,8 +508,8 @@ def main():
         highest_price_since_entry = defaultdict(float)
 
         for idx, row in trades.iterrows():
-            price = float(row["close"])
-            size = int(row["volume"])
+            price = float(row["price"])
+            size = int(row["size"])
 
             try:
                 ts_val = idx[1]
