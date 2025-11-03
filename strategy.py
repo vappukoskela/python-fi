@@ -11,15 +11,24 @@ from dateutil import parser
 from dotenv import load_dotenv
 
 # Alpaca data & trading
-from alpaca.data.historical.stock import StockHistoricalDataClient, StockLatestTradeRequest
-from alpaca.data.requests import StockBarsRequest
+from alpaca.data.historical.stock import StockHistoricalDataClient
+from alpaca.data.requests import StockBarsRequest, StockTradesRequest
 from alpaca.data.timeframe import TimeFrame
+from alpaca.data.models import Bar, Trade
 
 from alpaca.trading.client import TradingClient
 from alpaca.trading.enums import OrderSide, OrderType, TimeInForce
 from alpaca.trading.requests import MarketOrderRequest
-from alpaca.data.requests import StockTradesRequest
-from alpaca.data.models import Bar, Trade
+
+# --- API keys ---
+load_dotenv()
+API_KEY = os.getenv("APCA_API_KEY_ID")
+API_SECRET = os.getenv("APCA_API_SECRET_KEY")
+
+# --- Alpaca clients ---
+stock_data_client = StockHistoricalDataClient(API_KEY, API_SECRET)
+trading_client = TradingClient(API_KEY, API_SECRET, paper=True)  # jos käytät paper tradingiä
+
 
 
 # === STATE / RUNTIME VARIABLES (ei CONFIG-arvoja) ===
@@ -468,7 +477,7 @@ def main():
 
         req = StockBarsRequest(
             symbol_or_symbols=[symbol],
-            timeframe=TimeFrame.Minute,
+            timeframe=TimeFrame.Second,
             start=start,
             end=end
         )
