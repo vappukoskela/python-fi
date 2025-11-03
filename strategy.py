@@ -511,27 +511,25 @@ def main():
 
             # --- BUY / SELL logiikka (identtinen live-haaran kanssa) ---
             if not in_position:
-                if buy_conditions_met(symbol, price, size, ema_fast, ema_slow, rsi_val, vwap_val,
-                                      sizes_series, last_exit_time[symbol],
-                                      {}, {}, set()):
+                buy, reason = buy_conditions_met(
+                    symbol, price, size, ema_fast, ema_slow, rsi_val, vwap_val,
+                    sizes_series, last_exit_time[symbol],
+                    {}, {}, set()
+                )
+                if buy:
                     entry_price = price
                     entry_times[symbol] = (ts_val, price)
                     entry_prices[symbol] = price
                     entry_qty[symbol] = 1
                     in_position = True
                     highest_price_since_entry[symbol] = price
-                    logging.info("%s [SIM] BUY @ %.4f | rsi=%.2f", symbol, price, rsi_val)
+                    logging.info("%s [SIM] BUY @ %.4f | Trigger=%s", symbol, price, reason)
             else:
                 # Päivitä korkein hinta trailing stopia varten
                 highest_price_since_entry[symbol] = max(highest_price_since_entry[symbol], price)
-
                 sell, reason = evaluate_sell(
-                    symbol,
-                    price,
-                    entry_prices,
-                    entry_times,
-                    price_deques[symbol],
-                    size_deques[symbol]
+                    symbol, price, entry_prices, entry_times,
+                    price_deques[symbol], size_deques[symbol]
                 )
                 if sell:
                     pnl = (price - entry_price) * entry_qty.get(symbol, 1)
@@ -541,6 +539,7 @@ def main():
                     entry_price = None
                     last_exit_time[symbol] = ts_val
                     highest_price_since_entry.pop(symbol, None)
+             
 
         logging.info("SIM replay finished for %s", symbol)
         return
