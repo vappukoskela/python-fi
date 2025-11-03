@@ -21,6 +21,10 @@ from alpaca.trading.enums import OrderSide, OrderType, TimeInForce
 from alpaca.trading.requests import MarketOrderRequest
 # --- Lataa .env ---
 load_dotenv()
+APCA_API_KEY_ID=pk_your_alpaca_key
+APCA_API_SECRET_KEY=sk_your_alpaca_secret
+APCA_API_BASE_URL=https://paper-api.alpaca.markets
+
 
 # --- Lue API-avaimet ---
 API_KEY = os.getenv("APCA_API_KEY_ID")
