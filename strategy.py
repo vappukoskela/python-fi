@@ -544,6 +544,7 @@ def main():
                 continue
 
             # --- BUY / SELL logiikka (identtinen live-haaran kanssa) ---
+            positions_map = positions_map if 'positions_map' in locals() else {}
             if not in_position:
                 buy, reason = buy_conditions_met(
                     symbol, price, size, ema_fast, ema_slow, rsi_val, vwap_val,
