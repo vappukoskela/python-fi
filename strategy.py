@@ -470,6 +470,10 @@ def main():
     entry_prices = {}
     entry_qty = {}
     inflight_orders = {}
+
+    from datetime import datetime, timezone
+    last_exit_time = {s: datetime.min.replace(tzinfo=timezone.utc) for s in symbols}
+    
     order_lock = threading.Lock()
     stop_event = threading.Event()
     pending_entries = set()   # prevent duplicate buys
