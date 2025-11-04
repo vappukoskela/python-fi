@@ -400,7 +400,7 @@ def evaluate_sell(sym, last_price, ref_entry, price_deque, size_deque, entry_tim
                 rsi_cooling = True
 
         # Max hold
-        max_hold_hit = elapsed >= MAX_HOLD_SEC if entry_time else False
+        max_hold_hit = elapsed >= MAX_HOLD_SECONDS if entry_time else False
 
         # --- Decision ---
         if tp_hit:
