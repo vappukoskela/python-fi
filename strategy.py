@@ -291,8 +291,9 @@ def buy_conditions_met(sym, price, size, ema_fast, ema_slow, rsi_val, vwap_val,
     """
     try:
         # Cooldown
-        since_last_exit = (datetime.now(timezone.utc) - last_exit).total_seconds() if last_exit else float("inf")
         since_last_buy = (datetime.now(timezone.utc) - last_buy_time[sym]).total_seconds()
+        if since_last_buy < COOLDOWN_SECONDS:
+            return False, None
 
         logging.info(f"{sym} [SIM] cooldown check: buy={since_last_buy:.1f}s exit={since_last_exit:.1f}s")
 
@@ -557,6 +558,7 @@ def main():
                     entry_qty[symbol] = 1
                     in_position = True
                     highest_price_since_entry[symbol] = price
+                    last_buy_time[symbol] = ts_val
                     logging.info("%s [SIM] BUY @ %.4f | Trigger=%s", symbol, price, reason)
             else:
                 # Päivitä korkein hinta trailing stopia varten
