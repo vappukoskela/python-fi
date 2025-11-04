@@ -294,12 +294,7 @@ def buy_conditions_met(sym, price, size, ema_fast, ema_slow, rsi_val, vwap_val,
         since_last_buy = (datetime.now(timezone.utc) - last_buy_time[sym]).total_seconds()
         if since_last_buy < COOLDOWN_SECONDS:
             return False, None
-
-        logging.info(f"{sym} [SIM] cooldown check: buy={since_last_buy:.1f}s exit={since_last_exit:.1f}s")
-
-        if since_last_exit < COOLDOWN_SECONDS or since_last_buy < COOLDOWN_SECONDS:
-            return False, None
-        
+              
 
         # Position/order checks
         no_position = positions_map.get(sym, (0, 0.0))[0] == 0
