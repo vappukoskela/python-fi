@@ -666,7 +666,7 @@ def main():
                         ema_trend_up and
                         price_above_vwap and
                         vol_ok and
-                        MIN_RSI_FOR_ENTRY <= rsi_val <= MAX_RSI_FOR_ENTRY and
+                        MIN_RSI_FOR_ENTRY <= rsi_val <= MAX_RSI_FOR_ENTRY 
                     ):
                         if (datetime.now(timezone.utc) - last_trade_attempt[sym]).total_seconds() < 1.0:
                             continue
