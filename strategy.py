@@ -291,8 +291,8 @@ def buy_conditions_met(sym, price, size, ema_fast, ema_slow, rsi_val, vwap_val,
     """
     try:
         # Cooldown
-        since_last_buy = (datetime.now(timezone.utc) - last_buy_time[sym]).total_seconds()
-        if since_last_buy < COOLDOWN_SECONDS:
+        since_last_exit = (datetime.now(timezone.utc) - last_exit).total_seconds() if last_exit else float("inf")
+        if since_last_exit < COOLDOWN_SECONDS:
             return False, None
               
 
