@@ -492,7 +492,7 @@ def main():
         
         symbol = "NVDA"
         start="2024-10-01T14:30:00Z"
-        end="2024-10-01T14:31:00Z"
+        end="2024-10-01T14:45:00Z"
 
         req = StockTradesRequest(
             symbol_or_symbols=symbol,
