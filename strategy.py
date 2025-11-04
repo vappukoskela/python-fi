@@ -562,8 +562,7 @@ def main():
                 )
                 if sell:
                     pnl = (price - entry_price) * entry_qty.get(symbol, 1)
-                    logging.info("%s [SIM] SELL @ %.4f | Reason=%s | PnL=%.4f",
-                                 symbol, price, reason, pnl)
+                    logging.info(f"{symbol} [SIM] SELL @ {price:.4f} | Reason={reason} | PnL={pnl:.4f} | Time={ts_val.strftime('%Y-%m-%dT%H:%M:%S')}")
                     in_position = False
                     entry_price = None
                     last_exit_time[symbol] = ts_val
