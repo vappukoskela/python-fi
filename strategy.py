@@ -69,8 +69,8 @@ highest_price_since_entry = defaultdict(float)
 SCALP = True
 LOOP_SLEEP = 1.0
 TICKS_WINDOW = 300
-EMA_FAST = 12
-EMA_SLOW = 26
+EMA_FAST = 9
+EMA_SLOW = 20
 RSI_PERIOD = 14
 RSI_COOL_THRESHOLD = 50    # esim. raja-arvo RSI:lle "cool down" -tilanteessa
 EMA_DELTA = 0.001
@@ -428,8 +428,8 @@ def evaluate_sell(sym, last_price, ref_entry, price_deque, size_deque, entry_tim
 
 # === MAIN ===
 # === Strategy parameters ===
-EMA_FAST = 12
-EMA_SLOW = 26
+EMA_FAST = 9
+EMA_SLOW = 20
 RSI_PERIOD = 14
 VWAP_DELTA = 0.01
 RSI_COOL_THRESHOLD = 50
