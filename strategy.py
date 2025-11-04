@@ -473,7 +473,8 @@ def main():
 
     from datetime import datetime, timezone
     last_exit_time = {s: datetime.min.replace(tzinfo=timezone.utc) for s in symbols}
-    
+    last_buy_time = {s: datetime.min.replace(tzinfo=timezone.utc) for s in symbols}
+
     order_lock = threading.Lock()
     stop_event = threading.Event()
     pending_entries = set()   # prevent duplicate buys
@@ -653,6 +654,11 @@ def main():
                         pending_entries.discard(sym)
 
                     # === BUY LOGIC ===
+                    since_last_buy = (datetime.now(timezone.utc) - last_buy_time[sym]).total_seconds()
+                    if since_last_buy < COOLDOWN_SECONDS:
+                        logging.debug(f"{sym} - Buy cooldown active ({since_last_buy:.1f}s since last buy)")
+                        continue
+
                     if (
                         qty_open == 0 and
                         sym not in pending_entries and
@@ -660,8 +666,7 @@ def main():
                         price_above_vwap and
                         vol_ok and
                         MIN_RSI_FOR_ENTRY <= rsi_val <= MAX_RSI_FOR_ENTRY and
-                        (datetime.now(timezone.utc) - last_exit).total_seconds() >= COOLDOWN_SECONDS and
-                        inflight_orders.get(sym) is None
+                        (datetime.now(timezone.utc) - last_exit_time[sym]).total_seconds() >= COOLDOWN_SECONDS
                     ):
                         if (datetime.now(timezone.utc) - last_trade_attempt[sym]).total_seconds() < 1.0:
                             continue
@@ -692,6 +697,7 @@ def main():
                                     entry_qty[sym] = actual_qty
                                     entry_prices[sym] = price
                                     entry_times[sym] = datetime.now(timezone.utc)
+                                    last_buy_time[sym] = datetime.now(timezone.utc)
                                     logging.info(f"{sym} - ENTRY recorded qty={entry_qty[sym]} price={price:.2f} rsi={rsi_val:.2f}")
                                 else:
                                     logging.warning(f"[TRACE] Buy assumed filled but no position found for {sym}")
