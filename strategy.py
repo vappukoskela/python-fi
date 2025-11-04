@@ -278,7 +278,7 @@ def safe_market_sell(trade_client_local, symbol, intended_qty, order_lock):
 # === STRATEGY HELPERS: BUY/SELL CONDITIONS ===
 
 def buy_conditions_met(sym, price, size, ema_fast, ema_slow, rsi_val, vwap_val,
-                       sizes_series, last_exit, positions_map, inflight_orders, pending_entries, last_buy_time):
+                       sizes_series, last_exit, positions_map, inflight_orders, pending_entries, last_buy_time, ts_val):
     """
     Entry filter used by both SIM and LIVE loops.
     Mirrors your BUY block:
@@ -291,8 +291,9 @@ def buy_conditions_met(sym, price, size, ema_fast, ema_slow, rsi_val, vwap_val,
     """
     try:
         # Cooldown
-        since_last_exit = (datetime.now(timezone.utc) - last_exit).total_seconds() if last_exit else float("inf")
-        if since_last_exit < COOLDOWN_SECONDS:
+        since_last_exit = (ts_val - last_exit).total_seconds() if last_exit else float("inf")
+        since_last_buy = (ts_val - last_buy_time[sym]).total_seconds()
+        if since_last_exit < COOLDOWN_SECONDS or since_last_buy < COOLDOWN_SECONDS:
             return False, None
               
 
