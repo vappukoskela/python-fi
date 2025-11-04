@@ -545,7 +545,7 @@ def main():
             if not in_position:
                 buy, reason = buy_conditions_met(
                     symbol, price, size, ema_fast, ema_slow, rsi_val, vwap_val,
-                    sizes_series, last_exit_time[symbol], positions_map, inflight_orders, pending_entries, last_buy_time       
+                    sizes_series, last_exit_time[symbol], positions_map, inflight_orders, pending_entries, last_buy_time, ts_val       
                 )
                 if buy:
                     entry_price = price
