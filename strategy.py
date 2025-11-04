@@ -553,7 +553,7 @@ def main():
                     in_position = True
                     highest_price_since_entry[symbol] = price
                     last_buy_time[symbol] = ts_val
-                    logging.info(f"{symbol} [SIM] BUY @ {price:.4f} | Trigger={reason} | Time={ts_val.isoformat()}")
+                    logging.info(f"{symbol} [SIM] BUY @ {price:.4f} | Trigger={reason} | Time={ts_val.strftime('%Y-%m-%d %H:%M:%S')}")
             else:
                 # Päivitä korkein hinta trailing stopia varten
                 highest_price_since_entry[symbol] = max(highest_price_since_entry[symbol], price)
