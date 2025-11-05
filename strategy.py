@@ -392,12 +392,19 @@ def evaluate_sell(sym, last_price, ref_entry, price_deque, size_deque, entry_tim
                 ema_fail = True
 
         # RSI cooling
-        rsi_val = compute_rsi_from_series(prices_series, rsi_period).iloc[-1]
         rsi_cooling = False
-        if not pd.isna(rsi_val):
-            rsi_peak = compute_rsi_from_series(prices_series, rsi_period).max()
-            if rsi_peak - rsi_val >= RSI_COOL_THRESHOLD:
-                rsi_cooling = True
+        if len(prices_series) >= 5:
+            rsi_series = compute_rsi_from_series(prices_series, rsi_period)
+            rsi_val = rsi_series.iloc[-1]
+            rsi_peak = rsi_series.max()
+            rsi_series_tail = rsi_series.tail(3)
+            if not pd.isna(rsi_val):
+                if all(r < MIN_RSI_FOR_ENTRY for r in rsi_series_tail) and (rsi_peak - rsi_val) >= RSI_COOL_THRESHOLD:
+                    rsi_cooling = True
+                    logging.warning(
+                        "[DEBUG][%s] RSI cooling triggered | peak=%.2f now=%.2f drop=%.2f threshold=%d",
+                        sym, rsi_peak, rsi_val, rsi_peak - rsi_val, RSI_COOL_THRESHOLD
+                    )
 
         # Max hold
         max_hold_hit = elapsed >= MAX_HOLD_SECONDS if entry_time else False
