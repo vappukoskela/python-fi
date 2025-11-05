@@ -783,7 +783,8 @@ def main():
                                             rsi_entry = rsi_series.iloc[entry_index]
                                             rsi_now = rsi_series.iloc[-1]
                                             rsi_prev = rsi_series.iloc[-2]
-                                            RSI_DROP = 5
+                                            RSI_DROP = 7
+                                            RSI_COOL_CONFIRM = 2  # vaaditaan 2 peräkkäistä alle rajan
                                             rsi_cool = (
                                                 rsi_now < MIN_RSI_FOR_ENTRY and
                                                 rsi_prev < MIN_RSI_FOR_ENTRY and
