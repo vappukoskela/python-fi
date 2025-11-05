@@ -829,7 +829,18 @@ def main():
                                 elapsed = (datetime.now(timezone.utc) - entry_time).total_seconds()
                                 if elapsed >= MAX_HOLD_SECONDS:
                                     time_exceeded = True
-                    
+
+                            logging.info(
+                                "[DEBUG][%s] SELL check | TP=%.4f SL=%.4f VWAP_FAIL=%s EMA_FAIL=%s RSI_COOL=%s TRAIL_STOP=%s MAX_HOLD=%s",
+                                sym,
+                                tp_hit,
+                                sl_hit,
+                                str(vwap_fail),
+                                str(ema_fail),
+                                str(rsi_cool),
+                                str(trailing_stop_hit),
+                                str(time_exceeded)
+                            )      
                             # Exit reason priority
                             exit_reason = None
                             if trailing_stop_hit:
