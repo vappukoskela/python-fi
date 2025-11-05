@@ -771,6 +771,10 @@ def main():
                                 ema_fail = False
                     
                             # RSI cooling
+
+                            RSI_DROP = 7  # aiemmin 5
+                            RSI_COOL_CONFIRM = 2  # vaaditaan 2 peräkkäistä alle rajan
+                            
                             rsi_cool = False
                             try:
                                 if entry_time and len(rsi_series) >= 3:
@@ -783,8 +787,6 @@ def main():
                                             rsi_entry = rsi_series.iloc[entry_index]
                                             rsi_now = rsi_series.iloc[-1]
                                             rsi_prev = rsi_series.iloc[-2]
-                                            RSI_DROP = 7
-                                            RSI_COOL_CONFIRM = 2  # vaaditaan 2 peräkkäistä alle rajan
                                             rsi_cool = (
                                                 rsi_now < MIN_RSI_FOR_ENTRY and
                                                 rsi_prev < MIN_RSI_FOR_ENTRY and
@@ -793,12 +795,12 @@ def main():
                                             )
                                             logging.debug(
                                                 "[TRACE][%s] RSI | entry=%.2f | prev=%.2f | now=%.2f | drop=%.2f | threshold=%d | Cool=%s",
-                                                sym, rsi_entry, rsi_prev, rsi_now,
-                                                (rsi_entry - rsi_now), RSI_DROP, rsi_cool
+                                                sym, rsi_entry, rsi_prev, rsi_now, (rsi_entry - rsi_now), RSI_DROP, rsi_cool
                                             )
                             except Exception as e:
                                 logging.error("[ERROR][%s] RSI evaluation failed: %s", sym, e)
                                 rsi_cool = False
+
                     
                             # Trailing stop
                             trailing_stop_hit = False
