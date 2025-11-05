@@ -772,12 +772,9 @@ def main():
                     
                             # RSI cooling
 
-                            RSI_DROP = 7  # aiemmin 5
-                            RSI_COOL_CONFIRM = 2  # vaaditaan 2 peräkkäistä alle rajan
-                            
                             rsi_cool = False
                             try:
-                                if entry_time and len(rsi_series) >= 3:
+                                if entry_time and len(rsi_series) >= 5:
                                     elapsed = (datetime.now(timezone.utc) - entry_time).total_seconds()
                                     if elapsed >= MIN_HOLD_SECONDS:
                                         entry_time_norm = entry_time.replace(microsecond=0)
@@ -785,21 +782,27 @@ def main():
                                         entry_index = times_series[times_series >= entry_time_norm].index.min()
                                         if entry_index is not None and entry_index < len(rsi_series):
                                             rsi_entry = rsi_series.iloc[entry_index]
-                                            rsi_now = rsi_series.iloc[-1]
-                                            rsi_prev = rsi_series.iloc[-2]
+                                            rsi_tail = rsi_series.tail(3)
+                                            rsi_now = rsi_tail.iloc[-1]
+                                            rsi_prev = rsi_tail.iloc[-2]
+                                            rsi_prev2 = rsi_tail.iloc[-3]
+                                            RSI_DROP = 7  # vaadittu pudotus
                                             rsi_cool = (
                                                 rsi_now < MIN_RSI_FOR_ENTRY and
                                                 rsi_prev < MIN_RSI_FOR_ENTRY and
+                                                rsi_prev2 < MIN_RSI_FOR_ENTRY and
                                                 rsi_entry > rsi_now and
                                                 (rsi_entry - rsi_now) >= RSI_DROP
                                             )
                                             logging.debug(
-                                                "[TRACE][%s] RSI | entry=%.2f | prev=%.2f | now=%.2f | drop=%.2f | threshold=%d | Cool=%s",
-                                                sym, rsi_entry, rsi_prev, rsi_now, (rsi_entry - rsi_now), RSI_DROP, rsi_cool
+                                                "[TRACE][%s] RSI | entry=%.2f | prev2=%.2f | prev=%.2f | now=%.2f | drop=%.2f | threshold=%d | Cool=%s",
+                                                sym, rsi_entry, rsi_prev2, rsi_prev, rsi_now,
+                                                (rsi_entry - rsi_now), RSI_DROP, rsi_cool
                                             )
                             except Exception as e:
                                 logging.error("[ERROR][%s] RSI evaluation failed: %s", sym, e)
                                 rsi_cool = False
+
 
                     
                             # Trailing stop
