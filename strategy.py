@@ -546,6 +546,19 @@ def main():
         from datetime import datetime, timezone
     
         symbol = "NVDA"
+        symbols = [symbol]  # tarvitaan deque-rakenteisiin
+
+        # Alusta deques kaikille symboleille
+        price_deques = {s: deque(maxlen=TICKS_WINDOW) for s in symbols}
+        size_deques = {s: deque(maxlen=TICKS_WINDOW) for s in symbols}
+        time_deques = {s: deque(maxlen=TICKS_WINDOW) for s in symbols}
+        
+        # Alusta tilarakenteet
+        inflight_orders = {}
+        pending_entries = set()
+        last_exit_time = {s: datetime.min.replace(tzinfo=timezone.utc) for s in symbols}
+        last_buy_time = {s: datetime.min.replace(tzinfo=timezone.utc) for s in symbols}
+
         start = "2024-10-01T14:30:00Z"
         end = "2024-10-01T14:45:00Z"
     
