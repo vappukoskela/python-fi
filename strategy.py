@@ -542,7 +542,6 @@ def main():
     if RUN_MODE in ["SIM", "AGG_SIM"]:
         import pandas as pd
         from alpaca.data.requests import StockTradesRequest
-        from collections import defaultdict, deque
         from datetime import datetime, timezone
     
         symbol = "NVDA"
