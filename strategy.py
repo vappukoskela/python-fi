@@ -397,29 +397,41 @@ def evaluate_sell(sym, last_price, ref_entry, price_deque, size_deque, entry_tim
 
 
         # EMA fail
-        ema_fast = compute_ema_from_series(prices_series, ema_fast_period).iloc[-1]
-        ema_slow = compute_ema_from_series(prices_series, ema_slow_period).iloc[-1]
         ema_fail = False
-        if len(prices_series) >= 2:
-            ema_fast_prev = compute_ema_from_series(prices_series[:-1], ema_fast_period).iloc[-1]
-            ema_slow_prev = compute_ema_from_series(prices_series[:-1], ema_slow_period).iloc[-1]
-            if ema_fast < ema_slow and ema_fast_prev < ema_slow_prev and last_price < ema_slow * (1 - EMA_DELTA):
-                ema_fail = True
+        try:
+            if len(prices_series) >= 2:
+                ema_fast_prev = compute_ema_from_series(prices_series[:-1], ema_fast_period).iloc[-1]
+                ema_slow_prev = compute_ema_from_series(prices_series[:-1], ema_slow_period).iloc[-1]
+                if ema_fast < ema_slow and ema_fast_prev < ema_slow_prev and last_price < ema_slow * (1 - EMA_DELTA):
+                    ema_fail = True
+                logging.warning(
+                    "[DEBUG][%s] EMA check | fast=%.4f | slow=%.4f | fast_prev=%.4f | slow_prev=%.4f | last=%.4f | Fail=%s",
+                    sym, ema_fast, ema_slow, ema_fast_prev, ema_slow_prev, last_price, ema_fail
+                )
+        except Exception as e:
+            logging.error("[ERROR][%s] EMA evaluation failed: %s", sym, e)
+            ema_fail = False
+
 
         # RSI cooling
         rsi_cooling = False
-        if len(prices_series) >= 5:
-            rsi_series = compute_rsi_from_series(prices_series, rsi_period)
-            rsi_val = rsi_series.iloc[-1]
-            rsi_peak = rsi_series.max()
-            rsi_series_tail = rsi_series.tail(3)
-            if not pd.isna(rsi_val):
-                if all(r < MIN_RSI_FOR_ENTRY for r in rsi_series_tail) and (rsi_peak - rsi_val) >= RSI_COOL_THRESHOLD:
-                    rsi_cooling = True
-                    logging.warning(
-                        "[DEBUG][%s] RSI cooling triggered | peak=%.2f now=%.2f drop=%.2f threshold=%d",
-                        sym, rsi_peak, rsi_val, rsi_peak - rsi_val, RSI_COOL_THRESHOLD
-                    )
+        try:
+            if len(prices_series) >= 5:
+                rsi_series = compute_rsi_from_series(prices_series, rsi_period)
+                rsi_val = rsi_series.iloc[-1]
+                rsi_peak = rsi_series.max()
+                rsi_series_tail = rsi_series.tail(3)
+                if not pd.isna(rsi_val):
+                    if all(r < MIN_RSI_FOR_ENTRY for r in rsi_series_tail) and (rsi_peak - rsi_val) >= RSI_COOL_THRESHOLD:
+                        rsi_cooling = True
+                logging.warning(
+                    "[DEBUG][%s] RSI check | peak=%.2f | now=%.2f | tail=%s | drop=%.2f | threshold=%d | Cool=%s",
+                    sym, rsi_peak, rsi_val, rsi_series_tail.tolist(), rsi_peak - rsi_val, RSI_COOL_THRESHOLD, rsi_cooling
+                )
+        except Exception as e:
+            logging.error("[ERROR][%s] RSI evaluation failed: %s", sym, e)
+            rsi_cooling = False
+
 
         # Max hold
         max_hold_hit = elapsed >= MAX_HOLD_SECONDS if entry_time else False
