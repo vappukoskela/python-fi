@@ -360,6 +360,14 @@ def evaluate_sell(sym, last_price, ref_entry, price_deque, size_deque, entry_tim
             elapsed = 0
         # --- End unpack ---
 
+        # --- Hold time check ---
+        if elapsed < MIN_HOLD_SECONDS:
+            logging.warning(
+                "[DEBUG][%s] MIN_HOLD_SECONDS not met | elapsed=%.2f < %d | entry_time=%s",
+                sym, elapsed, MIN_HOLD_SECONDS, entry_time
+            )
+            return False, None
+
         # --- Hard exits ---
         tp_hit = last_price >= ref_entry * (1 + TP_PCT)
         sl_hit = last_price <= ref_entry * (1 - SL_PCT)
