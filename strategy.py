@@ -587,7 +587,10 @@ def main():
         entry_qty = {}
         last_exit_time[symbol] = datetime.min.replace(tzinfo=timezone.utc)
         highest_price_since_entry = defaultdict(float)
-    
+        import csv
+        csv_filename = f"{symbol}_{RUN_MODE}_trades.csv"
+        csv_rows = []
+            
         for ts, row in trades.iterrows():
             try:
                 price = float(row["price"])
@@ -622,6 +625,19 @@ def main():
                     inflight_orders, pending_entries, last_buy_time, ts_val
                 )
                 if buy:
+                    csv_rows.append({
+                        "timestamp": ts_val.strftime("%Y-%m-%d %H:%M:%S"),
+                        "symbol": symbol,
+                        "action": "BUY",
+                        "price": price,
+                        "reason": reason,
+                        "pnl": None,
+                        "ema_fast": round(ema_fast, 4),
+                        "ema_slow": round(ema_slow, 4),
+                        "rsi": round(rsi_val, 2),
+                        "vwap": round(vwap_val, 4)
+                    })
+
                     entry_price = price
                     entry_times[symbol] = (ts_val, price)
                     entry_prices[symbol] = price
@@ -638,6 +654,19 @@ def main():
                 )
                 if sell:
                     pnl = (price - entry_price) * entry_qty.get(symbol, 1)
+                    csv_rows.append({
+                    "timestamp": ts_val.strftime("%Y-%m-%d %H:%M:%S"),
+                    "symbol": symbol,
+                    "action": "SELL",
+                    "price": price,
+                    "reason": reason,
+                    "pnl": round(pnl, 4),
+                    "ema_fast": round(ema_fast, 4),
+                    "ema_slow": round(ema_slow, 4),
+                    "rsi": round(rsi_val, 2),
+                    "vwap": round(vwap_val, 4)
+                })
+
                     logging.info(f"{symbol} [{RUN_MODE}] SELL @ {price:.4f} | Reason={reason} | PnL={pnl:.4f} | Time={ts_val.strftime('%Y-%m-%dT%H:%M:%S')}")
                     in_position = False
                     entry_price = None
@@ -645,6 +674,14 @@ def main():
                     highest_price_since_entry.pop(symbol, None)
     
         logging.info("%s replay finished for %s", RUN_MODE, symbol)
+        with open(csv_filename, mode="w", newline="") as f:
+            fieldnames = ["timestamp", "symbol", "action", "price", "reason", "pnl", "ema_fast", "ema_slow", "rsi", "vwap"]
+            writer = csv.DictWriter(f, fieldnames=fieldnames)
+            writer.writeheader()
+            writer.writerows(csv_rows)
+        
+        logging.info("Trades saved to %s", csv_filename)
+
         return
     # === END SIMULATION BRANCH ===
    
