@@ -81,7 +81,7 @@ TP_PCT = 0.006
 SL_PCT = 0.004
 # --- RUN MODE ---
 # "SIM" = backtest on historical bars; "LIVE" = live/paper trading loop
-RUN_MODE = "SIM"
+RUN_MODE = "AGG_SIM"
 TRAILING_STOP_PCT = 0.005  # 0.5% trailing stop
 MAX_HOLD_SECONDS = 1800   # example: 5 minutes
 MIN_HOLD_SECONDS = 120    # example: 30 seconds grace period before indicators can trigger
