@@ -400,6 +400,8 @@ def evaluate_sell(sym, last_price, ref_entry, price_deque, size_deque, entry_tim
         ema_fail = False
         try:
             if len(prices_series) >= 2:
+                ema_fast = compute_ema_from_series(prices_series, ema_fast_period).iloc[-1]
+                ema_slow = compute_ema_from_series(prices_series, ema_slow_period).iloc[-1]
                 ema_fast_prev = compute_ema_from_series(prices_series[:-1], ema_fast_period).iloc[-1]
                 ema_slow_prev = compute_ema_from_series(prices_series[:-1], ema_slow_period).iloc[-1]
                 if ema_fast < ema_slow and ema_fast_prev < ema_slow_prev and last_price < ema_slow * (1 - EMA_DELTA):
