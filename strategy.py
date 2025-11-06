@@ -537,31 +537,36 @@ def main():
     stop_event = threading.Event()
     pending_entries = set()   # prevent duplicate buys
 
-       # === SIMULATION BRANCH ===
-    if RUN_MODE == "SIM":
+    # === SIMULATION BRANCH ===
+    if RUN_MODE in ["SIM", "AGG_SIM"]:
         import pandas as pd
-        from alpaca.data.requests import StockBarsRequest
-        from alpaca.data.timeframe import TimeFrame
-        from collections import defaultdict
-
         from alpaca.data.requests import StockTradesRequest
-
-        
+        from collections import defaultdict, deque
+        from datetime import datetime, timezone
+    
         symbol = "NVDA"
-        start="2024-10-01T14:30:00Z"
-        end="2024-10-01T14:45:00Z"
-
-        req = StockTradesRequest(
-            symbol_or_symbols=symbol,
-            start=start,
-            end=end            
-        )
+        start = "2024-10-01T14:30:00Z"
+        end = "2024-10-01T14:45:00Z"
+    
+        req = StockTradesRequest(symbol_or_symbols=symbol, start=start, end=end)
         trades = stock_data_client.get_stock_trades(req).df
+    
+        # Aikaleima indeksiin
+        trades.index = pd.to_datetime(trades.index.get_level_values(1))
+    
+        # AGG_SIM: aggregoi 1 sekunnin välein
+        if RUN_MODE == "AGG_SIM":
+            trades = trades.resample("1S").agg({
+                "price": "mean",
+                "size": "sum"
+            }).dropna()
+            logging.info("AGG_SIM mode: aggregated to 1-second intervals. Total datapoints: %d", len(trades))
+        else:
+            logging.info("SIM mode: using raw tick data. Total datapoints: %d", len(trades))
+    
         print(trades.head())
-
-                
-        logging.info("Starting SIM replay for %s from %s to %s", symbol, start, end)
-
+        logging.info("Starting %s replay for %s from %s to %s", RUN_MODE, symbol, start, end)
+    
         in_position = False
         entry_price = None
         entry_times = {}
@@ -569,23 +574,21 @@ def main():
         entry_qty = {}
         last_exit_time[symbol] = datetime.min.replace(tzinfo=timezone.utc)
         highest_price_since_entry = defaultdict(float)
-
-        for idx, row in trades.iterrows():
-            price = float(row["price"])
-            size = int(row["size"])
-
+    
+        for ts, row in trades.iterrows():
             try:
-                ts_val = idx[1]
-                ts_val = pd.to_datetime(idx[1]).to_pydatetime()
+                price = float(row["price"])
+                size = int(row["size"])
+                ts_val = ts.to_pydatetime().replace(tzinfo=timezone.utc)
             except Exception as e:
-                logging.error("[SIM] Could not convert ts=%s to datetime (%s)", idx, e)
+                logging.error("[%s] Could not parse row: %s", RUN_MODE, e)
                 continue
-
+    
             # Päivitä deques
             price_deques[symbol].append(price)
             size_deques[symbol].append(size)
             time_deques[symbol].append(ts_val)
-
+    
             # Laske indikaattorit
             prices = pd.Series(price_deques[symbol])
             sizes_series = pd.Series(size_deques[symbol])
@@ -593,16 +596,17 @@ def main():
             ema_slow = compute_ema_from_series(prices, EMA_SLOW).iloc[-1]
             rsi_val = compute_rsi_from_series(prices, RSI_PERIOD).iloc[-1]
             vwap_val = compute_vwap_from_ticks(prices, sizes_series).iloc[-1]
-
+    
             if pd.isna(ema_fast) or pd.isna(ema_slow) or pd.isna(rsi_val) or pd.isna(vwap_val):
                 continue
-
-            # --- BUY / SELL logiikka (identtinen live-haaran kanssa) ---
+    
             positions_map = positions_map if 'positions_map' in locals() else {}
+    
             if not in_position:
                 buy, reason = buy_conditions_met(
                     symbol, price, size, ema_fast, ema_slow, rsi_val, vwap_val,
-                    sizes_series, last_exit_time[symbol], positions_map, inflight_orders, pending_entries, last_buy_time, ts_val       
+                    sizes_series, last_exit_time[symbol], positions_map,
+                    inflight_orders, pending_entries, last_buy_time, ts_val
                 )
                 if buy:
                     entry_price = price
@@ -612,25 +616,25 @@ def main():
                     in_position = True
                     highest_price_since_entry[symbol] = price
                     last_buy_time[symbol] = ts_val
-                    logging.info(f"{symbol} [SIM] BUY @ {price:.4f} | Trigger={reason} | Time={ts_val.strftime('%Y-%m-%d %H:%M:%S')}")
+                    logging.info(f"{symbol} [{RUN_MODE}] BUY @ {price:.4f} | Trigger={reason} | Time={ts_val.strftime('%Y-%m-%d %H:%M:%S')}")
             else:
-                # Päivitä korkein hinta trailing stopia varten
                 highest_price_since_entry[symbol] = max(highest_price_since_entry[symbol], price)
                 sell, reason = evaluate_sell(
-                    symbol, price, entry_prices[symbol], price_deques[symbol], size_deques[symbol], entry_times
+                    symbol, price, entry_prices[symbol],
+                    price_deques[symbol], size_deques[symbol], entry_times
                 )
                 if sell:
                     pnl = (price - entry_price) * entry_qty.get(symbol, 1)
-                    logging.info(f"{symbol} [SIM] SELL @ {price:.4f} | Reason={reason} | PnL={pnl:.4f} | Time={ts_val.strftime('%Y-%m-%dT%H:%M:%S')}")
+                    logging.info(f"{symbol} [{RUN_MODE}] SELL @ {price:.4f} | Reason={reason} | PnL={pnl:.4f} | Time={ts_val.strftime('%Y-%m-%dT%H:%M:%S')}")
                     in_position = False
                     entry_price = None
                     last_exit_time[symbol] = ts_val
                     highest_price_since_entry.pop(symbol, None)
-             
-
-        logging.info("SIM replay finished for %s", symbol)
+    
+        logging.info("%s replay finished for %s", RUN_MODE, symbol)
         return
     # === END SIMULATION BRANCH ===
+   
 
 
   
