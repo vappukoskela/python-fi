@@ -375,11 +375,26 @@ def evaluate_sell(sym, last_price, ref_entry, price_deque, size_deque, entry_tim
                 trailing_stop_hit = last_price <= peak * (1 - TRAIL_PCT)
 
         # VWAP fail
-        vwap_val = compute_vwap_from_ticks(prices_series, sizes_series).iloc[-1]
         vwap_fail = False
-        if len(prices_series) >= 3 and not pd.isna(vwap_val):
-            if all(prices_series.iloc[-i] < vwap_val * (1 - VWAP_DELTA) for i in range(1, 4)):
-                vwap_fail = True
+        try:
+            if len(prices_series) >= 3:
+                vwap_series = compute_vwap_from_ticks(prices_series, sizes_series)
+                vwap_val = vwap_series.iloc[-1]
+                if not pd.isna(vwap_val):
+                    bars_below = [prices_series.iloc[-i] < vwap_val * (1 - VWAP_DELTA) for i in range(1, 4)]
+                    vwap_fail = all(bars_below)
+                    logging.warning(
+                        "[DEBUG][%s] VWAP check | last=%.4f | vwap=%.4f | bars_below=%s | Fail=%s",
+                        sym,
+                        prices_series.iloc[-1],
+                        vwap_val,
+                        bars_below,
+                        vwap_fail
+                    )
+        except Exception as e:
+            logging.error("[ERROR][%s] VWAP evaluation failed: %s", sym, e)
+            vwap_fail = False
+
 
         # EMA fail
         ema_fast = compute_ema_from_series(prices_series, ema_fast_period).iloc[-1]
