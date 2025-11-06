@@ -369,10 +369,27 @@ def evaluate_sell(sym, last_price, ref_entry, price_deque, size_deque, entry_tim
 
         # Trailing stop
         trailing_stop_hit = False
-        if len(prices_series) > 0:
-            peak = prices_series.max()
-            if peak > ref_entry * (1 + TP_PCT):
-                trailing_stop_hit = last_price <= peak * (1 - TRAIL_PCT)
+        try:
+            if len(prices_series) > 0:
+                peak = prices_series.max()
+                drawdown_pct = (peak - last_price) / peak if peak > 0 else 0
+                trailing_stop_hit = (
+                    peak > ref_entry * (1 + TP_PCT) and drawdown_pct >= TRAIL_PCT
+                )
+                logging.warning(
+                    "[DEBUG][%s] Trailing stop check | peak=%.4f | last=%.4f | ref_entry=%.4f | drawdown=%.4f%% | threshold=%.4f%% | Hit=%s",
+                    sym,
+                    peak,
+                    last_price,
+                    ref_entry,
+                    drawdown_pct * 100,
+                    TRAIL_PCT * 100,
+                    trailing_stop_hit
+                )
+        except Exception as e:
+            logging.error("[ERROR][%s] Trailing stop evaluation failed: %s", sym, e)
+            trailing_stop_hit = False
+
 
         # VWAP fail
         vwap_fail = False
