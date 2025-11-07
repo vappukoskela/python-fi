@@ -82,10 +82,9 @@ SL_PCT = 0.004
 # --- RUN MODE ---
 # "SIM" = backtest on historical bars; "LIVE" = live/paper trading loop
 RUN_MODE = "AGG_SIM"
-TRAILING_STOP_PCT = 0.005  # 0.5% trailing stop
 MAX_HOLD_SECONDS = 1800   # example: 5 minutes
 MIN_HOLD_SECONDS = 120    # example: 30 seconds grace period before indicators can trigger
-TRAILING_STOP_PCT = 0.008   # 0.5% trailing stop
+TRAILING_STOP_PCT = 0.003   # 0.5% trailing stop
 TRAIL_PCT = 0.005 
 BUY_POWER_LIMIT = 0.05
 BUY_CASH_BUFFER = 0.95
@@ -496,10 +495,9 @@ RSI_PERIOD = 14
 VWAP_DELTA = 0.01
 RSI_COOL_THRESHOLD = 3
 EMA_DELTA = 0.001
-TRAILING_STOP_PCT = 0.005  # 0.5% trailing stop
 MAX_HOLD_SECONDS = 1800   # example: 5 minutes
 MIN_HOLD_SECONDS = 120    # example: 30 seconds grace period before indicators can trigger
-TRAILING_STOP_PCT = 0.008   # 0.5% trailing stop
+TRAILING_STOP_PCT = 0.003   # 0.5% trailing stop
 TRAIL_PCT = 0.005
 BUY_POWER_LIMIT = 0.05
 BUY_CASH_BUFFER = 0.95
