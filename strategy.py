@@ -474,6 +474,30 @@ def evaluate_sell(sym, last_price, ref_entry, price_deque, size_deque, entry_tim
             return True, "EMA fail"
         if rsi_cooling:
             return True, "RSI cooling"
+        # --- Additional indicator-based exits ---
+        try:
+            if not pd.isna(rsi_val) and (rsi_val > MAX_RSI_FOR_ENTRY or rsi_val < 40):
+                logging.warning("[%s] RSI fail triggered | RSI=%.2f", sym, rsi_val)
+                return True, "RSI fail"
+        except Exception as e:
+            logging.error("[%s] RSI fail evaluation error: %s", sym, e)
+        
+        try:
+            if not pd.isna(ema_fast) and not pd.isna(ema_slow) and ema_fast < ema_slow:
+                logging.warning("[%s] EMA fail triggered | fast=%.4f slow=%.4f", sym, ema_fast, ema_slow)
+                return True, "EMA fail (simple)"
+        except Exception as e:
+            logging.error("[%s] EMA fail (simple) evaluation error: %s", sym, e)
+        
+        try:
+            if not pd.isna(vwap_val) and last_price < vwap_val:
+                logging.warning("[%s] VWAP fail triggered | last=%.4f vwap=%.4f", sym, last_price, vwap_val)
+                return True, "VWAP fail (simple)"
+        except Exception as e:
+            logging.error("[%s] VWAP fail (simple) evaluation error: %s", sym, e)
+        
+        # --- Final fallback: Max hold ---
+        
         if max_hold_hit:
             return True, "Max hold"
 
