@@ -418,24 +418,26 @@ def evaluate_sell(sym, last_price, ref_entry, price_deque, size_deque, entry_tim
             vwap_fail = False
 
 
-
         # EMA fail
-        ema_fail = False
-        try:
-            if len(prices_series) >= 2:
-                ema_fast = compute_ema_from_series(prices_series, ema_fast_period).iloc[-1]
-                ema_slow = compute_ema_from_series(prices_series, ema_slow_period).iloc[-1]
-                ema_fast_prev = compute_ema_from_series(prices_series[:-1], ema_fast_period).iloc[-1]
-                ema_slow_prev = compute_ema_from_series(prices_series[:-1], ema_slow_period).iloc[-1]
-                if ema_fast < ema_slow and ema_fast_prev < ema_slow_prev and last_price < ema_slow * (1 - EMA_DELTA):
-                    ema_fail = True
-                logging.warning(
-                    "[DEBUG][%s] EMA check | fast=%.4f | slow=%.4f | fast_prev=%.4f | slow_prev=%.4f | last=%.4f | Fail=%s",
-                    sym, ema_fast, ema_slow, ema_fast_prev, ema_slow_prev, last_price, ema_fail
-                )
-        except Exception as e:
-            logging.error("[ERROR][%s] EMA evaluation failed: %s", sym, e)
-            ema_fail = False
+ema_fail = False
+try:
+    if len(prices_series) >= 2:
+        ema_fast = compute_ema_from_series(prices_series, ema_fast_period).iloc[-1]
+        ema_slow = compute_ema_from_series(prices_series, ema_slow_period).iloc[-1]
+
+        # Vain nykyinen bar tarkistetaan
+        if ema_fast < ema_slow and last_price < ema_slow * (1 - EMA_DELTA):
+            ema_fail = True
+
+        logging.warning(
+            "[DEBUG][%s] EMA check | fast=%.4f | slow=%.4f | last=%.4f | Fail=%s",
+            sym, ema_fast, ema_slow, last_price, ema_fail
+        )
+except Exception as e:
+    logging.error("[ERROR][%s] EMA evaluation failed: %s", sym, e)
+    ema_fail = False
+
+       
 
 
         # RSI cooling
