@@ -396,27 +396,27 @@ def evaluate_sell(sym, last_price, ref_entry, price_deque, size_deque, entry_tim
             logging.error("[ERROR][%s] Trailing stop evaluation failed: %s", sym, e)
             trailing_stop_hit = False
 
-
+        
         # VWAP fail
         vwap_fail = False
         try:
-            if len(prices_series) >= 3:
+            if len(prices_series) >= 1:
                 vwap_series = compute_vwap_from_ticks(prices_series, sizes_series)
                 vwap_val = vwap_series.iloc[-1]
                 if not pd.isna(vwap_val):
-                    bars_below = [prices_series.iloc[-i] < vwap_val * (1 - VWAP_DELTA) for i in range(1, 4)]
-                    vwap_fail = all(bars_below)
+                    # Vain viimeisin bar tarkistetaan
+                    vwap_fail = prices_series.iloc[-1] < vwap_val * (1 - VWAP_DELTA)
                     logging.warning(
-                        "[DEBUG][%s] VWAP check | last=%.4f | vwap=%.4f | bars_below=%s | Fail=%s",
+                        "[DEBUG][%s] VWAP check | last=%.4f | vwap=%.4f | Fail=%s",
                         sym,
                         prices_series.iloc[-1],
                         vwap_val,
-                        bars_below,
                         vwap_fail
                     )
         except Exception as e:
             logging.error("[ERROR][%s] VWAP evaluation failed: %s", sym, e)
             vwap_fail = False
+
 
 
         # EMA fail
