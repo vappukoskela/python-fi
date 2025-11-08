@@ -78,7 +78,7 @@ EMA_DELTA = 0.001
 VWAP_DELTA = 0.01
 VOL_SPIKE_MULT = 1.4
 TP_PCT = 0.006
-SL_PCT = 0.003
+SL_PCT = 0.005
 # --- RUN MODE ---
 # "SIM" = backtest on historical bars; "LIVE" = live/paper trading loop
 RUN_MODE = "AGG_SIM"
