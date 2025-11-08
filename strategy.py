@@ -78,14 +78,15 @@ EMA_DELTA = 0.001
 VWAP_DELTA = 0.01
 VOL_SPIKE_MULT = 1.4
 TP_PCT = 0.006
+TP_PCT2 = 0.012
 SL_PCT = 0.005
 # --- RUN MODE ---
 # "SIM" = backtest on historical bars; "LIVE" = live/paper trading loop
 RUN_MODE = "AGG_SIM"
 MAX_HOLD_SECONDS = 300   # example: x minutes
 MIN_HOLD_SECONDS = 60    # example: x seconds grace period before indicators can trigger
-TRAILING_STOP_PCT = 0.005   # 0.x% trailing stop
-TRAIL_PCT = 0.005 
+TRAILING_STOP_PCT = 0.007   # 0.x% trailing stop
+TRAIL_PCT = 0.007 
 BUY_POWER_LIMIT = 0.05
 BUY_CASH_BUFFER = 0.95
 COOLDOWN_SECONDS = 15
@@ -544,8 +545,8 @@ RSI_COOL_THRESHOLD = 3
 EMA_DELTA = 0.001
 MAX_HOLD_SECONDS = 300   # example: x minutes
 MIN_HOLD_SECONDS = 60    # example: x seconds grace period before indicators can trigger
-TRAILING_STOP_PCT = 0.005  # 0.5% trailing stop
-TRAIL_PCT = 0.005
+TRAILING_STOP_PCT = 0.007  # 0.5% trailing stop
+TRAIL_PCT = 0.007
 BUY_POWER_LIMIT = 0.05
 BUY_CASH_BUFFER = 0.95
 COOLDOWN_SECONDS = 15
@@ -883,6 +884,7 @@ def main():
                     
                             # --- Hard exits ---
                             tp_hit = last_price >= ref_entry * (1 + TP_PCT)
+                            tp_hit2 = last_price >= ref_entry * (1 + TP_PCT2)
                             sl_hit = last_price <= ref_entry * (1 - SL_PCT)
                     
                             # --- Indicators ---
@@ -1008,12 +1010,12 @@ def main():
                             )      
                             # Exit reason priority
                             exit_reason = None
-                            if trailing_stop_hit:
-                                exit_reason = "Trailing stop"
+                            if tp_hit or tp_hit2:
+                                exit_reason = "Take-profit"
                             elif sl_hit:
                                 exit_reason = "Stop-loss"
-                            elif tp_hit:
-                                exit_reason = "Take-profit"
+                            elif trailing_stop_hit:
+                                exit_reason = "Trailing stop"
                             elif vwap_fail:
                                 exit_reason = "VWAP fail"
                             elif ema_fail:
