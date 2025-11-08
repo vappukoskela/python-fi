@@ -77,16 +77,18 @@ RSI_COOL_THRESHOLD = 3    # esim. raja-arvo RSI:lle "cool down" -tilanteessa
 EMA_DELTA = 0.001
 VWAP_DELTA = 0.01
 VOL_SPIKE_MULT = 1.4
-TP_PCT = 0.006
-TP_PCT2 = 0.012
+TP_PCT = 0.004
+TP_PCT2 = 0.007
+TP_PCT3 = 0.012
 SL_PCT = 0.005
 # --- RUN MODE ---
 # "SIM" = backtest on historical bars; "LIVE" = live/paper trading loop
 RUN_MODE = "AGG_SIM"
 MAX_HOLD_SECONDS = 300   # example: x minutes
 MIN_HOLD_SECONDS = 60    # example: x seconds grace period before indicators can trigger
-TRAILING_STOP_PCT = 0.007   # 0.x% trailing stop
-TRAIL_PCT = 0.007 
+TRAILING_STOP_PCT = 0.010   # 0.x% trailing stop
+TRAIL_PCT = 0.010
+TS_ACTIVATION_BUFFER = 0.005
 BUY_POWER_LIMIT = 0.05
 BUY_CASH_BUFFER = 0.95
 COOLDOWN_SECONDS = 15
@@ -545,8 +547,9 @@ RSI_COOL_THRESHOLD = 3
 EMA_DELTA = 0.001
 MAX_HOLD_SECONDS = 300   # example: x minutes
 MIN_HOLD_SECONDS = 60    # example: x seconds grace period before indicators can trigger
-TRAILING_STOP_PCT = 0.007  # 0.5% trailing stop
-TRAIL_PCT = 0.007
+TRAILING_STOP_PCT = 0.010  # 0.5% trailing stop
+TRAIL_PCT = 0.010
+TS_ACTIVATION_BUFFER = 0.005
 BUY_POWER_LIMIT = 0.05
 BUY_CASH_BUFFER = 0.95
 COOLDOWN_SECONDS = 15
@@ -885,6 +888,7 @@ def main():
                             # --- Hard exits ---
                             tp_hit = last_price >= ref_entry * (1 + TP_PCT)
                             tp_hit2 = last_price >= ref_entry * (1 + TP_PCT2)
+                            tp_hit3 = last_price >= ref_entry * (1 + TP_PCT3)
                             sl_hit = last_price <= ref_entry * (1 - SL_PCT)
                     
                             # --- Indicators ---
@@ -978,7 +982,9 @@ def main():
                                     if mask.any():
                                         since_entry_prices = prices_series[mask]
                                         peak = float(since_entry_prices.max())
-                                        if peak > 0:
+                                        activated = trailing_active[sym] or (peak >= ref_entry * (1 + TS_ACTIVATION_BUFFER))
+                                        trailing_active[sym] = activated  # cache activation state
+                                        if activated and peak > 0:
                                             drawdown_pct = (peak - last_price) / peak
                                             trailing_stop_hit = drawdown_pct >= TRAILING_STOP_PCT
                                             logging.debug(
@@ -1010,7 +1016,7 @@ def main():
                             )      
                             # Exit reason priority
                             exit_reason = None
-                            if tp_hit or tp_hit2:
+                            if tp_hit or tp_hit2 or tp_hit3:
                                 exit_reason = "Take-profit"
                             elif sl_hit:
                                 exit_reason = "Stop-loss"
@@ -1041,6 +1047,7 @@ def main():
                                 )
                                 in_position = False
                                 entry_price = None
+                                trailing_active[sym] = False
                                 last_exit_time[sym] = datetime.now(timezone.utc)
                                 debug_log_state(sym, entry_times, last_exit_time)
                             
