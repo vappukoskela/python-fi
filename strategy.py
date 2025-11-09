@@ -451,23 +451,24 @@ def evaluate_sell(sym, last_price, ref_entry, price_deque, size_deque, entry_tim
         # --- Trailing stop check (only if activated) ---
         trailing_stop_hit = False
         if trailing_active.get(sym, False):
-            peak = highest_price_since_entry[sym]
-            drawdown_pct = (peak - last_price) / peak if peak > 0 else 0
-            trailing_stop_hit = drawdown_pct >= CONFIG["TRAILING_STOP_PCT"]
-            logging.warning(
-                "[DEBUG][%s] Trailing stop check | peak=%.4f | last=%.4f | ref_entry=%.4f | drawdown=%.4f%% | threshold=%.4f%% | Hit=%s",
-                sym,
-                peak,
-                last_price,
-                ref_entry,
-                drawdown_pct * 100,
-                CONFIG["TRAILING_STOP_PCT"] * 100,
-                trailing_stop_hit
-            )
+            try:
+                peak = highest_price_since_entry[sym]
+                drawdown_pct = (peak - last_price) / peak if peak > 0 else 0
+                trailing_stop_hit = drawdown_pct >= CONFIG["TRAILING_STOP_PCT"]
+                logging.warning(
+                    "[DEBUG][%s] Trailing stop check | peak=%.4f | last=%.4f | ref_entry=%.4f | drawdown=%.4f%% | threshold=%.4f%% | Hit=%s",
+                    sym,
+                    peak,
+                    last_price,
+                    ref_entry,
+                    drawdown_pct * 100,
+                    CONFIG["TRAILING_STOP_PCT"] * 100,
+                    trailing_stop_hit
+                )
 
-        except Exception as e:
-            logging.error("[ERROR][%s] Trailing stop evaluation failed: %s", sym, e)
-            trailing_stop_hit = False
+            except Exception as e:
+                logging.error("[ERROR][%s] Trailing stop evaluation failed: %s", sym, e)
+                trailing_stop_hit = False
 
         
         # VWAP fail
