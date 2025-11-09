@@ -412,8 +412,12 @@ def evaluate_sell(sym, last_price, ref_entry, price_deque, size_deque, entry_tim
             return False, None
 
         # --- Hard exits ---
-        tp_hit = last_price >= ref_entry * (1 + TP_PCT)
-        sl_hit = last_price <= ref_entry * (1 - SL_PCT)
+        tp_hit = last_price >= ref_entry * (1 + CONFIG["TP_PCT"])
+        # ATR‑pohjainen SL
+        atr_value = compute_atr_from_series(prices_series, ATR_PERIOD)
+        dyn_sl_price = ref_entry - (atr_value * CONFIG["SL_MULTIPLIER"])
+        sl_hit = last_price <= dyn_sl_price
+
 
         prices_series = pd.Series(price_deque)
         sizes_series = pd.Series(size_deque)
