@@ -528,11 +528,6 @@ def evaluate_sell(sym, last_price, ref_entry, price_deque, size_deque, entry_tim
             rsi_fail = False
 
 
-        
-
-        # Max hold
-        max_hold_hit = elapsed >= MAX_HOLD_SECONDS if entry_time else False
-
         # --- Decision ---
         if tp_hit:
             return True, "Take-profit"
@@ -546,6 +541,12 @@ def evaluate_sell(sym, last_price, ref_entry, price_deque, size_deque, entry_tim
             return True, "EMA fail"
         if rsi_fail:
             return True, "RSI fail"
+
+        # Max hold
+        max_hold_hit = elapsed >= MAX_HOLD_SECONDS if entry_time else False
+        if max_hold_hit:
+            return True, "Max hold"
+            
         # --- Additional indicator-based exits ---
         try:
             if not pd.isna(rsi_val) and (rsi_val > MAX_RSI_FOR_ENTRY or rsi_val < 40):
