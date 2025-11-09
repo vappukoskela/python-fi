@@ -68,6 +68,9 @@ spent_this_loop = 0.0
 # Trailing stop seurantaan
 highest_price_since_entry = defaultdict(float)
 
+# Trailing stop aktivoinnin tila (symbol -> bool)
+trailing_active = defaultdict(bool)
+
 # === CONFIG ===
 # === CONFIG PROFILES ===
 
@@ -428,7 +431,7 @@ def evaluate_sell(sym, last_price, ref_entry, price_deque, size_deque, entry_tim
             if len(prices_series) > 0:
                 peak = prices_series.max()
                 drawdown_pct = (peak - last_price) / peak if peak > 0 else 0
-                trailing_stop_hit = drawdown_pct >= TRAIL_PCT
+                trailing_stop_hit = drawdown_pct >= CONFIG["TRAILING_STOP_PCT"]
                 logging.warning(
                     "[DEBUG][%s] Trailing stop check | peak=%.4f | last=%.4f | ref_entry=%.4f | drawdown=%.4f%% | threshold=%.4f%% | Hit=%s",
                     sym,
@@ -436,7 +439,7 @@ def evaluate_sell(sym, last_price, ref_entry, price_deque, size_deque, entry_tim
                     last_price,
                     ref_entry,
                     drawdown_pct * 100,
-                    TRAIL_PCT * 100,
+                    CONFIG["TRAILING_STOP_PCT"] * 100,
                     trailing_stop_hit
                 )
         except Exception as e:
