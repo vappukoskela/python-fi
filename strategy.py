@@ -419,14 +419,10 @@ def evaluate_sell(sym, last_price, ref_entry, price_deque, size_deque, entry_tim
             elapsed = 0
         # --- End unpack ---
 
-        # --- Hold time check ---
-        if elapsed < MIN_HOLD_SECONDS:
-            logging.warning(
-                "[DEBUG][%s] MIN_HOLD_SECONDS not met | elapsed=%.2f < %d | entry_time=%s",
-                sym, elapsed, MIN_HOLD_SECONDS, entry_time
-            )
-            return False, None
+        # --- Hold time check for soft exits ---
+        soft_exits_allowed = (elapsed >= MIN_HOLD_SECONDS) if entry_time else False
 
+        
         prices_series = pd.Series(price_deque)
         sizes_series = pd.Series(size_deque)
 
@@ -437,30 +433,38 @@ def evaluate_sell(sym, last_price, ref_entry, price_deque, size_deque, entry_tim
         dyn_sl_price = ref_entry - (atr_value * CONFIG["SL_MULTIPLIER"])
         sl_hit = last_price <= dyn_sl_price
 
-        
+        # Indicators for soft exits (require min hold)
+        ema_fast = compute_ema_from_series(prices_series, ema_fast_period).iloc[-1] if len(prices_series) >= 2 else float('nan')
+        ema_slow = compute_ema_from_series(prices_series, ema_slow_period).iloc[-1] if len(prices_series) >= 2 else float('nan')
+        rsi_series = compute_rsi_from_series(prices_series, rsi_period) if len(prices_series) >= 5 else pd.Series([float('nan')])
+        rsi_val = rsi_series.iloc[-1] if len(rsi_series) else float('nan')
+        vwap_series = compute_vwap_from_ticks(prices_series, sizes_series) if len(prices_series) >= 1 else pd.Series([float('nan')])
+        vwap_val = vwap_series.iloc[-1] if len(vwap_series) else float('nan')
+
         
 
         # --- Trailing stop activation ---
         if last_price >= ref_entry * (1 + CONFIG["TS_ACTIVATION_BUFFER"]):
             trailing_active[sym] = True
-
-        # Trailing stop
+            highest_price_since_entry[sym] = max(highest_price_since_entry.get(sym, ref_entry), last_price)
+        
+        # --- Trailing stop check (only if activated) ---
         trailing_stop_hit = False
-        try:
-            if len(prices_series) > 0:
-                peak = prices_series.max()
-                drawdown_pct = (peak - last_price) / peak if peak > 0 else 0
-                trailing_stop_hit = drawdown_pct >= CONFIG["TRAILING_STOP_PCT"]
-                logging.warning(
-                    "[DEBUG][%s] Trailing stop check | peak=%.4f | last=%.4f | ref_entry=%.4f | drawdown=%.4f%% | threshold=%.4f%% | Hit=%s",
-                    sym,
-                    peak,
-                    last_price,
-                    ref_entry,
-                    drawdown_pct * 100,
-                    CONFIG["TRAILING_STOP_PCT"] * 100,
-                    trailing_stop_hit
-                )
+        if trailing_active.get(sym, False):
+            peak = highest_price_since_entry[sym]
+            drawdown_pct = (peak - last_price) / peak if peak > 0 else 0
+            trailing_stop_hit = drawdown_pct >= CONFIG["TRAILING_STOP_PCT"]
+            logging.warning(
+                "[DEBUG][%s] Trailing stop check | peak=%.4f | last=%.4f | ref_entry=%.4f | drawdown=%.4f%% | threshold=%.4f%% | Hit=%s",
+                sym,
+                peak,
+                last_price,
+                ref_entry,
+                drawdown_pct * 100,
+                CONFIG["TRAILING_STOP_PCT"] * 100,
+                trailing_stop_hit
+            )
+
         except Exception as e:
             logging.error("[ERROR][%s] Trailing stop evaluation failed: %s", sym, e)
             trailing_stop_hit = False
@@ -469,7 +473,7 @@ def evaluate_sell(sym, last_price, ref_entry, price_deque, size_deque, entry_tim
         # VWAP fail
         vwap_fail = False
         try:
-            if len(prices_series) >= 1:
+            if soft_exits_allowed and len(prices_series) >= 1:
                 vwap_series = compute_vwap_from_ticks(prices_series, sizes_series)
                 vwap_val = vwap_series.iloc[-1]
                 if not pd.isna(vwap_val):
@@ -490,7 +494,7 @@ def evaluate_sell(sym, last_price, ref_entry, price_deque, size_deque, entry_tim
         # EMA fail
         ema_fail = False
         try:
-            if len(prices_series) >= 2:
+            if soft_exits_allowed and len(prices_series) >= 2:
                 ema_fast = compute_ema_from_series(prices_series, ema_fast_period).iloc[-1]
                 ema_slow = compute_ema_from_series(prices_series, ema_slow_period).iloc[-1]
         
@@ -510,7 +514,7 @@ def evaluate_sell(sym, last_price, ref_entry, price_deque, size_deque, entry_tim
         # RSI fail (herkempi logiikka)
         rsi_fail = False
         try:
-            if len(prices_series) >= 5:
+            if soft_exits_allowed and len(prices_series) >= 5:
                 rsi_series = compute_rsi_from_series(prices_series, rsi_period)
                 rsi_val = rsi_series.iloc[-1]
         
