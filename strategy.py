@@ -69,6 +69,27 @@ spent_this_loop = 0.0
 highest_price_since_entry = defaultdict(float)
 
 # === CONFIG ===
+# === CONFIG PROFILES ===
+
+BULLISH_CONFIG = {
+    "TP_PCT": 0.0050,
+    "SL_MULTIPLIER": 1.2,
+    "TS_ACTIVATION_BUFFER": 0.003,
+    "TRAILING_STOP_PCT": 0.004,
+    "MAX_TRADES": 15,
+    "MAX_LOSS_DAY": 1.5
+}
+
+BEARISH_CONFIG = {
+    "TP_PCT": 0.0035,
+    "SL_MULTIPLIER": 0.9,
+    "TS_ACTIVATION_BUFFER": 0.002,
+    "TRAILING_STOP_PCT": 0.003,
+    "MAX_TRADES": 5,
+    "MAX_LOSS_DAY": 0.9
+}
+
+
 SCALP = True
 LOOP_SLEEP = 1.0
 TICKS_WINDOW = 300
@@ -79,20 +100,16 @@ RSI_COOL_THRESHOLD = 3    # esim. raja-arvo RSI:lle "cool down" -tilanteessa
 EMA_DELTA = 0.001
 VWAP_DELTA = 0.01
 VOL_SPIKE_MULT = 1.4
-TP_PCT = 0.004
 TP_PCT2 = 0.007
 TP_PCT3 = 0.012
-SL_PCT = 0.005
 ATR_PERIOD = 14
-ATR_MULTIPLIER = 1.2
+
 # --- RUN MODE ---
 # "SIM" = backtest on historical bars; "LIVE" = live/paper trading loop
 RUN_MODE = "AGG_SIM"
 MAX_HOLD_SECONDS = 300   # example: x minutes
 MIN_HOLD_SECONDS = 60    # example: x seconds grace period before indicators can trigger
-TRAILING_STOP_PCT = 0.010   # 0.x% trailing stop
 TRAIL_PCT = 0.010
-TS_ACTIVATION_BUFFER = 0.005
 BUY_POWER_LIMIT = 0.05
 BUY_CASH_BUFFER = 0.95
 COOLDOWN_SECONDS = 15
@@ -281,6 +298,25 @@ def safe_market_sell(trade_client_local, symbol, intended_qty, order_lock):
             return None
 
 # === STRATEGY HELPERS: BUY/SELL CONDITIONS ===
+# === BIAS DETECTION ===
+def detect_day_bias(prices_series, ema_fast_series, ema_slow_series, vwap_series):
+    try:
+        last_price = float(prices_series.iloc[-1])
+        ema_fast_now = float(ema_fast_series.iloc[-1])
+        ema_slow_now = float(ema_slow_series.iloc[-1])
+        vwap_now = float(vwap_series.iloc[-1])
+
+        if ema_fast_now > ema_slow_now and last_price >= vwap_now:
+            return "bullish"
+        elif ema_fast_now < ema_slow_now and last_price < vwap_now:
+            return "bearish"
+        else:
+            return "bearish"  # konservatiivinen oletus
+    except Exception as e:
+        logging.error("[ERROR] Bias detection failed: %s", e)
+        return "bearish"
+
+
 
 def buy_conditions_met(sym, price, size, ema_fast, ema_slow, rsi_val, vwap_val,
                        sizes_series, last_exit, positions_map, inflight_orders, pending_entries, last_buy_time, ts_val):
@@ -551,9 +587,7 @@ RSI_COOL_THRESHOLD = 3
 EMA_DELTA = 0.001
 MAX_HOLD_SECONDS = 300   # example: x minutes
 MIN_HOLD_SECONDS = 60    # example: x seconds grace period before indicators can trigger
-TRAILING_STOP_PCT = 0.010  # 0.5% trailing stop
 TRAIL_PCT = 0.010
-TS_ACTIVATION_BUFFER = 0.005
 BUY_POWER_LIMIT = 0.05
 BUY_CASH_BUFFER = 0.95
 COOLDOWN_SECONDS = 15
@@ -668,6 +702,19 @@ def main():
     
             if pd.isna(ema_fast) or pd.isna(ema_slow) or pd.isna(rsi_val) or pd.isna(vwap_val):
                 continue
+
+            # === Bias detection ===
+            day_bias = detect_day_bias(prices,
+                                       compute_ema_from_series(prices, EMA_FAST),
+                                       compute_ema_from_series(prices, EMA_SLOW),
+                                       compute_vwap_from_ticks(prices, sizes_series))
+            
+            if day_bias == "bullish":
+                CONFIG = BULLISH_CONFIG
+            else:
+                CONFIG = BEARISH_CONFIG
+            
+            logging.info("Day bias detected: %s -> using %s config", day_bias, CONFIG)
     
             positions_map = positions_map if 'positions_map' in locals() else {}
     
@@ -890,9 +937,12 @@ def main():
                                 entry_price_at_entry = None
                     
                             # --- Hard exits ---
-                            tp_hit = last_price >= ref_entry * (1 + TP_PCT)
+                            tp_hit = last_price >= ref_entry * (1 + CONFIG["TP_PCT"])
                             tp_hit2 = last_price >= ref_entry * (1 + TP_PCT2)
                             tp_hit3 = last_price >= ref_entry * (1 + TP_PCT3)
+                            # ATR‑pohjainen stop-loss
+                            atr_value = compute_atr_from_series(prices_series, ATR_PERIOD)
+                            dyn_sl_price = ref_entry - (atr_value * CONFIG["SL_MULTIPLIER"])
                             sl_hit = last_price <= dyn_sl_price
                     
                             # --- Indicators ---
