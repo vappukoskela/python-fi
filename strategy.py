@@ -172,6 +172,19 @@ def compute_vwap_from_ticks(prices, sizes):
     vwap = cumulative_pv / cumulative_vol
     return vwap if isinstance(vwap, pd.Series) else pd.Series([vwap])
 
+def compute_atr_from_series(prices_series, period=14):
+    """
+    Yksinkertainen ATR-laskenta pelkistä hintasarjoista.
+    Oikea ATR käyttää high/low/close -arvoja, mutta tässä
+    käytetään hinnan muutosten absoluuttista liukuvaa keskiarvoa.
+    """
+    if len(prices_series) < period + 1:
+        return float("nan")
+    diffs = prices_series.diff().abs()
+    atr = diffs.rolling(window=period).mean().iloc[-1]
+    return float(atr) if not pd.isna(atr) else float("nan")
+
+
 # === Alpaca helpers: defensive ===
 def fetch_latest_trade_price_and_size_batch(stock_data_client, symbols):
     try:
@@ -424,7 +437,7 @@ def evaluate_sell(sym, last_price, ref_entry, price_deque, size_deque, entry_tim
         dyn_sl_price = ref_entry - (atr_value * CONFIG["SL_MULTIPLIER"])
         sl_hit = last_price <= dyn_sl_price
 
-
+        
         
 
         # --- Trailing stop activation ---
