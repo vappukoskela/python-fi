@@ -544,8 +544,8 @@ def evaluate_sell(sym, last_price, ref_entry, price_deque, size_deque, entry_tim
             return True, "VWAP fail"
         if ema_fail:
             return True, "EMA fail"
-        if rsi_cooling:
-            return True, "RSI cooling"
+        if rsi_fail:
+            return True, "RSI fail"
         # --- Additional indicator-based exits ---
         try:
             if not pd.isna(rsi_val) and (rsi_val > MAX_RSI_FOR_ENTRY or rsi_val < 40):
