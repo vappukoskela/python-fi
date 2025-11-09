@@ -414,6 +414,9 @@ def evaluate_sell(sym, last_price, ref_entry, price_deque, size_deque, entry_tim
             )
             return False, None
 
+        prices_series = pd.Series(price_deque)
+        sizes_series = pd.Series(size_deque)
+
         # --- Hard exits ---
         tp_hit = last_price >= ref_entry * (1 + CONFIG["TP_PCT"])
         # ATR‑pohjainen SL
@@ -422,8 +425,11 @@ def evaluate_sell(sym, last_price, ref_entry, price_deque, size_deque, entry_tim
         sl_hit = last_price <= dyn_sl_price
 
 
-        prices_series = pd.Series(price_deque)
-        sizes_series = pd.Series(size_deque)
+        
+
+        # --- Trailing stop activation ---
+        if last_price >= ref_entry * (1 + CONFIG["TS_ACTIVATION_BUFFER"]):
+            trailing_active[sym] = True
 
         # Trailing stop
         trailing_stop_hit = False
@@ -455,7 +461,7 @@ def evaluate_sell(sym, last_price, ref_entry, price_deque, size_deque, entry_tim
                 vwap_val = vwap_series.iloc[-1]
                 if not pd.isna(vwap_val):
                     # Vain viimeisin bar tarkistetaan
-                    vwap_fail = prices_series.iloc[-1] < vwap_val * (1 - VWAP_DELTA)
+                    vwap_fail = prices_series.iloc[-1] < vwap_val * (1 - CONFIG["VWAP_DELTA"])
                     logging.warning(
                         "[DEBUG][%s] VWAP check | last=%.4f | vwap=%.4f | Fail=%s",
                         sym,
@@ -476,7 +482,7 @@ def evaluate_sell(sym, last_price, ref_entry, price_deque, size_deque, entry_tim
                 ema_slow = compute_ema_from_series(prices_series, ema_slow_period).iloc[-1]
         
                 # Vain nykyinen bar tarkistetaan
-                if ema_fast < ema_slow and last_price < ema_slow * (1 - EMA_DELTA):
+                if ema_fast < ema_slow and last_price < ema_slow * (1 - CONFIG["EMA_DELTA"]):
                     ema_fail = True
         
                 logging.warning(
@@ -589,9 +595,7 @@ def evaluate_sell(sym, last_price, ref_entry, price_deque, size_deque, entry_tim
 EMA_FAST = 9
 EMA_SLOW = 20
 RSI_PERIOD = 14
-VWAP_DELTA = 0.01
 RSI_COOL_THRESHOLD = 3
-EMA_DELTA = 0.001
 MAX_HOLD_SECONDS = 300   # example: x minutes
 MIN_HOLD_SECONDS = 60    # example: x seconds grace period before indicators can trigger
 TRAIL_PCT = 0.010
