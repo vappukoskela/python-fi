@@ -75,10 +75,10 @@ trailing_active = defaultdict(bool)
 # === CONFIG PROFILES ===
 
 BULLISH_CONFIG = {
-    "TP_PCT": 0.0050,
+    "TP_PCT": 0.0070,
     "SL_MULTIPLIER": 1.2,
-    "TS_ACTIVATION_BUFFER": 0.003,
-    "TRAILING_STOP_PCT": 0.004,
+    "TS_ACTIVATION_BUFFER": 0.002,
+    "TRAILING_STOP_PCT": 0.003,
     "MAX_TRADES": 15,
     "MAX_LOSS_DAY": 1.5
 }
@@ -100,7 +100,7 @@ EMA_FAST = 9
 EMA_SLOW = 20
 RSI_PERIOD = 14
 RSI_COOL_THRESHOLD = 3    # esim. raja-arvo RSI:lle "cool down" -tilanteessa
-EMA_DELTA = 0.001
+EMA_DELTA = 0.002
 VWAP_DELTA = 0.01
 VOL_SPIKE_MULT = 1.4
 TP_PCT2 = 0.007
@@ -110,7 +110,7 @@ ATR_PERIOD = 14
 # --- RUN MODE ---
 # "SIM" = backtest on historical bars; "LIVE" = live/paper trading loop
 RUN_MODE = "AGG_SIM"
-MAX_HOLD_SECONDS = 300   # example: x minutes
+MAX_HOLD_SECONDS = 600   # example: x minutes
 MIN_HOLD_SECONDS = 60    # example: x seconds grace period before indicators can trigger
 TRAIL_PCT = 0.010
 BUY_POWER_LIMIT = 0.05
@@ -615,7 +615,7 @@ EMA_FAST = 9
 EMA_SLOW = 20
 RSI_PERIOD = 14
 RSI_COOL_THRESHOLD = 3
-MAX_HOLD_SECONDS = 300   # example: x minutes
+MAX_HOLD_SECONDS = 600   # example: x minutes
 MIN_HOLD_SECONDS = 60    # example: x seconds grace period before indicators can trigger
 TRAIL_PCT = 0.010
 BUY_POWER_LIMIT = 0.05
