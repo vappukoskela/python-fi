@@ -374,7 +374,7 @@ def buy_conditions_met(sym, price, size, ema_fast, ema_slow, rsi_val, vwap_val,
 
 
 def evaluate_sell(sym, last_price, ref_entry, price_deque, size_deque, entry_times,
-                  ema_fast_period=EMA_FAST, ema_slow_period=EMA_SLOW, rsi_period=RSI_PERIOD):
+                  CONFIG, ema_fast_period=EMA_FAST, ema_slow_period=EMA_SLOW, rsi_period=RSI_PERIOD):
     """
     Exit evaluation used by both SIM and LIVE loops.
     Returns (True, reason) or (False, None).
@@ -761,7 +761,7 @@ def main():
                 highest_price_since_entry[symbol] = max(highest_price_since_entry[symbol], price)
                 sell, reason = evaluate_sell(
                     symbol, price, entry_prices[symbol],
-                    price_deques[symbol], size_deques[symbol], entry_times
+                    price_deques[symbol], size_deques[symbol], entry_times, CONFIG
                 )
                 if sell:
                     pnl = (price - entry_price) * entry_qty.get(symbol, 1)
