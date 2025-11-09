@@ -395,7 +395,6 @@ def evaluate_sell(sym, last_price, ref_entry, price_deque, size_deque, entry_tim
     try:
         # --- Unpack entry_times ---
         entry_record = entry_times.get(sym)
-
         if entry_record:
             if isinstance(entry_record, tuple):
                 entry_time, entry_price_at_entry = entry_record
@@ -403,7 +402,6 @@ def evaluate_sell(sym, last_price, ref_entry, price_deque, size_deque, entry_tim
                 entry_time = entry_record
                 entry_price_at_entry = None
 
-            # Convert string to datetime if needed
             if isinstance(entry_time, str):
                 from dateutil import parser
                 entry_time = parser.parse(entry_time)
@@ -422,18 +420,16 @@ def evaluate_sell(sym, last_price, ref_entry, price_deque, size_deque, entry_tim
         # --- Hold time check for soft exits ---
         soft_exits_allowed = (elapsed >= MIN_HOLD_SECONDS) if entry_time else False
 
-        
         prices_series = pd.Series(price_deque)
         sizes_series = pd.Series(size_deque)
 
         # --- Hard exits ---
         tp_hit = last_price >= ref_entry * (1 + CONFIG["TP_PCT"])
-        # ATR‑pohjainen SL
         atr_value = compute_atr_from_series(prices_series, ATR_PERIOD)
         dyn_sl_price = ref_entry - (atr_value * CONFIG["SL_MULTIPLIER"])
         sl_hit = last_price <= dyn_sl_price
 
-        # Indicators for soft exits (require min hold)
+        # --- Indicators for soft exits ---
         ema_fast = compute_ema_from_series(prices_series, ema_fast_period).iloc[-1] if len(prices_series) >= 2 else float('nan')
         ema_slow = compute_ema_from_series(prices_series, ema_slow_period).iloc[-1] if len(prices_series) >= 2 else float('nan')
         rsi_series = compute_rsi_from_series(prices_series, rsi_period) if len(prices_series) >= 5 else pd.Series([float('nan')])
@@ -441,13 +437,11 @@ def evaluate_sell(sym, last_price, ref_entry, price_deque, size_deque, entry_tim
         vwap_series = compute_vwap_from_ticks(prices_series, sizes_series) if len(prices_series) >= 1 else pd.Series([float('nan')])
         vwap_val = vwap_series.iloc[-1] if len(vwap_series) else float('nan')
 
-        
-
         # --- Trailing stop activation ---
         if last_price >= ref_entry * (1 + CONFIG["TS_ACTIVATION_BUFFER"]):
             trailing_active[sym] = True
             highest_price_since_entry[sym] = max(highest_price_since_entry.get(sym, ref_entry), last_price)
-        
+
         # --- Trailing stop check (only if activated) ---
         trailing_stop_hit = False
         if trailing_active.get(sym, False):
@@ -457,83 +451,31 @@ def evaluate_sell(sym, last_price, ref_entry, price_deque, size_deque, entry_tim
                 trailing_stop_hit = drawdown_pct >= CONFIG["TRAILING_STOP_PCT"]
                 logging.warning(
                     "[DEBUG][%s] Trailing stop check | peak=%.4f | last=%.4f | ref_entry=%.4f | drawdown=%.4f%% | threshold=%.4f%% | Hit=%s",
-                    sym,
-                    peak,
-                    last_price,
-                    ref_entry,
+                    sym, peak, last_price, ref_entry,
                     drawdown_pct * 100,
                     CONFIG["TRAILING_STOP_PCT"] * 100,
                     trailing_stop_hit
                 )
-
             except Exception as e:
                 logging.error("[ERROR][%s] Trailing stop evaluation failed: %s", sym, e)
                 trailing_stop_hit = False
 
-        
-        # VWAP fail
+        # --- VWAP fail ---
         vwap_fail = False
-        try:
-            if soft_exits_allowed and len(prices_series) >= 1:
-                vwap_series = compute_vwap_from_ticks(prices_series, sizes_series)
-                vwap_val = vwap_series.iloc[-1]
-                if not pd.isna(vwap_val):
-                    # Vain viimeisin bar tarkistetaan
-                    vwap_fail = prices_series.iloc[-1] < vwap_val * (1 - CONFIG["VWAP_DELTA"])
-                    logging.warning(
-                        "[DEBUG][%s] VWAP check | last=%.4f | vwap=%.4f | Fail=%s",
-                        sym,
-                        prices_series.iloc[-1],
-                        vwap_val,
-                        vwap_fail
-                    )
-        except Exception as e:
-            logging.error("[ERROR][%s] VWAP evaluation failed: %s", sym, e)
-            vwap_fail = False
+        if soft_exits_allowed and not pd.isna(vwap_val):
+            vwap_fail = prices_series.iloc[-1] < vwap_val * (1 - CONFIG["VWAP_DELTA"])
 
-
-        # EMA fail
+        # --- EMA fail ---
         ema_fail = False
-        try:
-            if soft_exits_allowed and len(prices_series) >= 2:
-                ema_fast = compute_ema_from_series(prices_series, ema_fast_period).iloc[-1]
-                ema_slow = compute_ema_from_series(prices_series, ema_slow_period).iloc[-1]
-        
-                # Vain nykyinen bar tarkistetaan
-                if ema_fast < ema_slow and last_price < ema_slow * (1 - CONFIG["EMA_DELTA"]):
-                    ema_fail = True
-        
-                logging.warning(
-                    "[DEBUG][%s] EMA check | fast=%.4f | slow=%.4f | last=%.4f | Fail=%s",
-                    sym, ema_fast, ema_slow, last_price, ema_fail
-                )
-        except Exception as e:
-            logging.error("[ERROR][%s] EMA evaluation failed: %s", sym, e)
-            ema_fail = False
+        if soft_exits_allowed and not pd.isna(ema_fast) and not pd.isna(ema_slow):
+            ema_fail = (ema_fast < ema_slow) and (last_price < ema_slow * (1 - CONFIG["EMA_DELTA"]))
 
-       
-        # RSI fail (herkempi logiikka)
+        # --- RSI fail ---
         rsi_fail = False
-        try:
-            if soft_exits_allowed and len(prices_series) >= 5:
-                rsi_series = compute_rsi_from_series(prices_series, rsi_period)
-                rsi_val = rsi_series.iloc[-1]
-        
-                if not pd.isna(rsi_val):
-                    # Esimerkki: myynti jos RSI yli 70 (ylikuumentunut) tai alle 30 (ylimyydyt)
-                    if rsi_val > MAX_RSI_FOR_ENTRY or rsi_val < MIN_RSI_FOR_ENTRY:
-                        rsi_fail = True
-        
-                logging.warning(
-                    "[DEBUG][%s] RSI check | now=%.2f | min_entry=%d | max_entry=%d | Fail=%s",
-                    sym, rsi_val, MIN_RSI_FOR_ENTRY, MAX_RSI_FOR_ENTRY, rsi_fail
-                )
-        except Exception as e:
-            logging.error("[ERROR][%s] RSI evaluation failed: %s", sym, e)
-            rsi_fail = False
+        if soft_exits_allowed and not pd.isna(rsi_val):
+            rsi_fail = (rsi_val > MAX_RSI_FOR_ENTRY) or (rsi_val < MIN_RSI_FOR_ENTRY)
 
-
-        # --- Decision ---
+        # --- Decision priority ---
         if tp_hit:
             return True, "Take-profit"
         if sl_hit:
@@ -547,65 +489,17 @@ def evaluate_sell(sym, last_price, ref_entry, price_deque, size_deque, entry_tim
         if rsi_fail:
             return True, "RSI fail"
 
-        # Max hold
+        # --- Final fallback: Max hold ---
         max_hold_hit = elapsed >= MAX_HOLD_SECONDS if entry_time else False
         if max_hold_hit:
             return True, "Max hold"
-            
-        # --- Additional indicator-based exits ---
-        try:
-            if not pd.isna(rsi_val) and (rsi_val > MAX_RSI_FOR_ENTRY or rsi_val < 40):
-                logging.warning("[%s] RSI fail triggered | RSI=%.2f", sym, rsi_val)
-                return True, "RSI fail"
-        except Exception as e:
-            logging.error("[%s] RSI fail evaluation error: %s", sym, e)
-        
-        try:
-            if not pd.isna(ema_fast) and not pd.isna(ema_slow) and ema_fast < ema_slow:
-                logging.warning("[%s] EMA fail triggered | fast=%.4f slow=%.4f", sym, ema_fast, ema_slow)
-                return True, "EMA fail (simple)"
-        except Exception as e:
-            logging.error("[%s] EMA fail (simple) evaluation error: %s", sym, e)
-        
-        try:
-            if not pd.isna(vwap_val) and last_price < vwap_val:
-                logging.warning("[%s] VWAP fail triggered | last=%.4f vwap=%.4f", sym, last_price, vwap_val)
-                return True, "VWAP fail (simple)"
-        except Exception as e:
-            logging.error("[%s] VWAP fail (simple) evaluation error: %s", sym, e)
-        
-        # --- Final fallback: Max hold ---
-        
-        if max_hold_hit:
-            return True, "Max hold"
-
-        # --- Additional indicator-based exits ---
-        try:
-            if not pd.isna(rsi_val) and (rsi_val > MAX_RSI_FOR_ENTRY or rsi_val < 40):
-                logging.warning("[%s] RSI fail triggered | RSI=%.2f", sym, rsi_val)
-                return True, "RSI fail"
-        except Exception as e:
-            logging.error("[%s] RSI fail evaluation error: %s", sym, e)
-        
-        try:
-            if not pd.isna(ema_fast) and not pd.isna(ema_slow) and ema_fast < ema_slow:
-                logging.warning("[%s] EMA fail triggered | fast=%.4f slow=%.4f", sym, ema_fast, ema_slow)
-                return True, "EMA fail (simple)"
-        except Exception as e:
-            logging.error("[%s] EMA fail (simple) evaluation error: %s", sym, e)
-        
-        try:
-            if not pd.isna(vwap_val) and last_price < vwap_val:
-                logging.warning("[%s] VWAP fail triggered | last=%.4f vwap=%.4f", sym, last_price, vwap_val)
-                return True, "VWAP fail (simple)"
-        except Exception as e:
-            logging.error("[%s] VWAP fail (simple) evaluation error: %s", sym, e)
 
         return False, None
 
     except Exception as e:
         logging.error("[%s] Sell evaluation failed: %s", sym, str(e))
         return False, None
+
 
 
 
