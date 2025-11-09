@@ -54,6 +54,8 @@ entry_times = {}
 entry_prices = {}
 entry_qty = {}
 
+tp1_hit = defaultdict(bool)
+
 # Viimeiset poistumisajat (symbol -> datetime)
 last_exit_time = defaultdict(lambda: datetime.min.replace(tzinfo=timezone.utc))
 
@@ -81,6 +83,8 @@ TP_PCT = 0.004
 TP_PCT2 = 0.007
 TP_PCT3 = 0.012
 SL_PCT = 0.005
+ATR_PERIOD = 14
+ATR_MULTIPLIER = 1.2
 # --- RUN MODE ---
 # "SIM" = backtest on historical bars; "LIVE" = live/paper trading loop
 RUN_MODE = "AGG_SIM"
@@ -889,7 +893,7 @@ def main():
                             tp_hit = last_price >= ref_entry * (1 + TP_PCT)
                             tp_hit2 = last_price >= ref_entry * (1 + TP_PCT2)
                             tp_hit3 = last_price >= ref_entry * (1 + TP_PCT3)
-                            sl_hit = last_price <= ref_entry * (1 - SL_PCT)
+                            sl_hit = last_price <= dyn_sl_price
                     
                             # --- Indicators ---
                             prices_series = pd.Series(price_deques[sym])
@@ -974,7 +978,7 @@ def main():
                             # Trailing stop
                             trailing_stop_hit = False
                             try:
-                                if entry_time and len(time_deques[sym]) == len(price_deques[sym]) and len(price_deques[sym]) >= 2:
+                                if tp1_hit.get(sym, False) and entry_time and len(time_deques[sym]) == len(price_deques[sym]) and len(price_deques[sym]) >= 2:
                                     entry_time_norm = entry_time.replace(microsecond=0)
                                     times_series = pd.Series(time_deques[sym]).dt.tz_convert('UTC').dt.floor('s')
                                     prices_series = pd.Series(price_deques[sym])
