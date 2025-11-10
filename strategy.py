@@ -913,8 +913,7 @@ def main():
                     
                             # --- Hard exits ---
                             tp_hit = last_price >= ref_entry * (1 + CONFIG["TP_PCT"])
-                            tp_hit2 = last_price >= ref_entry * (1 + TP_PCT2)
-                            tp_hit3 = last_price >= ref_entry * (1 + TP_PCT3)
+                            
                             # ATR‑pohjainen stop-loss
                             atr_value = compute_atr_from_series(prices_series, ATR_PERIOD)
                             dyn_sl_price = ref_entry - (atr_value * CONFIG["SL_MULTIPLIER"])
@@ -1045,7 +1044,7 @@ def main():
                             )      
                             # Exit reason priority
                             exit_reason = None
-                            if tp_hit or tp_hit2 or tp_hit3:
+                            if tp_hit:
                                 exit_reason = "Take-profit"
                             elif sl_hit:
                                 exit_reason = "Stop-loss"
