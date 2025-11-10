@@ -411,6 +411,10 @@ def evaluate_sell(sym, last_price, ref_entry, price_deque, size_deque, entry_tim
                 return False, None
 
             elapsed = (datetime.now(timezone.utc) - entry_time).total_seconds()
+
+            # ✅ DEBUG LOG 1: entry_time ja elapsed
+            logging.debug("[%s] entry_time=%s | elapsed=%.2f", sym, entry_time, elapsed)
+            
         else:
             entry_time = None
             entry_price_at_entry = None
@@ -429,6 +433,13 @@ def evaluate_sell(sym, last_price, ref_entry, price_deque, size_deque, entry_tim
         dyn_sl_price = ref_entry - (atr_value * CONFIG["SL_MULTIPLIER"])
         sl_hit = last_price <= dyn_sl_price
 
+        # ✅ DEBUG LOG 2: TP/SL‑tarkistus
+        logging.debug("[%s] TP_hit=%s | SL_hit=%s | tp_price=%.4f | sl_price=%.4f | last=%.4f",
+                      sym, tp_hit, sl_hit,
+                      ref_entry * (1 + CONFIG["TP_PCT"]),
+                      dyn_sl_price,
+                      last_price)
+
         # --- Indicators for soft exits ---
         ema_fast = compute_ema_from_series(prices_series, ema_fast_period).iloc[-1] if len(prices_series) >= 2 else float('nan')
         ema_slow = compute_ema_from_series(prices_series, ema_slow_period).iloc[-1] if len(prices_series) >= 2 else float('nan')
@@ -441,6 +452,10 @@ def evaluate_sell(sym, last_price, ref_entry, price_deque, size_deque, entry_tim
         if last_price >= ref_entry * (1 + CONFIG["TS_ACTIVATION_BUFFER"]):
             trailing_active[sym] = True
             highest_price_since_entry[sym] = max(highest_price_since_entry.get(sym, ref_entry), last_price)
+
+            # ✅ DEBUG LOG 3: trailing stop aktivointi
+            logging.debug("[%s] TS activated | ref_entry=%.4f | last=%.4f | buffer=%.4f",
+                          sym, ref_entry, last_price, CONFIG["TS_ACTIVATION_BUFFER"])        
 
         # --- Trailing stop check (only if activated) ---
         trailing_stop_hit = False
@@ -475,6 +490,11 @@ def evaluate_sell(sym, last_price, ref_entry, price_deque, size_deque, entry_tim
         if soft_exits_allowed and not pd.isna(rsi_val):
             rsi_fail = (rsi_val > MAX_RSI_FOR_ENTRY) or (rsi_val < MIN_RSI_FOR_ENTRY)
 
+        # ✅ DEBUG LOG 4: VWAP, EMA, RSI fail‑tilat
+        logging.debug("[%s] VWAP=%.4f | last=%.4f | vwap_fail=%s", sym, vwap_val, last_price, vwap_fail)
+        logging.debug("[%s] EMA fast=%.4f | slow=%.4f | last=%.4f | ema_fail=%s", sym, ema_fast, ema_slow, last_price, ema_fail)
+        logging.debug("[%s] RSI=%.2f | rsi_fail=%s", sym, rsi_val, rsi_fail)
+
         # --- Decision priority ---
         if tp_hit:
             return True, "Take-profit"
@@ -491,6 +511,11 @@ def evaluate_sell(sym, last_price, ref_entry, price_deque, size_deque, entry_tim
 
         # --- Final fallback: Max hold ---
         max_hold_hit = elapsed >= MAX_HOLD_SECONDS if entry_time else False
+
+         # ✅ DEBUG LOG 5: Max hold tarkistus
+        logging.debug("[%s] elapsed=%.2f | MAX_HOLD_SECONDS=%d | max_hold_hit=%s",
+                      sym, elapsed, MAX_HOLD_SECONDS, max_hold_hit)
+        
         if max_hold_hit:
             return True, "Max hold"
 
