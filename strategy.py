@@ -78,10 +78,10 @@ trailing_active = defaultdict(bool)
 # === CONFIG PROFILES ===
 
 BULLISH_CONFIG = {
-    "TP_PCT": 0.003,
-    "SL_MULTIPLIER": 0.8,
-    "TS_ACTIVATION_BUFFER": 0.0008,
-    "TRAILING_STOP_PCT": 0.008,
+    "TP_PCT": 0.0025,
+    "SL_MULTIPLIER": 0.6,
+    "TS_ACTIVATION_BUFFER": 0.0005,
+    "TRAILING_STOP_PCT": 0.004,
     "MAX_TRADES": 15,
     "MAX_LOSS_DAY": 1.5,
     "VWAP_DELTA": 0.004,
@@ -90,10 +90,10 @@ BULLISH_CONFIG = {
 }
 
 BEARISH_CONFIG = {
-    "TP_PCT": 0.0030,
-    "SL_MULTIPLIER": 0.8,
-    "TS_ACTIVATION_BUFFER": 0.0008,
-    "TRAILING_STOP_PCT": 0.008,
+    "TP_PCT": 0.0020,
+    "SL_MULTIPLIER": 0.6,
+    "TS_ACTIVATION_BUFFER": 0.0005,
+    "TRAILING_STOP_PCT": 0.004,
     "MAX_TRADES": 5,
     "MAX_LOSS_DAY": 0.9,
     "VWAP_DELTA": 0.004,
@@ -118,7 +118,7 @@ ATR_PERIOD = 10
 # "SIM" = backtest on historical bars; "LIVE" = live/paper trading loop
 RUN_MODE = "AGG_SIM"
 MAX_HOLD_SECONDS = 2400   # example: x minutes
-MIN_HOLD_SECONDS = 12    # example: x seconds grace period before indicators can trigger
+MIN_HOLD_SECONDS = 8    # example: x seconds grace period before indicators can trigger
 TRAIL_PCT = 0.010
 BUY_POWER_LIMIT = 0.05
 BUY_CASH_BUFFER = 0.95
@@ -1005,7 +1005,7 @@ def main():
                             # Trailing stop
                             trailing_stop_hit = False
                             try:
-                                if tp1_hit.get(sym, False) and entry_time and len(time_deques[sym]) == len(price_deques[sym]) and len(price_deques[sym]) >= 2:
+                                if entry_time and len(time_deques[sym]) == len(price_deques[sym]) and len(price_deques[sym]) >= 2:
                                     entry_time_norm = entry_time.replace(microsecond=0)
                                     times_series = pd.Series(time_deques[sym]).dt.tz_convert('UTC').dt.floor('s')
                                     prices_series = pd.Series(price_deques[sym])
