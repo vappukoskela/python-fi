@@ -75,14 +75,14 @@ trailing_active = defaultdict(bool)
 # === CONFIG PROFILES ===
 
 BULLISH_CONFIG = {
-    "TP_PCT": 0.0070,
+    "TP_PCT": 0.0050,
     "SL_MULTIPLIER": 1.2,
     "TS_ACTIVATION_BUFFER": 0.002,
     "TRAILING_STOP_PCT": 0.005,
     "MAX_TRADES": 15,
     "MAX_LOSS_DAY": 1.5,
     "VWAP_DELTA": 0.005,
-    "EMA_DELTA": 0.001
+    "EMA_DELTA": 0.0005
 }
 
 BEARISH_CONFIG = {
@@ -93,7 +93,7 @@ BEARISH_CONFIG = {
     "MAX_TRADES": 5,
     "MAX_LOSS_DAY": 0.9,
     "VWAP_DELTA": 0.005,
-    "EMA_DELTA": 0.001
+    "EMA_DELTA": 0.0005
 }
 
 
@@ -115,7 +115,7 @@ ATR_PERIOD = 14
 # "SIM" = backtest on historical bars; "LIVE" = live/paper trading loop
 RUN_MODE = "AGG_SIM"
 MAX_HOLD_SECONDS = 1200   # example: x minutes
-MIN_HOLD_SECONDS = 30    # example: x seconds grace period before indicators can trigger
+MIN_HOLD_SECONDS = 20    # example: x seconds grace period before indicators can trigger
 TRAIL_PCT = 0.010
 BUY_POWER_LIMIT = 0.05
 BUY_CASH_BUFFER = 0.95
