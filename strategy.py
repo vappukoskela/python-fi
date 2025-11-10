@@ -6,6 +6,9 @@ from collections import deque
 from datetime import datetime, timezone, timedelta
 from collections import deque, defaultdict
 
+rsi_fail_counter = defaultdict(int)
+
+
 import pandas as pd
 import numpy as np
 from dateutil import parser
