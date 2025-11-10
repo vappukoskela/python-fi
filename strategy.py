@@ -112,8 +112,8 @@ ATR_PERIOD = 10
 # --- RUN MODE ---
 # "SIM" = backtest on historical bars; "LIVE" = live/paper trading loop
 RUN_MODE = "AGG_SIM"
-MAX_HOLD_SECONDS = 1800   # example: x minutes
-MIN_HOLD_SECONDS = 20    # example: x seconds grace period before indicators can trigger
+MAX_HOLD_SECONDS = 2400   # example: x minutes
+MIN_HOLD_SECONDS = 12    # example: x seconds grace period before indicators can trigger
 TRAIL_PCT = 0.010
 BUY_POWER_LIMIT = 0.05
 BUY_CASH_BUFFER = 0.95
