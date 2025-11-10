@@ -486,8 +486,12 @@ def evaluate_sell(sym, last_price, ref_entry, price_deque, size_deque, entry_tim
 
         # --- EMA fail ---
         ema_fail = False
+        ema_condition_1 = False
+        ema_condition_2 = False
         if soft_exits_allowed and not pd.isna(ema_fast) and not pd.isna(ema_slow):
-            ema_fail = (ema_fast < ema_slow) and (last_price < ema_slow * (1 - CONFIG["EMA_DELTA"]))
+            ema_condition_1 = ema_fast < ema_slow
+            ema_condition_2 = last_price < ema_slow * (1 - CONFIG["EMA_DELTA"])
+            ema_fail = ema_condition_1 and ema_condition_2
 
         # --- RSI fail ---
         rsi_fail = False
@@ -496,7 +500,8 @@ def evaluate_sell(sym, last_price, ref_entry, price_deque, size_deque, entry_tim
 
         # ✅ DEBUG LOG 4: VWAP, EMA, RSI fail‑tilat
         logging.debug("[%s] VWAP=%.4f | last=%.4f | vwap_fail=%s", sym, vwap_val, last_price, vwap_fail)
-        logging.debug("[%s] EMA fast=%.4f | slow=%.4f | last=%.4f | ema_fail=%s", sym, ema_fast, ema_slow, last_price, ema_fail)
+        logging.debug("[%s] EMA fast=%.4f | slow=%.4f | last=%.4f | ema_fail=%s | cond1=%s | cond2=%s",
+                      sym, ema_fast, ema_slow, last_price, ema_fail, ema_condition_1, ema_condition_2)
         logging.debug("[%s] RSI=%.2f | rsi_fail=%s", sym, rsi_val, rsi_fail)
 
         # --- Decision priority ---
