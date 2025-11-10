@@ -82,7 +82,7 @@ BULLISH_CONFIG = {
     "MAX_TRADES": 15,
     "MAX_LOSS_DAY": 1.5,
     "VWAP_DELTA": 0.01,
-    "EMA_DELTA": 0.002
+    "EMA_DELTA": 0.001
 }
 
 BEARISH_CONFIG = {
@@ -93,7 +93,7 @@ BEARISH_CONFIG = {
     "MAX_TRADES": 5,
     "MAX_LOSS_DAY": 0.9,
     "VWAP_DELTA": 0.01,
-    "EMA_DELTA": 0.002
+    "EMA_DELTA": 0.001
 }
 
 
