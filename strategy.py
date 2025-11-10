@@ -78,8 +78,8 @@ trailing_active = defaultdict(bool)
 # === CONFIG PROFILES ===
 
 BULLISH_CONFIG = {
-    "TP_PCT": 0.0045,
-    "SL_MULTIPLIER": 1.0,
+    "TP_PCT": 0.003,
+    "SL_MULTIPLIER": 0.8,
     "TS_ACTIVATION_BUFFER": 0.0008,
     "TRAILING_STOP_PCT": 0.008,
     "MAX_TRADES": 15,
