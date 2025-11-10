@@ -494,8 +494,9 @@ def evaluate_sell(sym, last_price, ref_entry, price_deque, size_deque, entry_tim
         # --- RSI fail ---
         rsi_fail = False
         if soft_exits_allowed and not pd.isna(rsi_val):
-            rsi_fail = (rsi_val > MAX_RSI_FOR_ENTRY) or (rsi_val < MIN_RSI_FOR_ENTRY)
-
+            rsi_fail = (rsi_val > CONFIG.get("MAX_RSI_FOR_ENTRY", MAX_RSI_FOR_ENTRY)) \
+                    or (rsi_val < CONFIG.get("MIN_RSI_FOR_ENTRY", MIN_RSI_FOR_ENTRY))
+            
         # ✅ DEBUG LOG 4: VWAP, EMA, RSI fail‑tilat
         logging.debug("[%s] VWAP=%.4f | last=%.4f | vwap_fail=%s", sym, vwap_val, last_price, vwap_fail)
         logging.debug("[%s] EMA fast=%.4f | slow=%.4f | last=%.4f | ema_fail=%s | cond1=%s | cond2=%s",
