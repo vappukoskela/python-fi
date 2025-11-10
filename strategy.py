@@ -110,8 +110,6 @@ EMA_SLOW = 20
 RSI_PERIOD = 14
 RSI_COOL_THRESHOLD = 3    # esim. raja-arvo RSI:lle "cool down" -tilanteessa
 VOL_SPIKE_MULT = 1.4
-TP_PCT2 = 0.007
-TP_PCT3 = 0.012
 ATR_PERIOD = 10
 
 # --- RUN MODE ---
@@ -563,7 +561,7 @@ EMA_SLOW = 20
 RSI_PERIOD = 14
 RSI_COOL_THRESHOLD = 3
 MAX_HOLD_SECONDS = 2400   # example: x minutes
-MIN_HOLD_SECONDS = 12    # example: x seconds grace period before indicators can trigger
+MIN_HOLD_SECONDS = 8    # example: x seconds grace period before indicators can trigger
 TRAIL_PCT = 0.010
 BUY_POWER_LIMIT = 0.05
 BUY_CASH_BUFFER = 0.95
