@@ -1050,12 +1050,12 @@ def main():
                                 exit_reason = "Stop-loss"
                             elif trailing_stop_hit:
                                 exit_reason = "Trailing stop"
+                            elif rsi_cool:
+                                exit_reason = "RSI cooling"    
                             elif vwap_fail:
                                 exit_reason = "VWAP fail"
                             elif ema_fail:
                                 exit_reason = "EMA fail"
-                            elif rsi_cool:
-                                exit_reason = "RSI cooling"
                             elif time_exceeded:
                                 exit_reason = "Max hold"
                             # Execute sell
