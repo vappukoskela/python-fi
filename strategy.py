@@ -82,7 +82,8 @@ BULLISH_CONFIG = {
     "MAX_TRADES": 15,
     "MAX_LOSS_DAY": 1.5,
     "VWAP_DELTA": 0.004,
-    "EMA_DELTA": 0.0004
+    "EMA_DELTA": 0.0004,
+    "RSI_FAIL_TICKS": 3 
 }
 
 BEARISH_CONFIG = {
@@ -93,7 +94,8 @@ BEARISH_CONFIG = {
     "MAX_TRADES": 5,
     "MAX_LOSS_DAY": 0.9,
     "VWAP_DELTA": 0.004,
-    "EMA_DELTA": 0.0004
+    "EMA_DELTA": 0.0004,
+    "RSI_FAIL_TICKS": 2
 }
 
 
@@ -494,8 +496,17 @@ def evaluate_sell(sym, last_price, ref_entry, price_deque, size_deque, entry_tim
         # --- RSI fail ---
         rsi_fail = False
         if soft_exits_allowed and not pd.isna(rsi_val):
-            rsi_fail = (rsi_val > CONFIG.get("MAX_RSI_FOR_ENTRY", MAX_RSI_FOR_ENTRY)) \
-                    or (rsi_val < CONFIG.get("MIN_RSI_FOR_ENTRY", MIN_RSI_FOR_ENTRY))
+            # Tarkista onko RSI rajan ulkopuolella
+            if (rsi_val > CONFIG.get("MAX_RSI_FOR_ENTRY", MAX_RSI_FOR_ENTRY)) \
+               or (rsi_val < CONFIG.get("MIN_RSI_FOR_ENTRY", MIN_RSI_FOR_ENTRY)):
+                rsi_fail_counter[sym] = rsi_fail_counter.get(sym, 0) + 1
+            else:
+                rsi_fail_counter[sym] = 0
+        
+            # Vasta kun esim. 3 peräkkäistä tickiä on ulkopuolella
+            if rsi_fail_counter[sym] >= CONFIG.get("RSI_FAIL_TICKS", 3):
+                rsi_fail = True    
+            
             
         # ✅ DEBUG LOG 4: VWAP, EMA, RSI fail‑tilat
         logging.debug("[%s] VWAP=%.4f | last=%.4f | vwap_fail=%s", sym, vwap_val, last_price, vwap_fail)
