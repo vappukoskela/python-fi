@@ -432,17 +432,18 @@ def evaluate_sell(sym, last_price, ref_entry, price_deque, size_deque, entry_tim
         sizes_series = pd.Series(size_deque)
 
         # --- Hard exits ---
-        tp_hit = last_price >= ref_entry * (1 + CONFIG["TP_PCT"])
+        tp_price = ref_entry * (1 + CONFIG["TP_PCT"])
+        tp_hit = last_price >= tp_price
         atr_value = compute_atr_from_series(prices_series, CONFIG.get("ATR_PERIOD", ATR_PERIOD))
         dyn_sl_price = ref_entry - (atr_value * CONFIG["SL_MULTIPLIER"])
         sl_hit = last_price <= dyn_sl_price
 
         # ✅ DEBUG LOG 2: TP/SL‑tarkistus
-        logging.debug("[%s] TP_hit=%s | SL_hit=%s | tp_price=%.4f | sl_price=%.4f | last=%.4f",
-                      sym, tp_hit, sl_hit,
-                      ref_entry * (1 + CONFIG["TP_PCT"]),
-                      dyn_sl_price,
-                      last_price)
+        logging.debug("[%s] TP check | ref_entry=%.4f | tp_price=%.4f | last=%.4f | TP_hit=%s",
+              sym, ref_entry, tp_price, last_price, tp_hit)
+
+        logging.debug("[%s] SL check | ref_entry=%.4f | atr=%.4f | sl_price=%.4f | last=%.4f | SL_hit=%s",
+                      sym, ref_entry, atr_value, dyn_sl_price, last_price, sl_hit)
 
         # --- Indicators for soft exits ---
         ema_fast = compute_ema_from_series(prices_series, ema_fast_period).iloc[-1] if len(prices_series) >= 2 else float('nan')
