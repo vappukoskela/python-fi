@@ -431,7 +431,7 @@ def evaluate_sell(sym, last_price, ref_entry, price_deque, size_deque, entry_tim
 
         # --- Hard exits ---
         tp_hit = last_price >= ref_entry * (1 + CONFIG["TP_PCT"])
-        atr_value = compute_atr_from_series(prices_series, ATR_PERIOD)
+        atr_value = compute_atr_from_series(prices_series, CONFIG.get("ATR_PERIOD", ATR_PERIOD))
         dyn_sl_price = ref_entry - (atr_value * CONFIG["SL_MULTIPLIER"])
         sl_hit = last_price <= dyn_sl_price
 
