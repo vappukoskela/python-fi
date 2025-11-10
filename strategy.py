@@ -480,6 +480,11 @@ def evaluate_sell(sym, last_price, ref_entry, price_deque, size_deque, entry_tim
                 logging.error("[ERROR][%s] Trailing stop evaluation failed: %s", sym, e)
                 trailing_stop_hit = False
 
+        else:
+            # ✅ DIAGNOSTIIKKA: trailing stop ei vielä aktiivinen
+            logging.debug("[%s] TS not active | ref_entry=%.4f | last=%.4f | buffer=%.4f",
+                          sym, ref_entry, last_price, CONFIG["TS_ACTIVATION_BUFFER"])
+
         # --- VWAP fail ---
         vwap_fail = False
         if soft_exits_allowed and not pd.isna(vwap_val):
