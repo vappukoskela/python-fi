@@ -897,190 +897,36 @@ def main():
                     
 
 
-                    # === SELL LOGIC (scalping exits) ===
+                    # === SELL LOGIC (evaluate_sell) ===
                     if qty_open > 0:
                         try:
                             last_price = float(price)
                             ref_entry = entry_prices.get(sym, avg_entry)
                     
-                            # --- Unpack entry_times ---
-                            entry_record = entry_times.get(sym)
-                            if isinstance(entry_record, tuple):
-                                entry_time, entry_price_at_entry = entry_record
-                            else:
-                                entry_time = entry_record
-                                entry_price_at_entry = None
-                    
-                            # --- Hard exits ---
-                            tp_hit = last_price >= ref_entry * (1 + CONFIG["TP_PCT"])
-                            
-                            # ATR‑pohjainen stop-loss
-                            atr_value = compute_atr_from_series(prices_series, ATR_PERIOD)
-                            dyn_sl_price = ref_entry - (atr_value * CONFIG["SL_MULTIPLIER"])
-                            sl_hit = last_price <= dyn_sl_price
-                    
-                            # --- Indicators ---
-                            prices_series = pd.Series(price_deques[sym])
-                            sizes_series = pd.Series(size_deques[sym])
-                            vwap_series = compute_vwap_from_ticks(prices_series, sizes_series)
-                            ema_fast_series = compute_ema_from_series(prices_series, EMA_FAST)
-                            ema_slow_series = compute_ema_from_series(prices_series, EMA_SLOW)
-                            rsi_series = compute_rsi_from_series(prices_series, RSI_PERIOD)
-                    
-                            # VWAP fail: last 3 bars below VWAP
-                            VWAP_DELTA = 0.02
-                            vwap_fail = False
-                            try:
-                                elapsed = (datetime.now(timezone.utc) - entry_time).total_seconds() if entry_time else 0
-                                if elapsed >= MIN_HOLD_SECONDS and len(vwap_series) >= 3 and not pd.isna(vwap_series.iloc[-1]):
-                                    bars_below = [prices_series.iloc[-i] < (vwap_series.iloc[-i] - VWAP_DELTA) for i in range(1, 4)]
-                                    vwap_fail = all(bars_below)
-                                    logging.debug(
-                                        "[TRACE][%s] VWAP | last=%.4f | vwap=%.4f | bars_below=%s | Fail=%s",
-                                        sym, prices_series.iloc[-1], vwap_series.iloc[-1], bars_below, vwap_fail
-                                    )
-                            except Exception as e:
-                                logging.error("[ERROR][%s] VWAP evaluation failed: %s", sym, e)
-                                vwap_fail = False
-                    
-                            # EMA fail
-                            EMA_DELTA = 0.02
-                            ema_fail = False
-                            try:
-                                if elapsed >= MIN_HOLD_SECONDS and len(ema_fast_series) >= 3 and len(ema_slow_series) >= 3:
-                                    ema_fail = (
-                                        ema_fast_series.iloc[-1] < (ema_slow_series.iloc[-1] - EMA_DELTA) and
-                                        ema_fast_series.iloc[-2] < (ema_slow_series.iloc[-2] - EMA_DELTA) and
-                                        last_price < (ema_slow_series.iloc[-1] - EMA_DELTA)
-                                    )
-                                    logging.debug(
-                                        "[TRACE][%s] EMA | ema_fast_now=%.4f | ema_slow_now=%.4f | ema_fast_prev=%.4f | ema_slow_prev=%.4f | last=%.4f | Fail=%s",
-                                        sym,
-                                        ema_fast_series.iloc[-1], ema_slow_series.iloc[-1],
-                                        ema_fast_series.iloc[-2], ema_slow_series.iloc[-2],
-                                        last_price, ema_fail
-                                    )
-                            except Exception as e:
-                                logging.error("[ERROR][%s] EMA evaluation failed: %s", sym, e)
-                                ema_fail = False
-                    
-                            # RSI cooling
-
-                            rsi_cool = False
-                            try:
-                                if entry_time and len(rsi_series) >= 5:
-                                    elapsed = (datetime.now(timezone.utc) - entry_time).total_seconds()
-                                    if elapsed >= MIN_HOLD_SECONDS:
-                                        entry_time_norm = entry_time.replace(microsecond=0)
-                                        times_series = pd.Series(time_deques[sym]).dt.tz_convert('UTC').dt.floor('s')
-                                        entry_index = times_series[times_series >= entry_time_norm].index.min()
-                                        if entry_index is not None and entry_index < len(rsi_series):
-                                            rsi_entry = rsi_series.iloc[entry_index]
-                                            rsi_tail = rsi_series.tail(3)
-                                            rsi_now = rsi_tail.iloc[-1]
-                                            rsi_prev = rsi_tail.iloc[-2]
-                                            rsi_prev2 = rsi_tail.iloc[-3]
-                                            RSI_DROP = 7  # vaadittu pudotus
-                                            rsi_cool = (
-                                                rsi_now < MIN_RSI_FOR_ENTRY and
-                                                rsi_prev < MIN_RSI_FOR_ENTRY and
-                                                rsi_prev2 < MIN_RSI_FOR_ENTRY and
-                                                rsi_entry > rsi_now and
-                                                (rsi_entry - rsi_now) >= RSI_DROP
-                                            )
-                                            logging.debug(
-                                                "[TRACE][%s] RSI | entry=%.2f | prev2=%.2f | prev=%.2f | now=%.2f | drop=%.2f | threshold=%d | Cool=%s",
-                                                sym, rsi_entry, rsi_prev2, rsi_prev, rsi_now,
-                                                (rsi_entry - rsi_now), RSI_DROP, rsi_cool
-                                            )
-                            except Exception as e:
-                                logging.error("[ERROR][%s] RSI evaluation failed: %s", sym, e)
-                                rsi_cool = False
-
-
-                    
-                            # Trailing stop
-                            trailing_stop_hit = False
-                            try:
-                                if entry_time and len(time_deques[sym]) == len(price_deques[sym]) and len(price_deques[sym]) >= 2:
-                                    entry_time_norm = entry_time.replace(microsecond=0)
-                                    times_series = pd.Series(time_deques[sym]).dt.tz_convert('UTC').dt.floor('s')
-                                    prices_series = pd.Series(price_deques[sym])
-                                    mask = times_series >= entry_time_norm
-                                    if mask.any():
-                                        since_entry_prices = prices_series[mask]
-                                        peak = float(since_entry_prices.max())
-                                        activated = trailing_active[sym] or (peak >= ref_entry * (1 + TS_ACTIVATION_BUFFER))
-                                        trailing_active[sym] = activated  # cache activation state
-                                        if activated and peak > 0:
-                                            drawdown_pct = (peak - last_price) / peak
-                                            trailing_stop_hit = drawdown_pct >= TRAILING_STOP_PCT
-                                            logging.debug(
-                                                "[TRACE][%s] TS | Entry=%.4f | Last=%.4f | Peak=%.4f | Drawdown=%.4f%% | Th=%.4f%% | Hit=%s",
-                                                sym, ref_entry, last_price, peak,
-                                                drawdown_pct * 100, TRAILING_STOP_PCT * 100, trailing_stop_hit
-                                            )
-                            except Exception as e:
-                                logging.error("[ERROR][%s] TS evaluation failed: %s", sym, e)
-                                trailing_stop_hit = False
-                    
-                            # Max hold
-                            time_exceeded = False
-                            if entry_time:
-                                elapsed = (datetime.now(timezone.utc) - entry_time).total_seconds()
-                                if elapsed >= MAX_HOLD_SECONDS:
-                                    time_exceeded = True
-
-                            logging.info(
-                                "[DEBUG][%s] SELL check | TP=%.4f SL=%.4f VWAP_FAIL=%s EMA_FAIL=%s RSI_COOL=%s TRAIL_STOP=%s MAX_HOLD=%s",
+                            sell, reason = evaluate_sell(
                                 sym,
-                                tp_hit,
-                                sl_hit,
-                                str(vwap_fail),
-                                str(ema_fail),
-                                str(rsi_cool),
-                                str(trailing_stop_hit),
-                                str(time_exceeded)
-                            )      
-                            # Exit reason priority
-                            exit_reason = None
-                            if tp_hit:
-                                exit_reason = "Take-profit"
-                            elif sl_hit:
-                                exit_reason = "Stop-loss"
-                            elif trailing_stop_hit:
-                                exit_reason = "Trailing stop"
-                            elif rsi_cool:
-                                exit_reason = "RSI cooling"    
-                            elif vwap_fail:
-                                exit_reason = "VWAP fail"
-                            elif ema_fail:
-                                exit_reason = "EMA fail"
-                            elif time_exceeded:
-                                exit_reason = "Max hold"
-                            # Execute sell
-                            if exit_reason:
-                                # DEBUG: tarkista mitä entry_times sisältää juuri ennen myyntiä
-                                if sym in entry_times:
-                                    logging.debug("[DEBUG][LIVE] entry_times[%s] raw value: %s", sym, entry_times[sym])
-                                    logging.debug("[DEBUG][LIVE] type(entry_times[%s]) = %s", sym, type(entry_times[sym]))
-                                else:
-                                    logging.debug("[DEBUG][LIVE] entry_times[%s] not set", sym)
-                            
+                                last_price,
+                                ref_entry,
+                                price_deques[sym],
+                                size_deques[sym],
+                                entry_times,
+                                CONFIG
+                            )
+                    
+                            if sell:
                                 submitted = safe_market_sell(trade_client, sym, qty_open, order_lock)
                                 logging.info(
-                                    "%s - SCALP SELL qty=%d @ %.4f | Reason=%s | EntryRef=%.4f | EntryTuplePrice=%.4f",
-                                    sym, qty_open, last_price, exit_reason, ref_entry,
-                                    entry_price_at_entry if entry_price_at_entry is not None else float('nan')
+                                    "%s - SCALP SELL qty=%d @ %.4f | Reason=%s | EntryRef=%.4f",
+                                    sym, qty_open, last_price, reason, ref_entry
                                 )
                                 in_position = False
                                 entry_price = None
                                 trailing_active[sym] = False
                                 last_exit_time[sym] = datetime.now(timezone.utc)
-                                debug_log_state(sym, entry_times, last_exit_time)
-                            
+                    
                         except Exception as e:
                             logging.error("[ERROR][%s] Sell logic failed: %s", sym, e)
+
 
 
                     
