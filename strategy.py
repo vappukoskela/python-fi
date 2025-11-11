@@ -917,7 +917,7 @@ def main():
                                     entry_times[sym] = datetime.now(timezone.utc)
                                     last_buy_time[sym] = datetime.now(timezone.utc)
                                     logging.info(f"{sym} - ENTRY recorded qty={entry_qty[sym]} price={price:.2f} rsi={rsi_val:.2f} Bias={day_bias} Config={CONFIG}")
-                                    logging.info(f"{sym} - ENTRY recorded qty={entry_qty[sym]} price={price:.2f} rsi={rsi_val:.2f}")
+                                    
                                 else:
                                     logging.warning(f"[TRACE] Buy assumed filled but no position found for {sym}")
       
