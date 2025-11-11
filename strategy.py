@@ -401,21 +401,17 @@ def evaluate_sell(sym, last_price, ref_entry, price_deque, size_deque, entry_tim
         # --- Unpack entry_times ---
         entry_record = entry_times.get(sym)
         if entry_record:
-            if isinstance(entry_record, tuple):
-                entry_time, entry_price_at_entry = entry_record
-            else:
-                entry_time = entry_record
-                entry_price_at_entry = None
-
-            if isinstance(entry_time, str):
-                from dateutil import parser
-                entry_time = parser.parse(entry_time)
-
+            entry_time = entry_record   # aina datetime
             if not isinstance(entry_time, datetime):
-                logging.error("[%s] entry_time is not datetime after unpack: %s", sym, type(entry_time))
+                logging.error("[%s] entry_time is not datetime: %s", sym, type(entry_time))
                 return False, None
-
+        
             elapsed = (datetime.now(timezone.utc) - entry_time).total_seconds()
+            logging.debug("[%s] DEBUG PATCH | entry_time=%s | elapsed=%.2f seconds",
+                          sym, entry_time, elapsed)
+        else:
+            entry_time = None
+            elapsed = 0
 
             # --- DEBUG PATCH: logita entry_time ja elapsed ---
             logging.debug("[%s] DEBUG PATCH | entry_time=%s | elapsed=%.2f seconds",
