@@ -652,6 +652,8 @@ def main():
         import csv
         csv_filename = f"{symbol}_{RUN_MODE}_trades.csv"
         csv_rows = []
+
+        last_bias = None
             
         for ts, row in trades.iterrows():
             try:
@@ -688,9 +690,12 @@ def main():
                 CONFIG = BULLISH_CONFIG
             else:
                 CONFIG = BEARISH_CONFIG
-            
-            logging.info("Day bias detected: %s -> using %s config", day_bias, CONFIG)
-    
+
+            # --- MUUTOS: tulosta vain jos bias vaihtuu ---
+            if day_bias != last_bias:
+                logging.info("Day bias changed: %s -> using %s config", day_bias, CONFIG)
+                last_bias = day_bias
+                           
             positions_map = positions_map if 'positions_map' in locals() else {}
     
             if not in_position:
@@ -804,6 +809,8 @@ def main():
 
     logging.info("Starting main loop with symbols: %s", symbols)
 
+    
+    
     while not stop_event.is_set():
         try:
             positions_map = get_positions_map(trade_client)
