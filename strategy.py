@@ -806,7 +806,7 @@ def main():
 
     logging.info("Starting main loop with symbols: %s", symbols)
 
-    
+    last_bias = None
     
     while not stop_event.is_set():
         try:
@@ -836,6 +836,19 @@ def main():
                     
                     if pd.isna(ema_fast) or pd.isna(ema_slow) or pd.isna(rsi_val) or pd.isna(vwap_val):
                         continue
+
+                    # --- Tässä kohtaa lisätään biasin laskenta ---
+                    day_bias = detect_day_bias(
+                        prices,
+                        compute_ema_from_series(prices, EMA_FAST),
+                        compute_ema_from_series(prices, EMA_SLOW),
+                        compute_vwap_from_ticks(prices, sizes)
+                    )
+                    
+                    if day_bias == "bullish":
+                        CONFIG = BULLISH_CONFIG
+                    else:
+                        CONFIG = BEARISH_CONFIG
                     
                     qty_open, avg_entry = positions_map.get(sym, (0, 0.0))
                     last_exit = last_exit_time.get(sym, datetime.min.replace(tzinfo=timezone.utc))
@@ -890,6 +903,7 @@ def main():
                                     entry_prices[sym] = price
                                     entry_times[sym] = datetime.now(timezone.utc)
                                     last_buy_time[sym] = datetime.now(timezone.utc)
+                                    logging.info(f"{sym} - ENTRY recorded qty={entry_qty[sym]} price={price:.2f} rsi={rsi_val:.2f} Bias={day_bias} Config={CONFIG}")
                                     logging.info(f"{sym} - ENTRY recorded qty={entry_qty[sym]} price={price:.2f} rsi={rsi_val:.2f}")
                                 else:
                                     logging.warning(f"[TRACE] Buy assumed filled but no position found for {sym}")
@@ -919,6 +933,7 @@ def main():
                     
                             if sell:
                                 submitted = safe_market_sell(trade_client, sym, qty_open, order_lock)
+                                logging.info(f"{sym} - SCALP SELL qty={qty_open} @ {last_price:.4f} | Reason={reason} | Bias={day_bias} | Config={CONFIG}")
                                 logging.info(
                                     "%s - SCALP SELL qty=%d @ %.4f | Reason=%s | EntryRef=%.4f",
                                     sym, qty_open, last_price, reason, ref_entry
