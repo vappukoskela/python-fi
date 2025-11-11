@@ -723,11 +723,11 @@ def main():
                     last_buy_time[symbol] = ts_val
                     logging.info(f"{symbol} [{RUN_MODE}] BUY @ {price:.4f} | Trigger={reason} | Bias={day_bias} | Config={CONFIG}")
                 else:
-                highest_price_since_entry[symbol] = max(highest_price_since_entry[symbol], price)
-                sell, reason = evaluate_sell(
-                    symbol, price, entry_prices[symbol],
-                    price_deques[symbol], size_deques[symbol], entry_times, CONFIG
-                )
+                    highest_price_since_entry[symbol] = max(highest_price_since_entry[symbol], price)
+                    sell, reason = evaluate_sell(
+                        symbol, price, entry_prices[symbol],
+                        price_deques[symbol], size_deques[symbol], entry_times, CONFIG
+                    )
                 if sell:
                     pnl = (price - entry_price) * entry_qty.get(symbol, 1)
                     logging.info(f"{symbol} [{RUN_MODE}] SELL @ {price:.4f} | Reason={reason} | Bias={day_bias} | Config={CONFIG} | PnL={pnl:.4f}")
