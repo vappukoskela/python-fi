@@ -409,20 +409,15 @@ def evaluate_sell(sym, last_price, ref_entry, price_deque, size_deque, entry_tim
             elapsed = (datetime.now(timezone.utc) - entry_time).total_seconds()
             logging.debug("[%s] DEBUG PATCH | entry_time=%s | elapsed=%.2f seconds",
                           sym, entry_time, elapsed)
-        else:
-            entry_time = None
-            elapsed = 0
+        
 
             # --- DEBUG PATCH: logita entry_time ja elapsed ---
             logging.debug("[%s] DEBUG PATCH | entry_time=%s | elapsed=%.2f seconds",
                           sym, entry_time, elapsed)
 
-            # ✅ DEBUG LOG 1: entry_time ja elapsed
-            logging.debug("[%s] entry_time=%s | elapsed=%.2f", sym, entry_time, elapsed)
-            
+                        
         else:
             entry_time = None
-            entry_price_at_entry = None
             elapsed = 0
         # --- End unpack ---
 
