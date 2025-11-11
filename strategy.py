@@ -691,11 +691,7 @@ def main():
             else:
                 CONFIG = BEARISH_CONFIG
 
-            # --- MUUTOS: tulosta vain jos bias vaihtuu ---
-            if day_bias != last_bias:
-                logging.info("Day bias changed: %s -> using %s config", day_bias, CONFIG)
-                last_bias = day_bias
-                           
+                                      
             positions_map = positions_map if 'positions_map' in locals() else {}
     
             if not in_position:
@@ -725,8 +721,8 @@ def main():
                     in_position = True
                     highest_price_since_entry[symbol] = price
                     last_buy_time[symbol] = ts_val
-                    logging.info(f"{symbol} [{RUN_MODE}] BUY @ {price:.4f} | Trigger={reason} | Time={ts_val.strftime('%Y-%m-%d %H:%M:%S')}")
-            else:
+                    logging.info(f"{symbol} [{RUN_MODE}] BUY @ {price:.4f} | Trigger={reason} | Bias={day_bias} | Config={CONFIG}")
+                else:
                 highest_price_since_entry[symbol] = max(highest_price_since_entry[symbol], price)
                 sell, reason = evaluate_sell(
                     symbol, price, entry_prices[symbol],
@@ -734,6 +730,7 @@ def main():
                 )
                 if sell:
                     pnl = (price - entry_price) * entry_qty.get(symbol, 1)
+                    logging.info(f"{symbol} [{RUN_MODE}] SELL @ {price:.4f} | Reason={reason} | Bias={day_bias} | Config={CONFIG} | PnL={pnl:.4f}")
                     csv_rows.append({
                     "timestamp": ts_val.strftime("%Y-%m-%d %H:%M:%S"),
                     "symbol": symbol,
