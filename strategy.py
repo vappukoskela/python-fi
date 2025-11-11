@@ -722,7 +722,7 @@ def main():
                 highest_price_since_entry[symbol] = max(highest_price_since_entry[symbol], price)
                 sell, reason = evaluate_sell(
                     symbol, price, entry_prices[symbol],
-                    price_deques[symbol], size_deques[symbol], entry_times, CONFIG
+                    price_deques[symbol], size_deques[symbol], entry_times, CONFIG, current_time=ts_val
                 )
                 if sell:
                     pnl = (price - entry_price) * entry_qty.get(symbol, 1)
@@ -937,7 +937,8 @@ def main():
                                 price_deques[sym],
                                 size_deques[sym],
                                 entry_times,
-                                CONFIG
+                                CONFIG,
+                                current_time=datetime.now(timezone.utc)
                             )
                     
                             if sell:
