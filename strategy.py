@@ -392,7 +392,7 @@ def buy_conditions_met(sym, price, size, ema_fast, ema_slow, rsi_val, vwap_val,
 
 
 def evaluate_sell(sym, last_price, ref_entry, price_deque, size_deque, entry_times,
-                  CONFIG, ema_fast_period=EMA_FAST, ema_slow_period=EMA_SLOW, rsi_period=RSI_PERIOD):
+                  CONFIG, ema_fast_period=EMA_FAST, ema_slow_period=EMA_SLOW, rsi_period=RSI_PERIOD, current_time=None):
     """
     Exit evaluation used by both SIM and LIVE loops.
     Returns (True, reason) or (False, None).
@@ -405,8 +405,9 @@ def evaluate_sell(sym, last_price, ref_entry, price_deque, size_deque, entry_tim
             if not isinstance(entry_time, datetime):
                 logging.error("[%s] entry_time is not datetime: %s", sym, type(entry_time))
                 return False, None
-        
-            elapsed = (datetime.now(timezone.utc) - entry_time).total_seconds()
+                
+            now_ts = current_time or datetime.now(timezone.utc)
+            elapsed = (now_ts - entry_time).total_seconds()
             logging.debug("[%s] DEBUG PATCH | entry_time=%s | elapsed=%.2f seconds",
                           sym, entry_time, elapsed)
         
@@ -415,7 +416,7 @@ def evaluate_sell(sym, last_price, ref_entry, price_deque, size_deque, entry_tim
             logging.debug("[%s] DEBUG PATCH | entry_time=%s | elapsed=%.2f seconds",
                           sym, entry_time, elapsed)
 
-                        
+                                
         else:
             entry_time = None
             elapsed = 0
