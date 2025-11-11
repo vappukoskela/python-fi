@@ -837,6 +837,20 @@ def main():
                     if pd.isna(ema_fast) or pd.isna(ema_slow) or pd.isna(rsi_val) or pd.isna(vwap_val):
                         continue
 
+                    # Build helper series like in SIM
+                    sizes_series = pd.Series(size_deques[sym])
+                    
+                    # Current timestamp for cooldown logic
+                    ts_val = datetime.now(timezone.utc)
+                    
+                    # === Bias detection ===
+                    day_bias = detect_day_bias(
+                        prices,
+                        compute_ema_from_series(prices, EMA_FAST),
+                        compute_ema_from_series(prices, EMA_SLOW),
+                        compute_vwap_from_ticks(prices, sizes)
+                    )
+
                     # --- Tässä kohtaa lisätään biasin laskenta ---
                     day_bias = detect_day_bias(
                         prices,
@@ -865,14 +879,13 @@ def main():
                         logging.info(f"{sym} - Cooldown active: buy={since_last_buy:.1f}s exit={since_last_exit:.1f}s")
                         continue
 
-                    if (
-                        qty_open == 0 and
-                        sym not in pending_entries and
-                        ema_trend_up and
-                        price_above_vwap and
-                        vol_ok and
-                        MIN_RSI_FOR_ENTRY <= rsi_val <= MAX_RSI_FOR_ENTRY 
-                    ):
+                    buy, reason = buy_conditions_met(
+                        sym, price, size, ema_fast, ema_slow, rsi_val, vwap_val,
+                        sizes_series, last_exit_time[sym], positions_map,
+                        inflight_orders, pending_entries, last_buy_time, ts_val
+                    )
+
+                    if buy:    
                         if (datetime.now(timezone.utc) - last_trade_attempt[sym]).total_seconds() < 1.0:
                             continue
                         last_trade_attempt[sym] = datetime.now(timezone.utc)
