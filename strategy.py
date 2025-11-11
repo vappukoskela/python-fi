@@ -719,7 +719,7 @@ def main():
                     })
 
                     entry_price = price
-                    entry_times[symbol] = (ts_val, price)
+                    entry_times[symbol] = ts_val
                     entry_prices[symbol] = price
                     entry_qty[symbol] = 1
                     in_position = True
