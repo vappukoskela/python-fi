@@ -111,6 +111,8 @@ RSI_PERIOD = 14
 RSI_COOL_THRESHOLD = 3    # esim. raja-arvo RSI:lle "cool down" -tilanteessa
 VOL_SPIKE_MULT = 1.4
 ATR_PERIOD = 10
+ATR_FLOOR = 0.02  # esim. 2 senttiä NVDA:lle; kalibroi instrumentille
+
 
 # --- RUN MODE ---
 # "SIM" = backtest on historical bars; "LIVE" = live/paper trading loop
@@ -432,8 +434,14 @@ def evaluate_sell(sym, last_price, ref_entry, price_deque, size_deque, entry_tim
         tp_price = ref_entry * (1 + CONFIG["TP_PCT"])
         tp_hit = last_price >= tp_price
         atr_value = compute_atr_from_series(prices_series, CONFIG.get("ATR_PERIOD", ATR_PERIOD))
+        atr_safe = max(atr_value if not pd.isna(atr_value) else 0.0, ATR_FLOOR)
         dyn_sl_price = ref_entry - (atr_value * CONFIG["SL_MULTIPLIER"])
         sl_hit = last_price <= dyn_sl_price
+
+        # --- PATCH: SL grace-viive ---
+        allow_sl = (elapsed >= MIN_HOLD_SECONDS)   # sallitaan SL vasta kun minimi hold-aika täynnä
+        emergency_sl_pct = 0.01                    # esim. 1 % hätäraja
+        emergency_sl_hit = last_price <= ref_entry * (1 - emergency_sl_pct)
 
         # ✅ DEBUG LOG 2: TP/SL‑tarkistus
         logging.debug("[%s] TP check | ref_entry=%.4f | tp_price=%.4f | last=%.4f | TP_hit=%s",
@@ -520,7 +528,7 @@ def evaluate_sell(sym, last_price, ref_entry, price_deque, size_deque, entry_tim
         # --- Decision priority ---
         if tp_hit:
             return True, "Take-profit"
-        if sl_hit:
+        if (allow_sl and sl_hit) or emergency_sl_hit:
             return True, "Stop-loss"
         if trailing_stop_hit:
             return True, "Trailing stop"
@@ -643,6 +651,7 @@ def main():
         entry_times = {}
         entry_prices = {}
         entry_qty = {}
+        entry_configs = {} 
         last_exit_time[symbol] = datetime.min.replace(tzinfo=timezone.utc)
         highest_price_since_entry = defaultdict(float)
         import csv
@@ -717,12 +726,14 @@ def main():
                     in_position = True
                     highest_price_since_entry[symbol] = price
                     last_buy_time[symbol] = ts_val
+                    # --- PATCH: jäädytä config position ajaksi ---
+                    entry_configs[symbol] = CONFIG
                     logging.info(f"{symbol} [{RUN_MODE}] BUY @ {price:.4f} | Trigger={reason} | Bias={day_bias} | Config={CONFIG}")
             else:
                 highest_price_since_entry[symbol] = max(highest_price_since_entry[symbol], price)
                 sell, reason = evaluate_sell(
                     symbol, price, entry_prices[symbol],
-                    price_deques[symbol], size_deques[symbol], entry_times, CONFIG, current_time=ts_val
+                    price_deques[symbol], size_deques[symbol], entry_times, entry_configs[symbol], current_time=ts_val
                 )
                 if sell:
                     pnl = (price - entry_price) * entry_qty.get(symbol, 1)
@@ -937,7 +948,7 @@ def main():
                                 price_deques[sym],
                                 size_deques[sym],
                                 entry_times,
-                                CONFIG,
+                                entry_configs[sym],
                                 current_time=datetime.now(timezone.utc)
                             )
                     
