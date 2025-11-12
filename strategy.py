@@ -431,7 +431,7 @@ def evaluate_sell(sym, last_price, ref_entry, price_deque, size_deque, entry_tim
         tp_hit = last_price >= tp_price
         atr_value = compute_atr_from_series(prices_series, CONFIG.get("ATR_PERIOD", ATR_PERIOD))
         atr_safe = max(atr_value if not pd.isna(atr_value) else 0.0, ATR_FLOOR)
-        dyn_sl_price = ref_entry - (atr_value * CONFIG["SL_MULTIPLIER"])
+        dyn_sl_price = ref_entry - (atr_safe * CONFIG["SL_MULTIPLIER"])
         sl_hit = last_price <= dyn_sl_price
 
         # --- PATCH: SL grace-viive ---
