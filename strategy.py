@@ -78,27 +78,27 @@ trailing_active = defaultdict(bool)
 # === CONFIG PROFILES ===
 
 BULLISH_CONFIG = {
-    "TP_PCT": 0.0015,
+    "TP_PCT": 0.0020,
     "SL_MULTIPLIER": 1.0,
-    "TS_ACTIVATION_BUFFER": 0.0005,
-    "TRAILING_STOP_PCT": 0.006,
+    "TS_ACTIVATION_BUFFER": 0.001,
+    "TRAILING_STOP_PCT": 0.008,
     "MAX_TRADES": 15,
     "MAX_LOSS_DAY": 1.5,
-    "VWAP_DELTA": 0.004,
-    "EMA_DELTA": 0.0004,
+    "VWAP_DELTA": 0.002,
+    "EMA_DELTA": 0.0001,
     "RSI_FAIL_TICKS": 5 
 }
 
 BEARISH_CONFIG = {
-    "TP_PCT": 0.0020,
+    "TP_PCT": 0.0025,
     "SL_MULTIPLIER": 0.6,
-    "TS_ACTIVATION_BUFFER": 0.0005,
-    "TRAILING_STOP_PCT": 0.004,
+    "TS_ACTIVATION_BUFFER": 0.001,
+    "TRAILING_STOP_PCT": 0.008,
     "MAX_TRADES": 5,
     "MAX_LOSS_DAY": 0.9,
-    "VWAP_DELTA": 0.004,
-    "EMA_DELTA": 0.0004,
-    "RSI_FAIL_TICKS": 2
+    "VWAP_DELTA": 0.002,
+    "EMA_DELTA": 0.0001,
+    "RSI_FAIL_TICKS": 3
 }
 
 
@@ -109,22 +109,22 @@ EMA_FAST = 9
 EMA_SLOW = 20
 RSI_PERIOD = 14
 RSI_COOL_THRESHOLD = 3    # esim. raja-arvo RSI:lle "cool down" -tilanteessa
-VOL_SPIKE_MULT = 1.4
+VOL_SPIKE_MULT = 1.2
 ATR_PERIOD = 10
-ATR_FLOOR = 0.02  # esim. 2 senttiä NVDA:lle; kalibroi instrumentille
+ATR_FLOOR = 0.05  # esim. 2 senttiä NVDA:lle; kalibroi instrumentille
 
 
 # --- RUN MODE ---
 # "SIM" = backtest on historical bars; "LIVE" = live/paper trading loop
 RUN_MODE = "SIM"
 MAX_HOLD_SECONDS = 999999   # example: x minutes
-MIN_HOLD_SECONDS = 8    # example: x seconds grace period before indicators can trigger
+MIN_HOLD_SECONDS = 10    # example: x seconds grace period before indicators can trigger
 TRAIL_PCT = 0.010
 BUY_POWER_LIMIT = 0.05
 BUY_CASH_BUFFER = 0.95
-COOLDOWN_SECONDS = 30
-MIN_RSI_FOR_ENTRY = 50
-MAX_RSI_FOR_ENTRY = 70
+COOLDOWN_SECONDS = 45
+MIN_RSI_FOR_ENTRY = 45
+MAX_RSI_FOR_ENTRY = 75
 MIN_TRADE_USD = 25
 MARKET_DATA_CHUNK = 5
 MAX_INFLIGHT_PER_SYMBOL = 1
@@ -561,13 +561,13 @@ EMA_SLOW = 20
 RSI_PERIOD = 14
 RSI_COOL_THRESHOLD = 3
 MAX_HOLD_SECONDS = 999999   # example: x minutes
-MIN_HOLD_SECONDS = 8    # example: x seconds grace period before indicators can trigger
+MIN_HOLD_SECONDS = 10    # example: x seconds grace period before indicators can trigger
 TRAIL_PCT = 0.010
 BUY_POWER_LIMIT = 0.05
 BUY_CASH_BUFFER = 0.95
 COOLDOWN_SECONDS = 30
-MIN_RSI_FOR_ENTRY = 50
-MAX_RSI_FOR_ENTRY = 70
+MIN_RSI_FOR_ENTRY = 45
+MAX_RSI_FOR_ENTRY = 75
 MIN_TRADE_USD = 25
 MARKET_DATA_CHUNK = 5
 MAX_INFLIGHT_PER_SYMBOL = 1      
