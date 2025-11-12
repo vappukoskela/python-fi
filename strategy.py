@@ -620,8 +620,8 @@ def main():
         last_exit_time = {s: datetime.min.replace(tzinfo=timezone.utc) for s in symbols}
         last_buy_time = {s: datetime.min.replace(tzinfo=timezone.utc) for s in symbols}
 
-        start = "2024-10-03T14:30:00Z"
-        end = "2024-10-03T21:00:00Z"
+        start = "2024-10-01T14:30:00Z"
+        end = "2024-10-01T21:00:00Z"
     
         req = StockTradesRequest(symbol_or_symbols=symbol, start=start, end=end)
         trades = stock_data_client.get_stock_trades(req).df
