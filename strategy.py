@@ -23,6 +23,8 @@ from alpaca.trading.client import TradingClient
 from alpaca.trading.enums import OrderSide, OrderType, TimeInForce
 from alpaca.trading.requests import MarketOrderRequest
 from alpaca.data.timeframe import TimeFrame, TimeFrameUnit
+from alpaca.data.requests import StockLatestTradeRequest
+
 
 # --- Lataa .env ---
 load_dotenv()
