@@ -116,7 +116,7 @@ ATR_FLOOR = 0.05  # esim. 2 senttiä NVDA:lle; kalibroi instrumentille
 
 # --- RUN MODE ---
 # "SIM" = backtest on historical bars; "LIVE" = live/paper trading loop
-RUN_MODE = "SIM"
+RUN_MODE = "LIVE"
 MAX_HOLD_SECONDS = 999999   # example: x minutes
 MIN_HOLD_SECONDS = 10    # example: x seconds grace period before indicators can trigger
 TRAIL_PCT = 0.010
