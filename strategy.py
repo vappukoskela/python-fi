@@ -592,6 +592,7 @@ def main():
     entry_prices = {}
     entry_qty = {}
     inflight_orders = {}
+    entry_configs = {}
 
     from datetime import datetime, timezone
     last_exit_time = {s: datetime.min.replace(tzinfo=timezone.utc) for s in symbols}
@@ -753,6 +754,7 @@ def main():
                     entry_price = None
                     last_exit_time[symbol] = ts_val
                     highest_price_since_entry.pop(symbol, None)
+                    entry_configs.pop(symbol, None)
     
         logging.info("%s replay finished for %s", RUN_MODE, symbol)
         with open(csv_filename, mode="w", newline="") as f:
