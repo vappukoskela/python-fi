@@ -306,6 +306,7 @@ def safe_market_sell(trade_client_local, symbol, intended_qty, order_lock):
                             entry_times.pop(symbol, None)
                             entry_prices.pop(symbol, None)
                             entry_qty.pop(symbol, None)
+                            entry_configs.pop(symbol, None)
                             last_exit_time[symbol] = datetime.now(timezone.utc)
                             logging.info("%s - EXIT state cleanup completed", symbol)
                             break
@@ -939,7 +940,8 @@ def main():
                         try:
                             last_price = float(price)
                             ref_entry = entry_prices.get(sym, avg_entry)
-                    
+                            
+                        if sym in entry_configs:
                             sell, reason = evaluate_sell(
                                 sym,
                                 last_price,
@@ -950,7 +952,9 @@ def main():
                                 entry_configs[sym],
                                 current_time=datetime.now(timezone.utc)
                             )
-                    
+                        else:
+                            logging.error("[%s] Sell skipped: no entry_config found", sym)
+                            continue
                             if sell:
                                 submitted = safe_market_sell(trade_client, sym, qty_open, order_lock)
                                 logging.info(f"{sym} - SCALP SELL qty={qty_open} @ {last_price:.4f} | Reason={reason} | Bias={day_bias} | Config={CONFIG}")
