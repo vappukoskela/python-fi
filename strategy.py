@@ -131,7 +131,7 @@ MARKET_DATA_CHUNK = 5
 MAX_INFLIGHT_PER_SYMBOL = 1
 
 # === LOGGING ===
-logging.basicConfig(level=logging.DEBUG,
+logging.basicConfig(level=logging.INFO,
                     format="%(asctime)s %(levelname)s %(message)s",
                     filename="scalper_safe.log")
 console = logging.StreamHandler()
