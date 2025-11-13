@@ -603,7 +603,7 @@ def main():
 
     # === SIMULATION BRANCH ===
     if RUN_MODE in ["SIM", "AGG_SIM"]:
-        import pandas as pd
+        
         from alpaca.data.requests import StockTradesRequest
         from datetime import datetime, timezone
     
