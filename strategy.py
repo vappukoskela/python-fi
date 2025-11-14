@@ -923,6 +923,7 @@ def main():
                                     entry_prices[sym] = price
                                     entry_times[sym] = datetime.now(timezone.utc)
                                     last_buy_time[sym] = datetime.now(timezone.utc)
+                                    entry_configs[sym] = CONFIG
                                     logging.info(f"{sym} - ENTRY recorded qty={entry_qty[sym]} price={price:.2f} rsi={rsi_val:.2f} Bias={day_bias} Config={CONFIG}")
                                     
                                 else:
@@ -966,6 +967,7 @@ def main():
                                 entry_price = None
                                 trailing_active[sym] = False
                                 last_exit_time[sym] = datetime.now(timezone.utc)
+                                 entry_configs.pop(sym, None)
                     
                         except Exception as e:
                             logging.error("[ERROR][%s] Sell logic failed: %s", sym, e)
