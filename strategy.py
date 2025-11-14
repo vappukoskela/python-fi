@@ -967,7 +967,7 @@ def main():
                                 entry_price = None
                                 trailing_active[sym] = False
                                 last_exit_time[sym] = datetime.now(timezone.utc)
-                                 entry_configs.pop(sym, None)
+                                entry_configs.pop(sym, None)
                     
                         except Exception as e:
                             logging.error("[ERROR][%s] Sell logic failed: %s", sym, e)
