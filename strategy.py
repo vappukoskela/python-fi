@@ -718,7 +718,15 @@ def main():
                     entry_price = price
                     entry_times[symbol] = ts_val
                     entry_prices[symbol] = price
-                    entry_qty[symbol] = 1
+                    est_price = price
+                    qty = int((max_loop_budget * BUY_CASH_BUFFER) // est_price)
+                    if qty <= 0 or qty * est_price < MIN_TRADE_USD:
+                        logging.info("%s - Skipping buy: qty too small (est_price=%.2f)",
+                                     symbol, est_price)
+                        continue
+                    entry_qty[symbol] = qty
+                    
+                    
                     in_position = True
                     highest_price_since_entry[symbol] = price
                     last_buy_time[symbol] = ts_val
