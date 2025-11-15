@@ -27,7 +27,22 @@ with open(filename, "r", encoding="utf-8") as f:
             # Hinta voi löytyä erikseen
             m_price = re.search(r"price=(\d+\.\d+)", line)
             price = float(m_price.group(1)) if m_price else None
-            rows.append({"symbol": symbol, "action": "SELL", "quantity": qty, "price": price})
+
+            # Poimitaan myös reason ja pnl jos ne löytyvät riviltä
+            m_reason = re.search(r"(Stop-loss|Take-profit|EMA fail|RSI fail|Trailing stop)", line)
+            reason = m_reason.group(1) if m_reason else None
+
+            m_pnl = re.search(r"pnl=(-?\d+\.\d+)", line)
+            pnl = float(m_pnl.group(1)) if m_pnl else None
+
+            rows.append({
+                "symbol": symbol,
+                "action": "SELL",
+                "quantity": qty,
+                "price": price,
+                "reason": reason,
+                "pnl": pnl
+            })
 
 # Muodosta DataFrame
 df = pd.DataFrame(rows)
@@ -38,3 +53,29 @@ df.to_csv(output_file, index=False)
 print(df.head())
 print(f"✅ Poimittuja rivejä: {len(df)}")
 print(f"📂 Tallennettu tiedostoon: {output_file}")
+
+# --- Analyysi myynneistä indikaattoreittain ---
+if "reason" in df.columns and "pnl" in df.columns:
+    sell_df = df[df["action"] == "SELL"].copy()
+
+    if not sell_df.empty:
+        summary = sell_df.groupby("reason").agg(
+            count=("reason", "size"),
+            pnl_sum=("pnl", "sum"),
+            wins=("pnl", lambda x: (x > 0).sum()),
+            losses=("pnl", lambda x: (x <= 0).sum())
+        )
+        summary["share_pct"] = summary["count"] / len(sell_df) * 100
+        summary["win_pct"] = summary["wins"] / summary["count"] * 100
+
+        print("\n=== Myyntien tilastot indikaattoreittain ===")
+        print(summary)
+
+        total_pnl = sell_df["pnl"].sum()
+        total_win_pct = (sell_df["pnl"] > 0).mean() * 100
+
+        print("\n=== Kokonaistulos ===")
+        print(f"Kokonaissumma (PnL): {total_pnl:.4f}")
+        print(f"Voittoprosentti: {total_win_pct:.2f} %")
+    else:
+        print("\n⚠️ Ei myyntirivejä analysoitavaksi.")
