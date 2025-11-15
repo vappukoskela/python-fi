@@ -632,15 +632,12 @@ def main():
         # Aikaleima indeksiin
         trades.index = pd.to_datetime(trades.index.get_level_values(1))
     
-        # AGG_SIM: aggregoi 1 sekunnin välein
-        if RUN_MODE == "AGG_SIM":
-            trades = trades.resample("1S").agg({
-                "price": "mean",
-                "size": "sum"
-            }).dropna()
-            logging.info("AGG_SIM mode: aggregated to 1-second intervals. Total datapoints: %d", len(trades))
-        else:
-            logging.info("SIM mode: using raw tick data. Total datapoints: %d", len(trades))
+        # AGG_SIM ja SIM: molemmat käyttävät raw tick dataa
+        if RUN_MODE in ["AGG_SIM", "SIM"]:
+            trades = trades.dropna()
+            logging.info("%s mode: using raw tick data. Total datapoints: %d",
+                 RUN_MODE, len(trades))
+        
     
         print(trades.head())
         logging.info("Starting %s replay for %s from %s to %s", RUN_MODE, symbol, start, end)
