@@ -6,7 +6,7 @@ import os
 
 # ---- CONFIGURATION ----
 
-input_file = "jarkko_14112025.txt"  # Replace with your file name
+input_file = "jarkko_14112025.txt", delimiter=";")  # Replace with your file name
 
 chunk_size = 100000
 
