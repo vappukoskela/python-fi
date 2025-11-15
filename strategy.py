@@ -1,8 +1,11 @@
 import re
 import pandas as pd
 
-# Tiedoston nimi
+# Lähdetiedosto
 filename = "jarkko_14112025.txt"
+
+# Kohdetiedosto
+output_file = "parsed_trades.csv"
 
 rows = []
 with open(filename, "r", encoding="utf-8") as f:
@@ -29,5 +32,9 @@ with open(filename, "r", encoding="utf-8") as f:
 # Muodosta DataFrame
 df = pd.DataFrame(rows)
 
+# Tallenna CSV-tiedostoon
+df.to_csv(output_file, index=False)
+
 print(df.head())
 print(f"✅ Poimittuja rivejä: {len(df)}")
+print(f"📂 Tallennettu tiedostoon: {output_file}")
