@@ -19,21 +19,26 @@ with open(filename, "r", encoding="utf-8") as f:
             rows.append({"symbol": symbol, "action": "BUY", "quantity": qty, "price": price})
             continue
 
-        # SELL rivit: INFO SYMBOL - SELL ... qty=xx ... (price voi olla eri kohdassa)
+        # --- Uusi: ENTRY recorded BUY ---
+        m_entry = re.search(r"INFO\s+(\w+)\s+-\s+ENTRY recorded qty=(\d+)\s+price=(\d+\.\d+)", line)
+        if m_entry:
+            symbol = m_entry.group(1)
+            qty = int(m_entry.group(2))
+            price = float(m_entry.group(3))
+            rows.append({"symbol": symbol, "action": "BUY", "quantity": qty, "price": price})
+            continue
+
+        # SELL rivit: INFO SYMBOL - SELL ... qty=xx ...
         m_sell = re.search(r"INFO\s+(\w+)\s+-\s+SELL.*qty=(\d+)", line)
         if m_sell:
             symbol = m_sell.group(1)
             qty = int(m_sell.group(2))
-            # Hinta voi löytyä erikseen
             m_price = re.search(r"price=(\d+\.\d+)", line)
             price = float(m_price.group(1)) if m_price else None
 
-            # Poimitaan myös reason ja pnl jos ne löytyvät riviltä
-            # reason voi olla muodossa "Stop-loss", "Take-profit", "EMA fail", "RSI fail", "Trailing stop"
             m_reason = re.search(r"(Stop-loss|Take-profit|EMA fail|RSI fail|Trailing stop)", line, re.IGNORECASE)
             reason = m_reason.group(1) if m_reason else None
 
-            # pnl voi olla muodossa "pnl=-0.1335" tai "PnL: -0.1335"
             m_pnl = re.search(r"(?:pnl=|PnL[:\s])(-?\d+\.\d+)", line, re.IGNORECASE)
             pnl = float(m_pnl.group(1)) if m_pnl else None
 
@@ -45,11 +50,28 @@ with open(filename, "r", encoding="utf-8") as f:
                 "reason": reason,
                 "pnl": pnl
             })
+            continue
+
+        # --- Uusi: SCALP SELL ---
+        m_scalp = re.search(r"INFO\s+(\w+)\s+-\s+SCALP SELL qty=(\d+)\s+@\s+(\d+\.\d+).*Reason=(\w+(?:-\w+)?)", line)
+        if m_scalp:
+            symbol = m_scalp.group(1)
+            qty = int(m_scalp.group(2))
+            price = float(m_scalp.group(3))
+            reason = m_scalp.group(4)
+            # PnL ei ole rivillä, jätetään None
+            rows.append({
+                "symbol": symbol,
+                "action": "SELL",
+                "quantity": qty,
+                "price": price,
+                "reason": reason,
+                "pnl": None
+            })
+            continue
 
 # Muodosta DataFrame
 df = pd.DataFrame(rows)
-
-# Tallenna CSV-tiedostoon
 df.to_csv(output_file, index=False)
 
 print(df.head())
@@ -61,7 +83,7 @@ if "reason" in df.columns and "pnl" in df.columns:
     sell_df = df[df["action"] == "SELL"].copy()
 
     if not sell_df.empty:
-        summary = sell_df.groupby("reason").agg(
+        summary = sell_df.groupby(["symbol","reason"]).agg(
             count=("reason", "size"),
             pnl_sum=("pnl", "sum"),
             wins=("pnl", lambda x: (x > 0).sum()),
@@ -70,7 +92,7 @@ if "reason" in df.columns and "pnl" in df.columns:
         summary["share_pct"] = summary["count"] / len(sell_df) * 100
         summary["win_pct"] = summary["wins"] / summary["count"] * 100
 
-        print("\n=== Myyntien tilastot indikaattoreittain ===")
+        print("\n=== Myyntien tilastot indikaattoreittain ja osakekohtaisesti ===")
         print(summary)
 
         total_pnl = sell_df["pnl"].sum()
