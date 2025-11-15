@@ -1,18 +1,33 @@
-import pandas as pd
-
 import os
 
- 
+ import re
+import pandas as pd
 
-# ---- CONFIGURATION ----
+rows = []
+with open("jarkko_14112025.txt", "r", encoding="utf-8") as f:
+    for line in f:
+        # BUY rivit
+        m_buy = re.search(r"INFO (\w+) - BUY .*qty=(\d+).*price=(\d+\.\d+)", line)
+        if m_buy:
+            symbol = m_buy.group(1)
+            qty = int(m_buy.group(2))
+            price = float(m_buy.group(3))
+            rows.append({"symbol": symbol, "action": "BUY", "quantity": qty, "price": price})
+        
+        # SELL rivit
+        m_sell = re.search(r"INFO (\w+) - SELL .*qty=(\d+).*", line)
+        if m_sell:
+            symbol = m_sell.group(1)
+            qty = int(m_sell.group(2))
+            # Hinta voi löytyä eri kohdasta, esim. "price=xxx"
+            m_price = re.search(r"price=(\d+\.\d+)", line)
+            price = float(m_price.group(1)) if m_price else None
+            rows.append({"symbol": symbol, "action": "SELL", "quantity": qty, "price": price})
 
-input_file = "jarkko_14112025.txt", delimiter=";")  # Replace with your file name
+df = pd.DataFrame(rows)
+print(df.head())
 
-chunk_size = 100000
 
-output_folder = "chunks"
-
-os.makedirs(output_folder, exist_ok=True)
 
  
 
