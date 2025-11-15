@@ -29,10 +29,12 @@ with open(filename, "r", encoding="utf-8") as f:
             price = float(m_price.group(1)) if m_price else None
 
             # Poimitaan myös reason ja pnl jos ne löytyvät riviltä
-            m_reason = re.search(r"(Stop-loss|Take-profit|EMA fail|RSI fail|Trailing stop)", line)
+            # reason voi olla muodossa "Stop-loss", "Take-profit", "EMA fail", "RSI fail", "Trailing stop"
+            m_reason = re.search(r"(Stop-loss|Take-profit|EMA fail|RSI fail|Trailing stop)", line, re.IGNORECASE)
             reason = m_reason.group(1) if m_reason else None
 
-            m_pnl = re.search(r"pnl=(-?\d+\.\d+)", line)
+            # pnl voi olla muodossa "pnl=-0.1335" tai "PnL: -0.1335"
+            m_pnl = re.search(r"(?:pnl=|PnL[:\s])(-?\d+\.\d+)", line, re.IGNORECASE)
             pnl = float(m_pnl.group(1)) if m_pnl else None
 
             rows.append({
