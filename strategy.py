@@ -693,7 +693,7 @@ def main():
                 CONFIG = BEARISH_CONFIG
 
                                       
-            positions_map = positions_map if 'positions_map' in locals() else {}
+            positions_map = {}
     
             if not in_position:
                 buy, reason = buy_conditions_met(
