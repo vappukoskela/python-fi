@@ -641,7 +641,9 @@ def main():
     
         print(trades.head())
         logging.info("Starting %s replay for %s from %s to %s", RUN_MODE, symbol, start, end)
-    
+
+        max_loop_budget = 100000.0  # esim. kiinteä budjetti USD
+        
         in_position = False
         entry_price = None
         entry_times = {}
