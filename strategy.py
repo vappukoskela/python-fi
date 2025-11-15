@@ -10,6 +10,16 @@ output_file = "parsed_trades.csv"
 rows = []
 with open(filename, "r", encoding="utf-8") as f:
     for line in f:
+        # --- Uusi: ENTRY recorded BUY ---
+        # Esim: "INFO MSFT - ENTRY recorded qty=27 price=505.03 ..."
+        m_entry = re.search(r"INFO\s+(\w+)\s+-\s+ENTRY recorded\s+qty=(\d+)\s+price=(\d+\.\d+)", line)
+        if m_entry:
+            symbol = m_entry.group(1)
+            qty = int(m_entry.group(2))
+            price = float(m_entry.group(3))
+            rows.append({"symbol": symbol, "action": "BUY", "quantity": qty, "price": price})
+            continue
+
         # BUY rivit: INFO SYMBOL - BUY ... qty=xx ... price=yy
         m_buy = re.search(r"INFO\s+(\w+)\s+-\s+BUY.*qty=(\d+).*price=(\d+\.\d+)", line)
         if m_buy:
@@ -19,29 +29,17 @@ with open(filename, "r", encoding="utf-8") as f:
             rows.append({"symbol": symbol, "action": "BUY", "quantity": qty, "price": price})
             continue
 
-        # --- Uusi: ENTRY recorded BUY ---
-        m_entry = re.search(r"INFO\s+(\w+)\s+-\s+ENTRY recorded qty=(\d+)\s+price=(\d+\.\d+)", line)
-        if m_entry:
-            symbol = m_entry.group(1)
-            qty = int(m_entry.group(2))
-            price = float(m_entry.group(3))
-            rows.append({"symbol": symbol, "action": "BUY", "quantity": qty, "price": price})
-            continue
-
-        # SELL rivit: INFO SYMBOL - SELL ... qty=xx ...
-        m_sell = re.search(r"INFO\s+(\w+)\s+-\s+SELL.*qty=(\d+)", line)
-        if m_sell:
-            symbol = m_sell.group(1)
-            qty = int(m_sell.group(2))
-            m_price = re.search(r"price=(\d+\.\d+)", line)
-            price = float(m_price.group(1)) if m_price else None
-
-            m_reason = re.search(r"(Stop-loss|Take-profit|EMA fail|RSI fail|Trailing stop)", line, re.IGNORECASE)
-            reason = m_reason.group(1) if m_reason else None
-
-            m_pnl = re.search(r"(?:pnl=|PnL[:\s])(-?\d+\.\d+)", line, re.IGNORECASE)
+        # --- Uusi: SCALP SELL ---
+        # Esim: "INFO MSFT - SCALP SELL qty=27 @ 504.7300 | Reason=Stop-loss ..."
+        m_scalp = re.search(r"INFO\s+(\w+)\s+-\s+SCALP SELL\s+qty=(\d+)\s+@\s+(\d+\.\d+).*?Reason=([A-Za-z\-]+)", line)
+        if m_scalp:
+            symbol = m_scalp.group(1)
+            qty = int(m_scalp.group(2))
+            price = float(m_scalp.group(3))
+            reason = m_scalp.group(4)
+            # PnL voi olla rivillä, yritetään poimia jos löytyy
+            m_pnl = re.search(r"(?:pnl=|PnL[:=]\s?)(-?\d+\.\d+)", line, re.IGNORECASE)
             pnl = float(m_pnl.group(1)) if m_pnl else None
-
             rows.append({
                 "symbol": symbol,
                 "action": "SELL",
@@ -52,21 +50,30 @@ with open(filename, "r", encoding="utf-8") as f:
             })
             continue
 
-        # --- Uusi: SCALP SELL ---
-        m_scalp = re.search(r"INFO\s+(\w+)\s+-\s+SCALP SELL qty=(\d+)\s+@\s+(\d+\.\d+).*Reason=(\w+(?:-\w+)?)", line)
-        if m_scalp:
-            symbol = m_scalp.group(1)
-            qty = int(m_scalp.group(2))
-            price = float(m_scalp.group(3))
-            reason = m_scalp.group(4)
-            # PnL ei ole rivillä, jätetään None
+        # SELL rivit: INFO SYMBOL - SELL ... qty=xx ...
+        m_sell = re.search(r"INFO\s+(\w+)\s+-\s+SELL.*qty=(\d+)", line)
+        if m_sell:
+            symbol = m_sell.group(1)
+            qty = int(m_sell.group(2))
+            # Hinta voi löytyä eri muodossa
+            m_price = re.search(r"price=(\d+\.\d+)", line)
+            if not m_price:
+                m_price = re.search(r"@\s+(\d+\.\d+)", line)
+            price = float(m_price.group(1)) if m_price else None
+
+            m_reason = re.search(r"(Stop-loss|Take-profit|EMA fail|RSI fail|Trailing stop)", line, re.IGNORECASE)
+            reason = m_reason.group(1) if m_reason else None
+
+            m_pnl = re.search(r"(?:pnl=|PnL[:=]\s?)(-?\d+\.\d+)", line, re.IGNORECASE)
+            pnl = float(m_pnl.group(1)) if m_pnl else None
+
             rows.append({
                 "symbol": symbol,
                 "action": "SELL",
                 "quantity": qty,
                 "price": price,
                 "reason": reason,
-                "pnl": None
+                "pnl": pnl
             })
             continue
 
@@ -95,7 +102,7 @@ if "reason" in df.columns and "pnl" in df.columns:
         print("\n=== Myyntien tilastot indikaattoreittain ja osakekohtaisesti ===")
         print(summary)
 
-        total_pnl = sell_df["pnl"].sum()
+        total_pnl = sell_df["pnl"].sum(skipna=True)
         total_win_pct = (sell_df["pnl"] > 0).mean() * 100
 
         print("\n=== Kokonaistulos ===")
