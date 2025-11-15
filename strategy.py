@@ -740,8 +740,9 @@ def main():
                     price_deques[symbol], size_deques[symbol], entry_times, entry_configs[symbol], current_time=ts_val
                 )
                 if sell:
-                    pnl = (price - entry_price) * entry_qty.get(symbol, 1)
-                    logging.info(f"{symbol} [{RUN_MODE}] SELL @ {price:.4f} | Reason={reason} | Bias={day_bias} | Config={CONFIG} | PnL={pnl:.4f}")
+                    qty = entry_qty.get(symbol, 1)
+                    pnl = (price - entry_price) * qty
+                    logging.info(f"{symbol} [{RUN_MODE}] SELL qty={qty} @ {price:.4f} | Reason={reason} | Bias={day_bias} | Config={CONFIG} | PnL={pnl:.4f}")
                     csv_rows.append({
                     "timestamp": ts_val.strftime("%Y-%m-%d %H:%M:%S"),
                     "symbol": symbol,
