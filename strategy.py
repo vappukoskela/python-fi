@@ -389,8 +389,8 @@ def buy_conditions_met(sym, price, size, ema_fast, ema_slow, rsi_val, vwap_val,
             return False, None
 
         # --- NEW: Entry slope/etäisyys check ---
-        ema_gap_ok = (ema_fast - ema_slow) > (CONFIG.get("EMA_DELTA", EMA_DELTA) * ema_slow)
-        vwap_dist_ok = (price - vwap_val) > (CONFIG.get("VWAP_DELTA", VWAP_DELTA) * vwap_val)
+        ema_gap_ok = (ema_fast - ema_slow) > (CONFIG["EMA_DELTA"] * ema_slow)
+        vwap_dist_ok = (price - vwap_val) > (CONFIG["VWAP_DELTA"] * vwap_val)
         if not (ema_gap_ok and vwap_dist_ok):
             return False, None
 
