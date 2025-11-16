@@ -540,8 +540,8 @@ def evaluate_sell(sym, last_price, ref_entry, price_deque, size_deque, entry_tim
             return True, "VWAP fail"
         if ema_fail:
             return True, "EMA fail"
-        if rsi_fail:
-            return True, "RSI fail"
+        if rsi_fail and (ema_fail or vwap_fail):
+            return True, "RSI+EMA/VWAP fail"
 
         # --- Final fallback: Max hold ---
         max_hold_hit = elapsed >= MAX_HOLD_SECONDS if entry_time else False
