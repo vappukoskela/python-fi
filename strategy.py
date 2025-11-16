@@ -903,7 +903,7 @@ def main():
                     buy, reason = buy_conditions_met(
                         sym, price, size, ema_fast, ema_slow, rsi_val, vwap_val,
                         sizes_series, last_exit_time[sym], positions_map,
-                        inflight_orders, pending_entries, last_buy_time, ts_val
+                        inflight_orders, pending_entries, last_buy_time, ts_val, CONFIG
                     )
 
                     if buy:    
