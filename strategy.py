@@ -344,7 +344,7 @@ def detect_day_bias(prices_series, ema_fast_series, ema_slow_series, vwap_series
 
 
 def buy_conditions_met(sym, price, size, ema_fast, ema_slow, rsi_val, vwap_val,
-                       sizes_series, last_exit, positions_map, inflight_orders, pending_entries, last_buy_time, ts_val, CONFIG):
+                       sizes_series, prices, last_exit, positions_map, inflight_orders, pending_entries, last_buy_time, ts_val, CONFIG):
     """
     Entry filter used by both SIM and LIVE loops.
     Mirrors your BUY block:
@@ -379,8 +379,19 @@ def buy_conditions_met(sym, price, size, ema_fast, ema_slow, rsi_val, vwap_val,
             return False, None
 
         # RSI filter
+        # RSI filter + suunnan vaatimus
         if pd.isna(rsi_val) or not (MIN_RSI_FOR_ENTRY <= rsi_val <= MAX_RSI_FOR_ENTRY):
             return False, None
+
+        # RSI-suunnan tarkistus: vaadi että RSI on nouseva
+        rsi_series = compute_rsi_from_series(prices, RSI_PERIOD)
+        if len(rsi_series) >= 2:
+            rsi_prev = rsi_series.iloc[-2]
+            if not pd.isna(rsi_prev) and rsi_val <= rsi_prev:
+                # RSI ei ole nouseva → ei ostoa
+                return False, None
+        
+        
 
         # Volume spike filter (guard against NaN)
         mean_vol = sizes_series.mean() if len(sizes_series) > 0 else float('nan')
