@@ -344,7 +344,7 @@ def detect_day_bias(prices_series, ema_fast_series, ema_slow_series, vwap_series
 
 
 def buy_conditions_met(sym, price, size, ema_fast, ema_slow, rsi_val, vwap_val,
-                       sizes_series, prices, last_exit, positions_map, inflight_orders, pending_entries, last_buy_time, ts_val, CONFIG):
+                       sizes_series, prices, last_exit_time[symbol], positions_map, inflight_orders, pending_entries, last_buy_time, ts_val, CONFIG):
     """
     Entry filter used by both SIM and LIVE loops.
     Mirrors your BUY block:
