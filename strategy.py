@@ -914,8 +914,14 @@ def main():
                         pending_entries.discard(sym)
 
                     # === BUY LOGIC ===
-                    since_last_buy = (datetime.now(timezone.utc) - last_buy_time[sym]).total_seconds()
-                    since_last_exit = (datetime.now(timezone.utc) - last_exit_time[sym]).total_seconds()
+                    since_last_buy = (
+                        (datetime.now(timezone.utc) - last_buy_time[sym]).total_seconds()
+                        if last_buy_time[sym] is not None else float("inf")
+                    )
+                    since_last_exit = (
+                        (datetime.now(timezone.utc) - last_exit_time[sym]).total_seconds()
+                        if last_exit_time[sym] is not None else float("inf")
+                    )
                     logging.info(f"{sym} cooldown check: buy={since_last_buy:.2f}s exit={since_last_exit:.2f}s")
                     if since_last_buy < COOLDOWN_SECONDS or since_last_exit < COOLDOWN_SECONDS:
                         logging.info(f"{sym} - Cooldown active: buy={since_last_buy:.1f}s exit={since_last_exit:.1f}s")
