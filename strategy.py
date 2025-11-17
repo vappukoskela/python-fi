@@ -358,8 +358,8 @@ def buy_conditions_met(sym, price, size, ema_fast, ema_slow, rsi_val, vwap_val,
     """
     try:
         # Cooldown
-        since_last_exit = (ts_val - last_exit).total_seconds() if last_exit else float("inf")
-        since_last_buy = (ts_val - last_buy_time[sym]).total_seconds()
+        since_last_exit = (ts_val - last_exit).total_seconds() if last_exit is not None else float("inf")
+        since_last_buy = (ts_val - last_buy_time[sym]).total_seconds() if last_buy_time[sym] is not None else float("inf")
         if since_last_exit < COOLDOWN_SECONDS or since_last_buy < COOLDOWN_SECONDS:
             return False, None
               
@@ -614,8 +614,8 @@ def main():
     entry_configs = {}
 
     from datetime import datetime, timezone
-    last_exit_time = {s: datetime.min.replace(tzinfo=timezone.utc) for s in symbols}
-    last_buy_time = {s: datetime.min.replace(tzinfo=timezone.utc) for s in symbols}
+    last_exit_time = {s: None for s in symbols}
+    last_buy_time = {s: None for s in symbols}
 
     order_lock = threading.Lock()
     stop_event = threading.Event()
@@ -634,8 +634,8 @@ def main():
         # Alusta tilarakenteet
         inflight_orders = {}
         pending_entries = set()
-        last_exit_time = {s: datetime.min.replace(tzinfo=timezone.utc) for s in symbols}
-        last_buy_time = {s: datetime.min.replace(tzinfo=timezone.utc) for s in symbols}
+        last_exit_time = {s: None for s in symbols}
+        last_buy_time = {s: None for s in symbols}
 
         start = "2025-11-14T14:30:00Z"
         end = "2025-11-14T21:00:00Z"
