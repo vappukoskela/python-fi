@@ -679,7 +679,7 @@ def audit_rejection_live(sym, ts_val, price, size, ema_fast, ema_slow,
     except Exception as e:
         logging.warning("[AUDIT][%s] could not start watchdog: %s", sym, e)
 # === END AUDIT TRAIL (LIVE using deques) ===
-*** END AUDIT TRAIL BLOCK (LIVE watchdog using deques) ***
+
 
 
 
