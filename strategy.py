@@ -393,12 +393,12 @@ def buy_conditions_met(sym, price, size, ema_fast, ema_slow, rsi_val, vwap_val,
                 return False, None
         
         
-
-        # Volume spike filter (guard against NaN)
-        mean_vol = sizes_series.mean() if len(sizes_series) > 0 else float('nan')
-        vol_ok = (not pd.isna(mean_vol)) and (size > (mean_vol * VOL_SPIKE_MULT))
+        # Volume spike filter (robust: median instead of mean)
+        median_vol = sizes_series.median() if len(sizes_series) > 0 else float('nan')
+        vol_ok = (not pd.isna(median_vol)) and (size > (median_vol * VOL_SPIKE_MULT))
         if not vol_ok:
             return False, None
+        
 
         # --- NEW: Entry slope/etäisyys check ---
         ema_gap_ok = (ema_fast - ema_slow) > (CONFIG["EMA_DELTA"] * ema_slow)
