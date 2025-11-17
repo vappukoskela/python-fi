@@ -64,7 +64,7 @@ tp1_hit = defaultdict(bool)
 last_exit_time = defaultdict(lambda: None)
 
 # Viimeiset ostoyritykset (symbol -> datetime)
-last_trade_attempt = defaultdict(lambda: datetime.min.replace(tzinfo=timezone.utc))
+last_trade_attempt = defaultdict(lambda: None)
 
 # Loopin aikana käytetty budjetti (nollataan jokaisen loopin alussa)
 spent_this_loop = 0.0
@@ -664,7 +664,7 @@ def main():
         entry_prices = {}
         entry_qty = {}
         entry_configs = {} 
-        last_exit_time[symbol] = datetime.min.replace(tzinfo=timezone.utc)
+        last_exit_time[symbol] = None
         highest_price_since_entry = defaultdict(float)
         import csv
         csv_filename = f"{symbol}_{RUN_MODE}_trades.csv"
