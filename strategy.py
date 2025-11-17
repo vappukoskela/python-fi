@@ -1056,12 +1056,21 @@ def main():
                         logging.info(f"{sym} - Cooldown active: buy={since_last_buy:.1f}s exit={since_last_exit:.1f}s")
                         continue
 
+
+                    
                     buy, reason = buy_conditions_met(
                         sym, price, size, ema_fast, ema_slow, rsi_val, vwap_val,
                         sizes_series, prices, last_exit_time[sym], positions_map,
                         inflight_orders, pending_entries, last_buy_time, ts_val, CONFIG
                     )
+                     # AUDIT: if BUY is rejected, capture and start watchdog (non-blocking)
+                     if AUDIT_TRAIL_ENABLED and not buy:
+                         audit_rejection_live(
+                             sym, ts_val, price, size, ema_fast, ema_slow,
+                             rsi_val, vwap_val, sizes_series, day_bias, CONFIG, reason
+                         )
 
+                    
                     if buy:    
                         if (datetime.now(timezone.utc) - last_trade_attempt[sym]).total_seconds() < 1.0:
                             continue
