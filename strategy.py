@@ -630,10 +630,17 @@ def main():
         symbol = "NVDA"
         symbols = [symbol]  # tarvitaan deque-rakenteisiin
 
-        # Alusta deques kaikille symboleille
-        price_deques = {s: deque(maxlen=TICKS_WINDOW) for s in symbols}
-        size_deques = {s: deque(maxlen=TICKS_WINDOW) for s in symbols}
-        time_deques = {s: deque(maxlen=TICKS_WINDOW) for s in symbols}
+        # --- NEW: Tick-aggregointi 1s ---
+        bucket_ts = ts_val.replace(microsecond=0)  # pyöristetään sekuntitasolle
+        if len(time_deques[symbol]) > 0 and time_deques[symbol][-1] == bucket_ts:
+            # Päivitä viimeinen aggregaatti
+            price_deques[symbol][-1] = (price_deques[symbol][-1] + price) / 2.0
+            size_deques[symbol][-1] += size
+        else:
+            # Lisää uusi aggregaatti
+            price_deques[symbol].append(price)
+            size_deques[symbol].append(size)
+            time_deques[symbol].append(bucket_ts)
         
         # Alusta tilarakenteet
         inflight_orders = {}
