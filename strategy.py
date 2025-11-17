@@ -85,8 +85,8 @@ BULLISH_CONFIG = {
     "TRAILING_STOP_PCT": 0.005,
     "MAX_TRADES": 8,
     "MAX_LOSS_DAY": 1.5,
-    "VWAP_DELTA": 0.004,
-    "EMA_DELTA": 0.0002,
+    "VWAP_DELTA": 0.003,
+    "EMA_DELTA": 0.0003,
     "RSI_FAIL_TICKS": 5 
 }
 
@@ -97,8 +97,8 @@ BEARISH_CONFIG = {
     "TRAILING_STOP_PCT": 0.006,
     "MAX_TRADES": 3,
     "MAX_LOSS_DAY": 0.9,
-    "VWAP_DELTA": 0.003,
-    "EMA_DELTA": 0.0002,
+    "VWAP_DELTA": 0.002,
+    "EMA_DELTA": 0.0003,
     "RSI_FAIL_TICKS": 5
 }
 
@@ -110,7 +110,7 @@ EMA_FAST = 9
 EMA_SLOW = 20
 RSI_PERIOD = 14
 RSI_COOL_THRESHOLD = 3    # esim. raja-arvo RSI:lle "cool down" -tilanteessa
-VOL_SPIKE_MULT = 1.3
+VOL_SPIKE_MULT = 1.2
 ATR_PERIOD = 10
 ATR_FLOOR = 0.05  # esim. 2 senttiä NVDA:lle; kalibroi instrumentille
 
@@ -119,11 +119,11 @@ ATR_FLOOR = 0.05  # esim. 2 senttiä NVDA:lle; kalibroi instrumentille
 #"AGG_SIM" / "SIM" = backtest on historical bars; "LIVE" = live/paper trading loop
 RUN_MODE = "LIVE"
 MAX_HOLD_SECONDS = 999999   # example: x minutes
-MIN_HOLD_SECONDS = 45    # example: x seconds grace period before indicators can trigger
+MIN_HOLD_SECONDS = 30    # example: x seconds grace period before indicators can trigger
 TRAIL_PCT = 0.010
 BUY_POWER_LIMIT = 0.05
 BUY_CASH_BUFFER = 0.95
-COOLDOWN_SECONDS = 90
+COOLDOWN_SECONDS = 80
 MIN_RSI_FOR_ENTRY = 40
 MAX_RSI_FOR_ENTRY = 80
 MIN_TRADE_USD = 25
@@ -581,11 +581,11 @@ EMA_SLOW = 20
 RSI_PERIOD = 14
 RSI_COOL_THRESHOLD = 3
 MAX_HOLD_SECONDS = 999999   # example: x minutes
-MIN_HOLD_SECONDS = 45    # example: x seconds grace period before indicators can trigger
+MIN_HOLD_SECONDS = 30    # example: x seconds grace period before indicators can trigger
 TRAIL_PCT = 0.010
 BUY_POWER_LIMIT = 0.05
 BUY_CASH_BUFFER = 0.95
-COOLDOWN_SECONDS = 90
+COOLDOWN_SECONDS = 80
 MIN_RSI_FOR_ENTRY = 40
 MAX_RSI_FOR_ENTRY = 80
 MIN_TRADE_USD = 25
