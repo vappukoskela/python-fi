@@ -630,18 +630,7 @@ def main():
         symbol = "NVDA"
         symbols = [symbol]  # tarvitaan deque-rakenteisiin
 
-        # --- NEW: Tick-aggregointi 1s ---
-        bucket_ts = ts_val.replace(microsecond=0)  # pyöristetään sekuntitasolle
-        if len(time_deques[symbol]) > 0 and time_deques[symbol][-1] == bucket_ts:
-            # Päivitä viimeinen aggregaatti
-            price_deques[symbol][-1] = (price_deques[symbol][-1] + price) / 2.0
-            size_deques[symbol][-1] += size
-        else:
-            # Lisää uusi aggregaatti
-            price_deques[symbol].append(price)
-            size_deques[symbol].append(size)
-            time_deques[symbol].append(bucket_ts)
-        
+                
         # Alusta tilarakenteet
         inflight_orders = {}
         pending_entries = set()
@@ -692,10 +681,17 @@ def main():
                 logging.error("[%s] Could not parse row: %s", RUN_MODE, e)
                 continue
     
-            # Päivitä deques
-            price_deques[symbol].append(price)
-            size_deques[symbol].append(size)
-            time_deques[symbol].append(ts_val)
+            # --- NEW: Tick-aggregointi 1s ---
+            bucket_ts = ts_val.replace(microsecond=0)  # pyöristetään sekuntitasolle
+            if len(time_deques[symbol]) > 0 and time_deques[symbol][-1] == bucket_ts:
+                # Päivitä viimeinen aggregaatti
+                price_deques[symbol][-1] = (price_deques[symbol][-1] + price) / 2.0
+                size_deques[symbol][-1] += size
+            else:
+                # Lisää uusi aggregaatti
+                price_deques[symbol].append(price)
+                size_deques[symbol].append(size)
+                time_deques[symbol].append(bucket_ts)
     
             # Laske indikaattorit
             prices = pd.Series(price_deques[symbol])
