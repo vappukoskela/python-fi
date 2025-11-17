@@ -110,7 +110,7 @@ EMA_FAST = 9
 EMA_SLOW = 20
 RSI_PERIOD = 14
 RSI_COOL_THRESHOLD = 3    # esim. raja-arvo RSI:lle "cool down" -tilanteessa
-VOL_SPIKE_MULT = 1.0
+VOL_SPIKE_MULT = 1.3
 ATR_PERIOD = 10
 ATR_FLOOR = 0.05  # esim. 2 senttiä NVDA:lle; kalibroi instrumentille
 
