@@ -863,9 +863,15 @@ def main():
                     if price is None or size is None or price <= 0:
                         continue
 
-                    price_deques[sym].append(price)
-                    size_deques[sym].append(size)
-                    time_deques[sym].append(datetime.now(timezone.utc))
+                    # --- NEW: Tick-aggregointi 1s ---
+                    bucket_ts = datetime.now(timezone.utc).replace(microsecond=0)
+                    if len(time_deques[sym]) > 0 and time_deques[sym][-1] == bucket_ts:
+                        price_deques[sym][-1] = (price_deques[sym][-1] + price) / 2.0
+                        size_deques[sym][-1] += size
+                    else:
+                        price_deques[sym].append(price)
+                        size_deques[sym].append(size)
+                        time_deques[sym].append(bucket_ts)
 
                     prices = pd.Series(price_deques[sym])
                     sizes = pd.Series(size_deques[sym])
