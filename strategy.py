@@ -625,8 +625,7 @@ def _audit_watchdog_deque(sym, ts_val, ref_entry_price, reason,
             last_price = float(price_deques[sym][-1])
             tp_hit = last_price >= ref_entry_price * (1 + tp_pct)
             sl_floor_price = ref_entry_price - (ATR_FLOOR * sl_mult)
-            emergency_sl_price = ref_entry_price * (1 - EMERGENCY_SL_PCT)
-            sl_hit = last_price <= min(sl_floor_price, emergency_sl_price)
+            sl_hit = last_price <= sl_floor_price
 
             if tp_hit:
                 outcome = "bad_block"
