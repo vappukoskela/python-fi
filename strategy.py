@@ -685,9 +685,9 @@ def main():
             
         for ts, row in trades.iterrows():
             try:
+                ts_val = pd.to_datetime(ts, utc=True)
                 price = float(row["price"])
-                size = int(row["size"])
-                ts_val = ts.to_pydatetime().replace(tzinfo=timezone.utc)
+                size = float(row["size"])
             except Exception as e:
                 logging.error("[%s] Could not parse row: %s", RUN_MODE, e)
                 continue
