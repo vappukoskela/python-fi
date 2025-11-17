@@ -571,7 +571,7 @@ def evaluate_sell(sym, last_price, ref_entry, price_deque, size_deque, entry_tim
         logging.error("[%s] Sell evaluation failed: %s", sym, str(e))
         return False, None
 
-*** BEGIN AUDIT TRAIL BLOCK (LIVE watchdog using deques) ***
+
 # === AUDIT TRAIL (LIVE) — removable block ===
 # Käyttää suoraan price_deques ja size_deques rakenteita
 # Outcome labels:
