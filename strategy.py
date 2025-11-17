@@ -571,36 +571,31 @@ def evaluate_sell(sym, last_price, ref_entry, price_deque, size_deque, entry_tim
         logging.error("[%s] Sell evaluation failed: %s", sym, str(e))
         return False, None
 
-*** BEGIN AUDIT TRAIL BLOCK (LIVE watchdog) ***
+*** BEGIN AUDIT TRAIL BLOCK (LIVE watchdog using deques) ***
 # === AUDIT TRAIL (LIVE) — removable block ===
-# Purpose: record rejected entries and classify them after a time window
+# Käyttää suoraan price_deques ja size_deques rakenteita
 # Outcome labels:
-#   - good_block   : filter prevented a trade that would have hit SL
-#   - bad_block    : filter prevented a trade that would have hit TP
-#   - neutral_block: neither TP nor SL was reached in the window
-#
-# Toggle to deactivate without deleting:
-AUDIT_TRAIL_ENABLED = True
-AUDIT_OUTCOME_WINDOW_MIN = 30     # analysis window per rejection
-AUDIT_POLL_SECONDS = 5            # watchdog poll interval
-AUDIT_CSV_FILE = "audit_blocks_live.csv"
-EMERGENCY_SL_PCT = 0.01           # fallback SL test if ATR not available
+#   - good_block   : filtteri esti kaupan, joka olisi mennyt tappiolle
+#   - bad_block    : filtteri esti kaupan, joka olisi mennyt voitolle
+#   - neutral_block: ei TP/SL osumaa seurantajakson aikana
 
-# Thread-safety
+AUDIT_TRAIL_ENABLED = True
+AUDIT_OUTCOME_WINDOW_MIN = 30     # seurantajakso minuutteina
+AUDIT_CSV_FILE = "audit_blocks_live.csv"
+
 audit_csv_lock = threading.Lock()
 
 def _audit_write_row(row_dict):
-    """Append one row to CSV in a thread-safe way."""
+    import csv
     try:
-        import csv
         with audit_csv_lock:
             file_exists = os.path.exists(AUDIT_CSV_FILE)
             with open(AUDIT_CSV_FILE, mode="a", newline="") as f:
                 fieldnames = [
-                    "timestamp", "symbol", "reason", "price",
-                    "ema_fast", "ema_slow", "rsi", "vwap", "size",
-                    "median_vol", "bias", "config_profile",
-                    "tp_pct", "sl_multiplier", "outcome", "window_min"
+                    "timestamp","symbol","reason","price",
+                    "ema_fast","ema_slow","rsi","vwap","size",
+                    "median_vol","bias","config_profile",
+                    "tp_pct","sl_multiplier","outcome","window_min"
                 ]
                 writer = csv.DictWriter(f, fieldnames=fieldnames)
                 if not file_exists:
@@ -609,38 +604,26 @@ def _audit_write_row(row_dict):
     except Exception as e:
         logging.warning("[AUDIT] CSV write failed: %s", e)
 
-def _get_latest_price_for_symbol(sym):
-    """Best-effort latest price for one symbol using the existing batch helper."""
-    try:
-        data = fetch_latest_trade_price_and_size_batch(stock_data_client, [sym])
-        p, s = data.get(sym, (None, None))
-        return (float(p) if p is not None else None), (int(s) if s is not None else None)
-    except Exception as e:
-        logging.debug("[AUDIT] latest price fetch failed for %s: %s", sym, e)
-        return None, None
-
-def _audit_watchdog(sym, ts_val, ref_entry_price, reason, ema_fast, ema_slow,
-                    rsi_val, vwap_val, size, median_vol, bias, CONFIG):
+def _audit_watchdog_deque(sym, ts_val, ref_entry_price, reason,
+                          ema_fast, ema_slow, rsi_val, vwap_val,
+                          size, median_vol, bias, CONFIG,
+                          price_deques, size_deques):
     """
-    Watchdog thread: poll price for AUDIT_OUTCOME_WINDOW_MIN and decide outcome.
-    Rules:
-      - bad_block    if price >= ref_entry * (1 + TP_PCT)
-      - good_block   if price <= min(ref_entry * (1 - EMERGENCY_SL_PCT),
-                                     ref_entry - ATR_FLOOR * SL_MULTIPLIER)
-      - neutral_block otherwise at window end
+    Watchdog: tarkistaa TP/SL osumat suoraan deque-rakenteista
+    eikä tee erillistä hintapollia.
     """
     try:
         deadline = ts_val + timedelta(minutes=AUDIT_OUTCOME_WINDOW_MIN)
         tp_pct = float(CONFIG.get("TP_PCT", 0.002))
         sl_mult = float(CONFIG.get("SL_MULTIPLIER", 1.0))
         outcome = "neutral_block"
+
         while datetime.now(timezone.utc) < deadline:
-            last_price, _ = _get_latest_price_for_symbol(sym)
-            if last_price is None:
-                time.sleep(AUDIT_POLL_SECONDS)
+            if len(price_deques[sym]) == 0:
+                time.sleep(1.0)
                 continue
+            last_price = float(price_deques[sym][-1])
             tp_hit = last_price >= ref_entry_price * (1 + tp_pct)
-            # dual SL test: emergency percent OR ATR floor-based distance
             sl_floor_price = ref_entry_price - (ATR_FLOOR * sl_mult)
             emergency_sl_price = ref_entry_price * (1 - EMERGENCY_SL_PCT)
             sl_hit = last_price <= min(sl_floor_price, emergency_sl_price)
@@ -651,7 +634,7 @@ def _audit_watchdog(sym, ts_val, ref_entry_price, reason, ema_fast, ema_slow,
             if sl_hit:
                 outcome = "good_block"
                 break
-            time.sleep(AUDIT_POLL_SECONDS)
+            time.sleep(1.0)
 
         _audit_write_row({
             "timestamp": ts_val.strftime("%Y-%m-%d %H:%M:%S"),
@@ -677,29 +660,27 @@ def _audit_watchdog(sym, ts_val, ref_entry_price, reason, ema_fast, ema_slow,
         logging.warning("[AUDIT][%s] watchdog failed: %s", sym, e)
 
 def audit_rejection_live(sym, ts_val, price, size, ema_fast, ema_slow,
-                         rsi_val, vwap_val, sizes_series, bias, CONFIG, reason):
-    """Spawn watchdog for a rejected BUY without touching trading logic."""
+                         rsi_val, vwap_val, sizes_series, bias, CONFIG, reason,
+                         price_deques, size_deques):
+    """Spawn watchdog for a rejected BUY using shared deques."""
     if not AUDIT_TRAIL_ENABLED:
         return
     try:
-        median_vol = None
-        try:
-            median_vol = sizes_series.median() if sizes_series is not None and len(sizes_series) > 0 else None
-        except Exception:
-            median_vol = None
-        # ref_entry_price uses current price snapshot (hypothetical entry reference)
+        median_vol = sizes_series.median() if sizes_series is not None and len(sizes_series) > 0 else None
         t = threading.Thread(
-            target=_audit_watchdog,
+            target=_audit_watchdog_deque,
             args=(sym, ts_val, float(price), reason, ema_fast, ema_slow,
-                  rsi_val, vwap_val, size, median_vol, bias, CONFIG),
+                  rsi_val, vwap_val, size, median_vol, bias, CONFIG,
+                  price_deques, size_deques),
             daemon=True
         )
         t.start()
         logging.debug("[AUDIT][%s] rejection captured; watchdog started", sym)
     except Exception as e:
         logging.warning("[AUDIT][%s] could not start watchdog: %s", sym, e)
-# === END AUDIT TRAIL (LIVE) ===
-*** END AUDIT TRAIL BLOCK (LIVE watchdog) ***
+# === END AUDIT TRAIL (LIVE using deques) ===
+*** END AUDIT TRAIL BLOCK (LIVE watchdog using deques) ***
+
 
 
 
