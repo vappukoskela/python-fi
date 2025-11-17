@@ -61,7 +61,7 @@ entry_qty = {}
 tp1_hit = defaultdict(bool)
 
 # Viimeiset poistumisajat (symbol -> datetime)
-last_exit_time = defaultdict(lambda: datetime.min.replace(tzinfo=timezone.utc))
+last_exit_time = defaultdict(lambda: None)
 
 # Viimeiset ostoyritykset (symbol -> datetime)
 last_trade_attempt = defaultdict(lambda: datetime.min.replace(tzinfo=timezone.utc))
