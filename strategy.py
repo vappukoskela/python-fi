@@ -1044,12 +1044,13 @@ def main():
                         sizes_series, prices, last_exit_time[sym], positions_map,
                         inflight_orders, pending_entries, last_buy_time, ts_val, CONFIG
                     )
-                     # AUDIT: if BUY is rejected, capture and start watchdog (non-blocking)
-                     if AUDIT_TRAIL_ENABLED and not buy:
-                         audit_rejection_live(
-                             sym, ts_val, price, size, ema_fast, ema_slow,
-                             rsi_val, vwap_val, sizes_series, day_bias, CONFIG, reason
-                         )
+                    # AUDIT: jos BUY hylättiin, käynnistä watchdog dequen datalla
+                    if AUDIT_TRAIL_ENABLED and not buy:
+                        audit_rejection_live(
+                            sym, ts_val, price, size, ema_fast, ema_slow,
+                            rsi_val, vwap_val, sizes_series, day_bias, CONFIG, reason,
+                            price_deques, size_deques
+                        ) 
 
                     
                     if buy:    
