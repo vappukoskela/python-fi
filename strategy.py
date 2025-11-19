@@ -764,18 +764,22 @@ def evaluate_sell(sym, last_price, ref_entry, price_deque, size_deque, entry_tim
         prices_series = pd.Series(price_deque)
         sizes_series = pd.Series(size_deque)
 
-        # --- Hard exits ---
-        tp_price = ref_entry * (1 + CONFIG["TP_PCT"])
+                # --- Hard exits with regime overlay ---
+        # Detect regime from local series (SIM and LIVE identical)
+        regime = detect_regime(prices_series, sizes_series)
+        CONFIG_E = overlay_exit_params_by_regime(CONFIG, regime)
+
+        tp_price = ref_entry * (1 + CONFIG_E["TP_PCT"])
         tp_hit = last_price >= tp_price
-        atr_value = compute_atr_from_series(prices_series, CONFIG.get("ATR_PERIOD", ATR_PERIOD))
+
+        atr_value = compute_atr_from_series(prices_series, CONFIG_E.get("ATR_PERIOD", ATR_PERIOD))
         atr_safe = max(atr_value if not pd.isna(atr_value) else 0.0, ATR_FLOOR)
-        dyn_sl_price = ref_entry - (atr_safe * CONFIG["SL_MULTIPLIER"])
+        dyn_sl_price = ref_entry - (atr_safe * CONFIG_E["SL_MULTIPLIER"])
         sl_hit = last_price <= dyn_sl_price
 
-        # --- PATCH: SL grace-viive ---
-        allow_sl = (elapsed >= MIN_HOLD_SECONDS)   # sallitaan SL vasta kun minimi hold-aika täynnä
-        emergency_sl_pct = 0.01                    # esim. 1 % hätäraja
-        emergency_sl_hit = last_price <= ref_entry * (1 - emergency_sl_pct)
+        # --- SL grace period ---
+        allow_sl = (elapsed >= MIN_HOLD_SECONDS)
+
 
         # ✅ DEBUG LOG 2: TP/SL‑tarkistus
         logging.debug("[%s] TP check | ref_entry=%.4f | tp_price=%.4f | last=%.4f | TP_hit=%s",
