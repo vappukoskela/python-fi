@@ -537,75 +537,178 @@ def detect_regime(prices_series, sizes_series):
 
 
 
-
-def buy_conditions_met(sym, price, size, ema_fast, ema_slow, rsi_val, vwap_val,
-                       sizes_series, prices, last_exit, positions_map,
-                       inflight_orders, pending_entries, last_buy_time, ts_val, CONFIG):
+# === REGIME-AWARE ENTRY SCORING (replacement gate) ===
+def evaluate_entry(sym, price, size, prices_series, sizes_series, ts_val,
+                   positions_map, inflight_orders, pending_entries,
+                   last_exit, last_buy_time, CONFIG, regime,
+                   log_stack=False):
     """
-    Entry filter used by both SIM and LIVE loops.
-    Mirrors your BUY block:
-      - Cooldown
-      - Trend (EMA fast > EMA slow)
-      - Price above VWAP
-      - RSI in allowed range
-      - Volume spike vs recent mean
-      - No open position / no pending order
+    Returns (accept: bool, reason: str, score: float, signal_stack: dict)
+    Gate is regime-dependent. Keeps your cooldown and position safety checks.
     """
-    try:
-        # Cooldown
-        since_last_exit = (ts_val - last_exit).total_seconds() if last_exit is not None else float("inf")
-        since_last_buy = (ts_val - last_buy_time[sym]).total_seconds() if last_buy_time[sym] is not None else float("inf")
-        if since_last_exit < COOLDOWN_SECONDS or since_last_buy < COOLDOWN_SECONDS:
-            return False, None
-              
+    # Cooldown
+    since_last_exit = (ts_val - last_exit).total_seconds() if last_exit is not None else float("inf")
+    since_last_buy = (ts_val - last_buy_time[sym]).total_seconds() if last_buy_time[sym] is not None else float("inf")
+    if since_last_exit < COOLDOWN_SECONDS or since_last_buy < COOLDOWN_SECONDS:
+        return (False, "Cooldown", 0.0, {})
 
-        # Position/order checks
-        no_position = positions_map.get(sym, (0, 0.0))[0] == 0
-        inflight_none = inflight_orders.get(sym) is None
-        not_pending = sym not in pending_entries
-        if not (no_position and inflight_none and not_pending):
-            return False, None
+    # Position/order checks
+    no_position = positions_map.get(sym, (0, 0.0))[0] == 0
+    inflight_none = inflight_orders.get(sym) is None
+    not_pending = sym not in pending_entries
+    if not (no_position and inflight_none and not_pending):
+        return (False, "Position/order block", 0.0, {})
 
-        # Trend filter
-        if pd.isna(ema_fast) or pd.isna(ema_slow) or ema_fast <= ema_slow:
-            return False, None
+    # Base features
+    ema_fast = compute_ema_from_series(prices_series, EMA_FAST).iloc[-1] if len(prices_series) >= 2 else float('nan')
+    ema_slow = compute_ema_from_series(prices_series, EMA_SLOW).iloc[-1] if len(prices_series) >= 2 else float('nan')
+    rsi_val = compute_rsi_from_series(prices_series, RSI_PERIOD).iloc[-1] if len(prices_series) else float('nan')
+    vwap_val = compute_vwap_from_ticks(prices_series, sizes_series).iloc[-1] if len(sizes_series) else float('nan')
+    macd_line, macd_signal, macd_hist = compute_macd(prices_series)
 
-        # VWAP filter
-        if pd.isna(vwap_val) or price <= vwap_val:
-            return False, None
+    median_vol = sizes_series.median() if len(sizes_series) > 0 else float('nan')
+    vol_spike = (not pd.isna(median_vol)) and (size > (median_vol * VOL_SPIKE_MULT))
 
-        # RSI filter
-        # RSI filter + suunnan vaatimus
-        if pd.isna(rsi_val) or not (MIN_RSI_FOR_ENTRY <= rsi_val <= MAX_RSI_FOR_ENTRY):
-            return False, None
+    upper, boll_ma, lower, bandwidth = compute_bollinger(prices_series, period=RANGE_CONFIG["BOLL_PERIOD"], std=RANGE_CONFIG["BOLL_STD"])
+    atr_val = compute_atr_from_series(prices_series, ATR_PERIOD)
+    slope = ema_slope(prices_series, EMA_SLOW)
 
-        # RSI-suunnan tarkistus: vaadi että RSI on nouseva
-        rsi_series = compute_rsi_from_series(prices, RSI_PERIOD)
-        if len(rsi_series) >= 2:
-            rsi_prev = rsi_series.iloc[-2]
-            if not pd.isna(rsi_prev) and rsi_val <= rsi_prev:
-                # RSI ei ole nouseva → ei ostoa
-                return False, None
-        
-        
-        # Volume spike filter (robust: median instead of mean)
-        median_vol = sizes_series.median() if len(sizes_series) > 0 else float('nan')
-        vol_ok = (not pd.isna(median_vol)) and (size > (median_vol * VOL_SPIKE_MULT))
-        if not vol_ok:
-            return False, None
-        
+    # RSI uptick check
+    rsi_series_full = compute_rsi_from_series(prices_series, RSI_PERIOD)
+    rsi_prev = rsi_series_full.iloc[-2] if len(rsi_series_full) >= 2 else float('nan')
+    rsi_uptick = (not pd.isna(rsi_prev) and not pd.isna(rsi_val) and rsi_val > rsi_prev)
 
-        # --- NEW: Entry slope/etäisyys check ---
-        ema_gap_ok = (ema_fast - ema_slow) > (CONFIG["EMA_DELTA"] * ema_slow)
-        vwap_dist_ok = (price - vwap_val) > (CONFIG["VWAP_DELTA"] * vwap_val)
-        if not (ema_gap_ok and vwap_dist_ok):
-            return False, None
+    # Pullback checks
+    pullback_to_ema = (not pd.isna(ema_slow) and abs(price - ema_slow) / price <= TREND_CONFIG["PULLBACK_TOL"])
+    pullback_to_vwap = (not pd.isna(vwap_val) and abs(price - vwap_val) / price <= TREND_CONFIG["PULLBACK_TOL"])
 
-        return True, "EMA trend + VWAP + RSI + Volume OK"
+    # Range checks
+    lower_touch = (not pd.isna(lower) and price <= lower * (1 + 0.0002))  # epsilon
+    upper_touch = (not pd.isna(upper) and price >= upper * (1 - 0.0002))
+    vwap_reversion_room = (not pd.isna(vwap_val) and (vwap_val - price) / vwap_val >= 0.0008)  # distance for mean reversion
 
-    except Exception as e:
-        logging.error("[ERROR][%s] Buy evaluation failed: %s", sym, e)
-        return False, None
+    # High-vol checks
+    N = HIGH_VOL_CONFIG["ATR_WINDOW"]
+    atr_series = prices_series.diff().abs().rolling(ATR_PERIOD).mean() if len(prices_series) >= ATR_PERIOD else pd.Series([])
+    atr_hist = atr_series.iloc[-N:].dropna() if len(atr_series) else pd.Series([])
+    atr_pct = (atr_hist < atr_val).mean() if len(atr_hist) > 10 and not pd.isna(atr_val) else 0.5
+    bb_expanding = (not pd.isna(bandwidth) and bandwidth > RANGE_CONFIG["BANDWIDTH_MAX"])
+    vol_roc_val = volume_roc(sizes_series, HIGH_VOL_CONFIG["VOL_ROC_WINDOW"]) if len(sizes_series) else float('nan')
+    vol_roc_ok = (not pd.isna(vol_roc_val) and vol_roc_val > 0.2)
+    breakout_bar = (price > recent_high(prices_series, HIGH_VOL_CONFIG["BREAKOUT_LOOKBACK"]))
+
+    # Low-vol checks
+    envelope_lower = (ema_slow * (1 - LOW_VOL_CONFIG["ENVELOPE_PCT"])) if not pd.isna(ema_slow) else float('nan')
+    envelope_touch = (not pd.isna(envelope_lower) and price <= envelope_lower)
+    chop_high = (not pd.isna(bandwidth) and bandwidth <= LOW_VOL_CONFIG["BANDWIDTH_CAP"])
+    vol_ok_low = vol_spike or (not pd.isna(median_vol) and median_vol > 0)  # avoid totally dry tapes
+    vwap_below = (not pd.isna(vwap_val) and price < vwap_val)
+
+    # Base sanity filters to avoid nonsense:
+    if pd.isna(ema_fast) or pd.isna(ema_slow) or pd.isna(vwap_val) or pd.isna(rsi_val):
+        return (False, "Missing core indicators", 0.0, {})
+
+    signal_stack = {}
+    score = 0.0
+
+    if regime == "TREND":
+        w = TREND_CONFIG["WEIGHTS"]
+        ema_trend_ok = (ema_fast > ema_slow) and (slope > 0)
+        vwap_above_ok = (price > vwap_val) and ((price - vwap_val) > CONFIG["VWAP_DELTA"] * vwap_val)
+        macd_ok = (not pd.isna(macd_line) and not pd.isna(macd_signal) and macd_line > macd_signal and macd_hist > 0)
+        pullback_ok = (pullback_to_ema or pullback_to_vwap)
+        vol_ok = vol_spike
+
+        signal_stack.update({
+            "ema_trend_ok": ema_trend_ok,
+            "vwap_above_ok": vwap_above_ok,
+            "macd_ok": macd_ok,
+            "pullback_ok": pullback_ok,
+            "vol_ok": vol_ok
+        })
+        score += w["ema_trend"] if ema_trend_ok else 0.0
+        score += w["vwap_above"] if vwap_above_ok else 0.0
+        score += w["macd_momentum"] if macd_ok else 0.0
+        score += w["pullback_ok"] if pullback_ok else 0.0
+        score += w["vol_confirm"] if vol_ok else 0.0
+
+    elif regime == "RANGE":
+        w = RANGE_CONFIG["WEIGHTS"]
+        lb_touch = lower_touch
+        rsi_mean_rev = (rsi_val < 35 and rsi_uptick)
+        vwap_rev_ok = vwap_reversion_room
+        bandwidth_ok = (not pd.isna(bandwidth) and RANGE_CONFIG["BANDWIDTH_MIN"] <= bandwidth <= RANGE_CONFIG["BANDWIDTH_MAX"])
+        vol_ok = (not pd.isna(median_vol) and median_vol > 0)
+
+        signal_stack.update({
+            "lower_band_touch": lb_touch,
+            "rsi_uptick": rsi_mean_rev,
+            "vwap_reversion": vwap_rev_ok,
+            "bandwidth_ok": bandwidth_ok,
+            "vol_not_dry": vol_ok
+        })
+        score += w["lower_band_touch"] if lb_touch else 0.0
+        score += w["rsi_uptick"] if rsi_mean_rev else 0.0
+        score += w["vwap_reversion"] if vwap_rev_ok else 0.0
+        score += w["bandwidth_ok"] if bandwidth_ok else 0.0
+        score += w["vol_not_dry"] if vol_ok else 0.0
+
+    elif regime == "HIGH_VOL":
+        w = HIGH_VOL_CONFIG["WEIGHTS"]
+        atr_high_ok = (atr_pct >= HIGH_VOL_CONFIG["ATR_TOP_PCT"])
+        bb_expand_ok = bb_expanding
+        macd_strong_ok = (not pd.isna(macd_line) and not pd.isna(macd_signal) and macd_line > macd_signal and macd_hist > 0.05)
+        vol_roc_ok2 = vol_roc_ok
+        breakout_ok = breakout_bar
+
+        signal_stack.update({
+            "atr_high": atr_high_ok,
+            "bb_expanding": bb_expand_ok,
+            "macd_strong": macd_strong_ok,
+            "vol_roc": vol_roc_ok2,
+            "breakout_bar": breakout_ok
+        })
+        score += w["atr_high"] if atr_high_ok else 0.0
+        score += w["bb_expanding"] if bb_expand_ok else 0.0
+        score += w["macd_strong"] if macd_strong_ok else 0.0
+        score += w["vol_roc"] if vol_roc_ok2 else 0.0
+        score += w["breakout_bar"] if breakout_ok else 0.0
+
+    else:  # LOW_VOL
+        w = LOW_VOL_CONFIG["WEIGHTS"]
+        vwap_below_ok = vwap_below
+        rsi_mr_ok = (rsi_val < 35 and rsi_uptick)
+        envelope_touch_ok = envelope_touch
+        chop_ok = chop_high
+        vol_ok = vol_ok_low
+
+        signal_stack.update({
+            "vwap_below": vwap_below_ok,
+            "rsi_uptick": rsi_mr_ok,
+            "envelope_touch": envelope_touch_ok,
+            "chop_high": chop_ok,
+            "vol_ok": vol_ok
+        })
+        score += w["vwap_below"] if vwap_below_ok else 0.0
+        score += w["rsi_uptick"] if rsi_mr_ok else 0.0
+        score += w["envelope_touch"] if envelope_touch_ok else 0.0
+        score += w["chop_high"] if chop_ok else 0.0
+        score += w["vol_ok"] if vol_ok else 0.0
+
+    # RSI window sanity (your global band)
+    if not (MIN_RSI_FOR_ENTRY <= rsi_val <= MAX_RSI_FOR_ENTRY):
+        return (False, f"RSI out of band ({rsi_val:.1f})", score, signal_stack)
+
+    # Final gate
+    threshold = CONFIG.get("ENTRY_SCORE_THRESHOLD", 3.0)
+    accept = (score >= threshold)
+
+    if log_stack and (accept or AUDIT_TRAIL_ENABLED):
+        logging.info(f"[ENTRY_STACK][{sym}] regime={regime} score={score:.2f} threshold={threshold} stack={signal_stack}")
+
+    return (accept, f"Regime={regime} score={score:.2f}", score, signal_stack)
+
+
 
 
 def evaluate_sell(sym, last_price, ref_entry, price_deque, size_deque, entry_times,
