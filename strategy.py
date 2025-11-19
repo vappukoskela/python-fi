@@ -492,6 +492,50 @@ def detect_day_bias(prices_series, ema_fast_series, ema_slow_series, vwap_series
         logging.error("[ERROR] Bias detection failed: %s", e)
         return "bearish"
 
+# === REGIME DETECTOR ===
+def detect_regime(prices_series, sizes_series):
+    """
+    Classify intraday regime using only locally computed features.
+    Returns one of: "TREND", "RANGE", "HIGH_VOL", "LOW_VOL".
+    """
+    # VWAP, EMA context
+    ema_fast = compute_ema_from_series(prices_series, EMA_FAST).iloc[-1] if len(prices_series) >= 2 else float('nan')
+    ema_slow = compute_ema_from_series(prices_series, EMA_SLOW).iloc[-1] if len(prices_series) >= 2 else float('nan')
+    vwap_val = compute_vwap_from_ticks(prices_series, sizes_series).iloc[-1] if len(sizes_series) else float('nan')
+    slope = ema_slope(prices_series, EMA_SLOW)
+
+    # Vol and bandwidth
+    atr_val = compute_atr_from_series(prices_series, ATR_PERIOD)
+    upper, ma, lower, bandwidth = compute_bollinger(prices_series, period=20, std=2.0)
+
+    # Heuristics:
+    # - HIGH_VOL: ATR relatively high vs recent distribution + bandwidth expansion
+    # - LOW_VOL: bandwidth very low
+    # - TREND: EMA_fast > EMA_slow, slope positive, price on the correct side of VWAP
+    # - RANGE: otherwise, with bandwidth within moderate bounds
+
+    # Compute a simple ATR percentile proxy over last N:
+    N = 50
+    if len(prices_series) >= N + 2:
+        atr_series = prices_series.diff().abs().rolling(ATR_PERIOD).mean()
+        hist = atr_series.iloc[-N:].dropna()
+        if len(hist) > 10 and not pd.isna(atr_val):
+            pct = (hist < atr_val).mean()  # fraction below current ATR
+        else:
+            pct = 0.5
+    else:
+        pct = 0.5
+
+    # Decision
+    if not pd.isna(bandwidth) and bandwidth <= LOW_VOL_CONFIG["BANDWIDTH_CAP"]:
+        return "LOW_VOL"
+    if pct >= HIGH_VOL_CONFIG["ATR_TOP_PCT"] and not pd.isna(bandwidth) and bandwidth > RANGE_CONFIG["BANDWIDTH_MAX"]:
+        return "HIGH_VOL"
+    if (not pd.isna(ema_fast) and not pd.isna(ema_slow) and ema_fast > ema_slow) and (not pd.isna(slope) and slope > 0):
+        return "TREND"
+    return "RANGE"
+
+
 
 
 def buy_conditions_met(sym, price, size, ema_fast, ema_slow, rsi_val, vwap_val,
