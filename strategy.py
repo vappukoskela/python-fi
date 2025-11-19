@@ -144,7 +144,7 @@ TREND_CONFIG = {
     "EMA_DELTA": 0.0003,
     "RSI_FAIL_TICKS": 5,
     # Entry scoring thresholds
-    "ENTRY_SCORE_THRESHOLD": 3.0,
+    "ENTRY_SCORE_THRESHOLD": 1.6,
     # Indicator gate weights
     "WEIGHTS": {
         "ema_trend": 1.0,      # EMA_fast > EMA_slow + slope positive
@@ -168,7 +168,7 @@ RANGE_CONFIG = {
     "VWAP_DELTA": 0.002,
     "EMA_DELTA": 0.0002,
     "RSI_FAIL_TICKS": 4,
-    "ENTRY_SCORE_THRESHOLD": 2.6,
+    "ENTRY_SCORE_THRESHOLD": 1.2,
     "WEIGHTS": {
         "lower_band_touch": 1.0,     # price near lower Bollinger band
         "rsi_uptick": 0.8,           # RSI < 35 and upticking
@@ -222,12 +222,12 @@ LOW_VOL_CONFIG = {
     "RSI_FAIL_TICKS": 4,
     "ENTRY_SCORE_THRESHOLD": 2.4,
     "WEIGHTS": {
-        "vwap_below": 0.9,        # price below VWAP for mean-reversion long
-        "rsi_uptick": 0.8,
-        "envelope_touch": 0.6,    # MA envelope lower touch
-        "chop_high": 0.4,         # consolidation proxy (low bandwidth)
-        "vol_ok": 0.3,             # avoid ultra-dry tape
-        "rsi_ok": 0.7
+        "vwap_below": 1.0,        # price below VWAP for mean-reversion long
+        "rsi_uptick": 0.9,
+        "envelope_touch": 0.7,    # MA envelope lower touch
+        "chop_high": 0.5,         # consolidation proxy (low bandwidth)
+        "vol_ok": 0.4,             # avoid ultra-dry tape
+        "rsi_ok": 0.8
     },
     "ENVELOPE_PCT": 0.002,        # +/- around EMA_slow
     "BOLL_PERIOD": 20,
