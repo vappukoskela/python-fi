@@ -555,8 +555,7 @@ def detect_regime(prices_series, sizes_series):
         return "LOW_VOL"
 
     # RANGE: explicit fallback when bandwidth is moderate
-    if not pd.isna(bandwidth) and RANGE_CONFIG["BANDWIDTH_MIN"] <= bandwidth <= RANGE_CONFIG["BANDWIDTH_MAX"]:
-        return " is moderate
+    
     if not pd.isna(bandwidth) and RANGE_CONFIG["BANDWIDTH_MIN"] <= bandwidth <= RANGE_CONFIG["BANDWIDTH_MAX"]:
         return "RANGE"
 
