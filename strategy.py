@@ -780,6 +780,14 @@ def evaluate_sell(sym, last_price, ref_entry, price_deque, size_deque, entry_tim
         # --- SL grace period ---
         allow_sl = (elapsed >= MIN_HOLD_SECONDS)
 
+        # --- Emergency SL (intrabar disaster cut) ---
+        # INSERT: define emergency SL variables exactly where they are used to keep scope local
+        try:
+           emergency_sl_pct = float(CONFIG.get("EMERGENCY_SL_PCT", 0.01))  # default 1%
+        except Exception:
+            emergency_sl_pct = 0.01
+        emergency_sl_hit = (last_price <= ref_entry * (1 - emergency_sl_pct))
+        # NOTE: This mirrors the earlier concept while keeping SIM/LIVE parity and avoids NameError
 
         # ✅ DEBUG LOG 2: TP/SL‑tarkistus
         logging.debug("[%s] TP check | ref_entry=%.4f | tp_price=%.4f | last=%.4f | TP_hit=%s",
