@@ -702,9 +702,7 @@ def evaluate_entry(sym, price, size, prices_series, sizes_series, ts_val,
         score += w["chop_high"] if chop_ok else 0.0
         score += w["vol_ok"] if vol_ok else 0.0
 
-    # RSI window sanity (your global band)
-    if not (MIN_RSI_FOR_ENTRY <= rsi_val <= MAX_RSI_FOR_ENTRY):
-        return (False, f"RSI out of band ({rsi_val:.1f})", score, signal_stack)
+   
 
     # Final gate
     threshold = CONFIG.get("ENTRY_SCORE_THRESHOLD", 3.0)
