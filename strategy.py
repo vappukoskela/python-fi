@@ -298,6 +298,51 @@ def compute_atr_from_series(prices_series, period=14):
     atr = diffs.rolling(window=period).mean().iloc[-1]
     return float(atr) if not pd.isna(atr) else float("nan")
 
+# === EXTRA INDICATOR HELPERS (from deques) ===
+def compute_macd(series, fast=12, slow=26, signal=9):
+    if len(series) < slow + signal:
+        return (float('nan'), float('nan'), float('nan'))
+    ema_fast = series.ewm(span=fast, adjust=False).mean()
+    ema_slow = series.ewm(span=slow, adjust=False).mean()
+    macd_line = ema_fast - ema_slow
+    macd_signal = macd_line.ewm(span=signal, adjust=False).mean()
+    hist = macd_line - macd_signal
+    return (float(macd_line.iloc[-1]), float(macd_signal.iloc[-1]), float(hist.iloc[-1]))
+
+def compute_bollinger(series, period=20, std=2.0):
+    if len(series) < period:
+        return (float('nan'), float('nan'), float('nan'), float('nan'))
+    ma = series.rolling(period).mean().iloc[-1]
+    sd = series.rolling(period).std(ddof=0).iloc[-1]
+    upper = ma + std * sd
+    lower = ma - std * sd
+    bandwidth = (upper - lower) / ma if ma != 0 else float('nan')
+    return (float(upper), float(ma), float(lower), float(bandwidth))
+
+def volume_roc(sizes_series, window=20):
+    if len(sizes_series) < window + 1:
+        return float('nan')
+    prev = sizes_series.iloc[-window]
+    curr = sizes_series.iloc[-1]
+    return (curr - prev) / prev if prev > 0 else float('nan')
+
+def recent_high(series, lookback=20):
+    if len(series) < lookback:
+        return float('nan')
+    return float(series.iloc[-lookback:].max())
+
+def recent_low(series, lookback=20):
+    if len(series) < lookback:
+        return float('nan')
+    return float(series.iloc[-lookback:].min())
+
+def ema_slope(series, period=20):
+    if len(series) < period + 2:
+        return float('nan')
+    ema = series.ewm(span=period, adjust=False).mean()
+    return float(ema.iloc[-1] - ema.iloc[-2])
+
+
 
 # === Alpaca helpers: defensive ===
 def fetch_latest_trade_price_and_size_batch(stock_data_client, symbols):
