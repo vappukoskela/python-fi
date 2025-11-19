@@ -1497,9 +1497,7 @@ def main():
                                 entry_configs[sym],
                                 current_time=datetime.now(timezone.utc)
                             )
-                            else:
-                                logging.error("[%s] Sell skipped: no entry_config found", sym)
-                                continue
+                            
                             if sell:
                                 submitted = safe_market_sell(trade_client, sym, qty_open, order_lock)
                                 logging.info(f"{sym} - SCALP SELL qty={qty_open} @ {last_price:.4f} | Reason={reason} | Bias={day_bias} | Config={CONFIG}")
