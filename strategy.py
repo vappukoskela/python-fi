@@ -1242,6 +1242,8 @@ def main():
                     logging.info(f"{symbol} [{RUN_MODE}] BUY @ {price:.4f} | Trigger={reason} | Bias={day_bias} | Config={CONFIG}")
                 else:
                     highest_price_since_entry[symbol] = max(highest_price_since_entry[symbol], price)
+                    sell = False
+                    reason = "no-eval"
                     if symbol not in entry_prices or symbol not in entry_configs:
                         continue
                     sell, reason = evaluate_sell(
@@ -1477,19 +1479,24 @@ def main():
                     if qty_open > 0:
                         try:
                             last_price = float(price)
+                            sell = False
+                            reason = "no-eval"
                             ref_entry = entry_prices.get(sym, avg_entry)
+                            config = entry_configs.get(sym)
+                            if ref_entry is None or config is None:
+                                logging.error("[%s] Sell skipped: missing entry context", sym)
+                                continue
                             
-                            if sym in entry_configs:
-                                sell, reason = evaluate_sell(
-                                    sym,
-                                    last_price,
-                                    ref_entry,
-                                    price_deques[sym],
-                                    size_deques[sym],
-                                    entry_times,
-                                    entry_configs[sym],
-                                    current_time=datetime.now(timezone.utc)
-                                )
+                            sell, reason = evaluate_sell(
+                                sym,
+                                last_price,
+                                ref_entry,
+                                price_deques[sym],
+                                size_deques[sym],
+                                entry_times,
+                                entry_configs[sym],
+                                current_time=datetime.now(timezone.utc)
+                            )
                             else:
                                 logging.error("[%s] Sell skipped: no entry_config found", sym)
                                 continue
