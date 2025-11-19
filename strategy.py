@@ -1242,6 +1242,8 @@ def main():
                     logging.info(f"{symbol} [{RUN_MODE}] BUY @ {price:.4f} | Trigger={reason} | Bias={day_bias} | Config={CONFIG}")
                 else:
                     highest_price_since_entry[symbol] = max(highest_price_since_entry[symbol], price)
+                    if symbol not in entry_prices or symbol not in entry_configs:
+                        continue
                     sell, reason = evaluate_sell(
                         symbol, price, entry_prices[symbol],
                         price_deques[symbol], size_deques[symbol], entry_times, entry_configs[symbol], current_time=ts_val
