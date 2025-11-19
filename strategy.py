@@ -152,6 +152,7 @@ TREND_CONFIG = {
         "macd_momentum": 0.8,  # MACD > signal, rising histogram
         "vol_confirm": 0.6,    # volume spike vs median
         "pullback_ok": 0.6     # pullback to EMA_slow/VWAP then re-accel
+        "rsi_ok": 0.7   # new weight
     },
     # pullback tolerances (distance normalized by price)
     "PULLBACK_TOL": 0.0012
