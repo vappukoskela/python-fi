@@ -1192,6 +1192,11 @@ def main():
                     CONFIG, regime, log_stack=False
                 )
                 buy = accept
+
+            # === SIM cooldown guard ===
+            if last_buy_time[symbol] is not None and \
+               (ts_val - last_buy_time[symbol]).total_seconds() < COOLDOWN_SECONDS:
+                continue
             else:
                 buy, reason = buy_conditions_met(
                     symbol, price, size, ema_fast, ema_slow, rsi_val, vwap_val,
@@ -1423,7 +1428,8 @@ def main():
 
                     
                     if buy:    
-                        if (datetime.now(timezone.utc) - last_trade_attempt[sym]).total_seconds() < 1.0:
+                        if last_trade_attempt[sym] is not None and \
+                           (datetime.now(timezone.utc) - last_trade_attempt[sym]).total_seconds() < 1.0:
                             continue
                         last_trade_attempt[sym] = datetime.now(timezone.utc)
 
