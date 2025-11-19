@@ -708,6 +708,26 @@ def evaluate_entry(sym, price, size, prices_series, sizes_series, ts_val,
 
     return (accept, f"Regime={regime} score={score:.2f}", score, signal_stack)
 
+# === EXIT OVERLAY BY REGIME ===
+def overlay_exit_params_by_regime(CONFIG, regime):
+    """
+    Adjust TP/SL buffers per regime without changing core indicators.
+    """
+    adj = dict(CONFIG)  # shallow copy
+    if regime == "RANGE":
+        adj["TP_PCT"] = max(0.0010, CONFIG["TP_PCT"] * 0.8)
+        adj["SL_MULTIPLIER"] = max(0.6, CONFIG["SL_MULTIPLIER"] * 0.9)
+        adj["TS_ACTIVATION_BUFFER"] = max(0.002, CONFIG["TS_ACTIVATION_BUFFER"] * 0.8)
+    elif regime == "HIGH_VOL":
+        adj["TP_PCT"] = min(0.0050, CONFIG["TP_PCT"] * 1.4)
+        adj["SL_MULTIPLIER"] = min(1.5, CONFIG["SL_MULTIPLIER"] * 1.2)
+        adj["TS_ACTIVATION_BUFFER"] = min(0.008, CONFIG["TS_ACTIVATION_BUFFER"] * 1.4)
+    elif regime == "LOW_VOL":
+        adj["TP_PCT"] = max(0.0010, CONFIG["TP_PCT"] * 0.9)
+        adj["SL_MULTIPLIER"] = max(0.7, CONFIG["SL_MULTIPLIER"] * 0.9)
+        adj["TS_ACTIVATION_BUFFER"] = max(0.002, CONFIG["TS_ACTIVATION_BUFFER"] * 0.9)
+    # TREND uses base CONFIG
+    return adj
 
 
 
