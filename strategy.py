@@ -1198,11 +1198,15 @@ def main():
                (ts_val - last_buy_time[symbol]).total_seconds() < COOLDOWN_SECONDS:
                 continue
             else:
-                buy, reason = buy_conditions_met(
-                    symbol, price, size, ema_fast, ema_slow, rsi_val, vwap_val,
-                    sizes_series, prices, last_exit_time[symbol], positions_map,
-                    inflight_orders, pending_entries, last_buy_time, ts_val, CONFIG
+                # Regime-aware entry (SIM): strict parity with LIVE
+                regime = detect_regime(prices, sizes_series)
+                accept, reason, score, stack = evaluate_entry(
+                    symbol, price, size, prices, sizes_series, ts_val,
+                    positions_map, inflight_orders, pending_entries,
+                    last_exit_time[symbol], last_buy_time,
+                    CONFIG, regime, log_stack=False
                 )
+                buy = accept
 
                 if buy:
                     csv_rows.append({
@@ -1409,12 +1413,7 @@ def main():
                             CONFIG, regime, log_stack=False
                         )
                         buy = accept
-                    else:
-                        buy, reason = buy_conditions_met(
-                            sym, price, size, ema_fast, ema_slow, rsi_val, vwap_val,
-                            sizes_series, prices, last_exit_time[sym], positions_map,
-                            inflight_orders, pending_entries, last_buy_time, ts_val, CONFIG
-                        )
+                    
 
                     
                     
