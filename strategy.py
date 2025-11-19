@@ -151,7 +151,7 @@ TREND_CONFIG = {
         "vwap_above": 0.8,     # location above VWAP
         "macd_momentum": 0.8,  # MACD > signal, rising histogram
         "vol_confirm": 0.6,    # volume spike vs median
-        "pullback_ok": 0.6     # pullback to EMA_slow/VWAP then re-accel
+        "pullback_ok": 0.6,     # pullback to EMA_slow/VWAP then re-accel
         "rsi_ok": 0.7   # new weight
     },
     # pullback tolerances (distance normalized by price)
@@ -174,7 +174,9 @@ RANGE_CONFIG = {
         "rsi_uptick": 0.8,           # RSI < 35 and upticking
         "vwap_reversion": 0.6,       # distance to VWAP favorable
         "bandwidth_ok": 0.4,         # range (not too wide, not too tight)
-        "vol_not_dry": 0.4           # avoid illiquid chop
+        "vol_not_dry": 0.4,           # avoid illiquid chop
+        "rsi_ok": 0.7
+        
     },
     "BOLL_PERIOD": 20,
     "BOLL_STD": 2.0,
@@ -224,7 +226,8 @@ LOW_VOL_CONFIG = {
         "rsi_uptick": 0.8,
         "envelope_touch": 0.6,    # MA envelope lower touch
         "chop_high": 0.4,         # consolidation proxy (low bandwidth)
-        "vol_ok": 0.3             # avoid ultra-dry tape
+        "vol_ok": 0.3,             # avoid ultra-dry tape
+        "rsi_ok": 0.7
     },
     "ENVELOPE_PCT": 0.002,        # +/- around EMA_slow
     "BOLL_PERIOD": 20,
@@ -646,13 +649,16 @@ def evaluate_entry(sym, price, size, prices_series, sizes_series, ts_val,
             "rsi_uptick": rsi_mean_rev,
             "vwap_reversion": vwap_rev_ok,
             "bandwidth_ok": bandwidth_ok,
-            "vol_not_dry": vol_ok
+            "vol_not_dry": vol_ok,
+            "rsi_ok": (MIN_RSI_FOR_ENTRY <= rsi_val <= MAX_RSI_FOR_ENTRY)
+         
         })
         score += w["lower_band_touch"] if lb_touch else 0.0
         score += w["rsi_uptick"] if rsi_mean_rev else 0.0
         score += w["vwap_reversion"] if vwap_rev_ok else 0.0
         score += w["bandwidth_ok"] if bandwidth_ok else 0.0
         score += w["vol_not_dry"] if vol_ok else 0.0
+        score += w["rsi_ok"] if (MIN_RSI_FOR_ENTRY <= rsi_val <= MAX_RSI_FOR_ENTRY) else 0.0
 
     elif regime == "HIGH_VOL":
         w = HIGH_VOL_CONFIG["WEIGHTS"]
