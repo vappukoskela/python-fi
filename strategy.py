@@ -1342,14 +1342,7 @@ def main():
                         compute_vwap_from_ticks(prices, sizes)
                     )
 
-                    # --- Tässä kohtaa lisätään biasin laskenta ---
-                    day_bias = detect_day_bias(
-                        prices,
-                        compute_ema_from_series(prices, EMA_FAST),
-                        compute_ema_from_series(prices, EMA_SLOW),
-                        compute_vwap_from_ticks(prices, sizes)
-                    )
-                    
+                                        
                     if day_bias == "bullish":
                         CONFIG = BULLISH_CONFIG
                     else:
