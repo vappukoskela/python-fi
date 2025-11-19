@@ -530,14 +530,38 @@ def detect_regime(prices_series, sizes_series):
     else:
         pct = 0.5
 
-    # Decision
+    # Decision (reordered: HIGH_VOL → TREND → LOW_VOL → RANGE)
+    # HIGH_VOL: loosened to require either ATR percentile OR bandwidth expansion
+    if (pct >= HIGH_VOL_CONFIG["ATR_TOP_PCT"]) or (not pd.isna(bandwidth) and bandwidth > RANGE_CONFIG["BANDWIDTH_MAX"]):
+        return "HIGH_VOL"
+
+    # TREND: loosened to allow slope >= 0 and requireed to allow slope >= 0 and require price above VWAP
+    if (not pd.isna(ema_fast) and not pd.isna(ema_slow) and ema_fast > ema_slow) \
+       and (not pd.isna(slope) and slope >= 0) \
+ price above VWAP
+    if (not pd.isna(ema_fast) and not pd.isna(ema_slow) and ema_fast > ema_slow) \
+       and (not pd.isna(slope) and slope >= 0) \
+       and (not pd.isna(vwap_val) and prices_series.iloc[-1] >= vwap_val):
+        return "TREND"
+
+    #       and (not pd.isna(vwap_val) and prices_series.iloc[-1] >= vwap_val):
+        return "TREND"
+
+    # LOW_VOL: only if LOW_VOL: only if bandwidth is very tight
     if not pd.isna(bandwidth) and bandwidth <= LOW_VOL_CONFIG["BANDWIDTH_CAP"]:
         return "LOW_VOL"
-    if pct >= HIGH_VOL_CONFIG["ATR_TOP_PCT"] and not pd.isna(bandwidth) and bandwidth > RANGE_CONFIG["BANDWIDTH_MAX"]:
-        return "HIGH_VOL"
-    if (not pd.isna(ema_fast) and not pd.isna(ema_slow) and ema_fast > ema_slow) and (not pd.isna(slope) and slope > 0):
-        return "TREND"
-    return "RANGE"
+    # RANGE: explicit fallback when bandwidth bandwidth is very tight
+    if not pd.isna(bandwidth) and bandwidth <= LOW_VOL_CONFIG["BANDWIDTH_CAP"]:
+        return "LOW_VOL"
+
+    # RANGE: explicit fallback when bandwidth is moderate
+    if not pd.isna(bandwidth) and RANGE_CONFIG["BANDWIDTH_MIN"] <= bandwidth <= RANGE_CONFIG["BANDWIDTH_MAX"]:
+        return " is moderate
+    if not pd.isna(bandwidth) and RANGE_CONFIG["BANDWIDTH_MIN"] <= bandwidth <= RANGE_CONFIG["BANDWIDTH_MAX"]:
+        return "RANGE"
+
+    # Default fallback
+    return "RANGE"    
 
 
 
