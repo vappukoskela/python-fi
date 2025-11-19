@@ -1197,12 +1197,12 @@ def main():
                     # --- PATCH: jäädytä config position ajaksi ---
                     entry_configs[symbol] = CONFIG
                     logging.info(f"{symbol} [{RUN_MODE}] BUY @ {price:.4f} | Trigger={reason} | Bias={day_bias} | Config={CONFIG}")
-            else:
-                highest_price_since_entry[symbol] = max(highest_price_since_entry[symbol], price)
-                sell, reason = evaluate_sell(
-                    symbol, price, entry_prices[symbol],
-                    price_deques[symbol], size_deques[symbol], entry_times, entry_configs[symbol], current_time=ts_val
-                )
+                else:
+                    highest_price_since_entry[symbol] = max(highest_price_since_entry[symbol], price)
+                    sell, reason = evaluate_sell(
+                        symbol, price, entry_prices[symbol],
+                        price_deques[symbol], size_deques[symbol], entry_times, entry_configs[symbol], current_time=ts_val
+                    )
                 if sell:
                     qty = entry_qty.get(symbol, 1)
                     pnl = (price - entry_price) * qty
