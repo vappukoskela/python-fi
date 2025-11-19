@@ -536,13 +536,13 @@ def detect_regime(prices_series, sizes_series):
         return "HIGH_VOL"
 
     # TREND: loosened to allow slope >= 0 and requireed to allow slope >= 0 and require price above VWAP
-    if (not pd.isna(ema_fast) and not pd.isna(ema_slow) and ema_fast > ema_slow) \
-       and (not pd.isna(slope) and slope >= 0) \
- price above VWAP
-    if (not pd.isna(ema_fast) and not pd.isna(ema_slow) and ema_fast > ema_slow) \
-       and (not pd.isna(slope) and slope >= 0) \
-       and (not pd.isna(vwap_val) and prices_series.iloc[-1] >= vwap_val):
+    if (
+        not pd.isna(ema_fast) and not pd.isna(ema_slow) and ema_fast > ema_slow
+        and not pd.isna(slope) and slope >= 0
+        and not pd.isna(vwap_val) and prices_series.iloc[-1] >= vwap_val
+    ):
         return "TREND"
+
 
     #       and (not pd.isna(vwap_val) and prices_series.iloc[-1] >= vwap_val):
         return "TREND"
