@@ -1368,13 +1368,24 @@ def main():
                         logging.info(f"{sym} - Cooldown active: buy={since_last_buy:.1f}s exit={since_last_exit:.1f}s")
                         continue
 
+                    if USE_REGIME_ENTRY:
+                        regime = detect_regime(prices, sizes_series)
+                        accept, reason, score, stack = evaluate_entry(
+                            sym, price, size, prices, sizes_series, ts_val,
+                            positions_map, inflight_orders, pending_entries,
+                            last_exit_time[sym], last_buy_time,
+                            CONFIG, regime, log_stack=False
+                        )
+                        buy = accept
+                    else:
+                        buy, reason = buy_conditions_met(
+                            sym, price, size, ema_fast, ema_slow, rsi_val, vwap_val,
+                            sizes_series, prices, last_exit_time[sym], positions_map,
+                            inflight_orders, pending_entries, last_buy_time, ts_val, CONFIG
+                        )
 
                     
-                    buy, reason = buy_conditions_met(
-                        sym, price, size, ema_fast, ema_slow, rsi_val, vwap_val,
-                        sizes_series, prices, last_exit_time[sym], positions_map,
-                        inflight_orders, pending_entries, last_buy_time, ts_val, CONFIG
-                    )
+                    
                     # AUDIT: jos BUY hylättiin, käynnistä watchdog dequen datalla
                     if AUDIT_TRAIL_ENABLED and not buy:
                         audit_rejection_live(
