@@ -168,13 +168,13 @@ RANGE_CONFIG = {
     "VWAP_DELTA": 0.002,
     "EMA_DELTA": 0.0002,
     "RSI_FAIL_TICKS": 4,
-    "ENTRY_SCORE_THRESHOLD": 1.2,
+    "ENTRY_SCORE_THRESHOLD": 0.6,
     "WEIGHTS": {
         "lower_band_touch": 1.0,     # price near lower Bollinger band
-        "rsi_uptick": 0.8,           # RSI < 35 and upticking
-        "vwap_reversion": 0.6,       # distance to VWAP favorable
+        "rsi_uptick": 1.0,           # RSI < 35 and upticking
+        "vwap_reversion": 0.8,       # distance to VWAP favorable
         "bandwidth_ok": 0.4,         # range (not too wide, not too tight)
-        "vol_not_dry": 0.4,           # avoid illiquid chop
+        "vol_not_dry": 0.5,           # avoid illiquid chop
         "rsi_ok": 0.7
         
     },
@@ -220,14 +220,14 @@ LOW_VOL_CONFIG = {
     "VWAP_DELTA": 0.002,
     "EMA_DELTA": 0.0002,
     "RSI_FAIL_TICKS": 4,
-    "ENTRY_SCORE_THRESHOLD": 2.4,
+    "ENTRY_SCORE_THRESHOLD": 1.8,
     "WEIGHTS": {
         "vwap_below": 1.0,        # price below VWAP for mean-reversion long
-        "rsi_uptick": 0.9,
-        "envelope_touch": 0.7,    # MA envelope lower touch
+        "rsi_uptick": 1.0,
+        "envelope_touch": 0.6,    # MA envelope lower touch
         "chop_high": 0.5,         # consolidation proxy (low bandwidth)
         "vol_ok": 0.4,             # avoid ultra-dry tape
-        "rsi_ok": 0.8
+        "rsi_ok": 0.7
     },
     "ENVELOPE_PCT": 0.002,        # +/- around EMA_slow
     "BOLL_PERIOD": 20,
