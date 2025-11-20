@@ -117,7 +117,7 @@ ATR_FLOOR = 0.05  # esim. 2 senttiä NVDA:lle; kalibroi instrumentille
 
 # --- RUN MODE ---
 #"AGG_SIM" / "SIM" = backtest on historical bars; "LIVE" = live/paper trading loop
-RUN_MODE = "LIVE"
+RUN_MODE = "AGG_SIM"
 MAX_HOLD_SECONDS = 999999   # example: x minutes
 MIN_HOLD_SECONDS = 30    # example: x seconds grace period before indicators can trigger
 TRAIL_PCT = 0.010
@@ -1102,8 +1102,8 @@ def main():
         last_exit_time = {s: None for s in symbols}
         last_buy_time = {s: None for s in symbols}
 
-        start = "2025-11-14T14:30:00Z"
-        end = "2025-11-14T21:00:00Z"
+        start = "2025-11-20T14:30:00Z"
+        end = "2025-11-20T21:00:00Z"
     
         req = StockTradesRequest(symbol_or_symbols=symbol, start=start, end=end)
         trades = stock_data_client.get_stock_trades(req).df
