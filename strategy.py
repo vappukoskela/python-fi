@@ -75,6 +75,10 @@ highest_price_since_entry = defaultdict(float)
 # Trailing stop aktivoinnin tila (symbol -> bool)
 trailing_active = defaultdict(bool)
 
+# Regime kill-switch flags
+high_vol_paused = defaultdict(bool)
+trend_paused = defaultdict(bool)
+
 # === CONFIG ===
 # === CONFIG PROFILES ===
 
@@ -579,6 +583,12 @@ def evaluate_entry(sym, price, size, prices_series, sizes_series, ts_val,
     if since_last_exit < COOLDOWN_SECONDS or since_last_buy < COOLDOWN_SECONDS:
         return (False, "Cooldown", 0.0, {})
 
+    # Regime kill-switch gates
+    if regime == "HIGH_VOL" and high_vol_paused[sym]:
+        return (False, "HIGH_VOL paused", 0.0, {})
+    if regime == "TREND" and trend_paused[sym]:
+        return (False, "TREND paused", 0.0, {})
+
     # Position/order checks
     no_position = positions_map.get(sym, (0, 0.0))[0] == 0
     inflight_none = inflight_orders.get(sym) is None
@@ -903,7 +913,14 @@ def evaluate_sell(sym, last_price, ref_entry, price_deque, size_deque, entry_tim
         if tp_hit:
             return True, "Take-profit"
         if (allow_sl and sl_hit) or emergency_sl_hit:
-            return True, "Stop-loss"
+            # Trip kill-switch if regime is HIGH_VOL
+            try:
+                if regime == "HIGH_VOL":
+                    high_vol_paused[sym] = True
+                    logging.warning("[%s] HIGH_VOL paused due to catastrophic SL", sym)
+            except Exception:
+                pass
+            return True, "Stop-loss" 
         if trailing_stop_hit:
             return True, "Trailing stop"
         if vwap_fail:
