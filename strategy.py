@@ -186,7 +186,7 @@ RANGE_CONFIG = {
 
 HIGH_VOL_CONFIG = {
     "TP_PCT": 0.0035,
-    "SL_MULTIPLIER": 0,8,
+    "SL_MULTIPLIER": 0.8,
     "TS_ACTIVATION_BUFFER": 0.006,
     "TRAILING_STOP_PCT": 0.007,
     "MAX_TRADES": 4,
@@ -1227,6 +1227,9 @@ def main():
                     entry_prices[symbol] = price
                     est_price = price
                     qty = int((max_loop_budget * BUY_CASH_BUFFER) // est_price)
+                    # Regime-specific size adjustment
+                    if regime == "HIGH_VOL":
+                        qty = max(1, int(qty * 0.5))
                     if qty <= 0 or qty * est_price < MIN_TRADE_USD:
                         logging.info("%s - Skipping buy: qty too small (est_price=%.2f)",
                                      symbol, est_price)
@@ -1443,9 +1446,15 @@ def main():
 
                         pending_entries.add(sym)
                         try:
+                            # --- Regime-specific cash adjustment ---
+                            cash_for_buy = max_loop_budget * BUY_CASH_BUFFER
+                            if regime == "HIGH_VOL":
+                                cash_for_buy *= 0.5   # halve position size in high volatility
+                    
                             spent_this_loop += est_trade_cost  # reserve budget immediately
-                            submitted = safe_market_buy(trade_client, sym, max_loop_budget * BUY_CASH_BUFFER, order_lock)
+                            submitted = safe_market_buy(trade_client, sym, cash_for_buy, order_lock)
                             logging.debug(f"[TRACE] Buy submitted: {submitted}")
+                            
                             if submitted:
                                 inflight_orders[sym] = getattr(submitted, "id", None) or True
                                 # 🔍 Retry loop for post-buy verification
