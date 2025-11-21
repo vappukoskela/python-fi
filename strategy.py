@@ -75,6 +75,12 @@ highest_price_since_entry = defaultdict(float)
 # Trailing stop aktivoinnin tila (symbol -> bool)
 trailing_active = defaultdict(bool)
 
+# === AUDIT TRAIL COUNTERS ===
+regime_pnl = defaultdict(float)                     # net PnL per regime
+regime_trades = defaultdict(int)                    # trade count per regime
+exit_reason_count = defaultdict(lambda: defaultdict(int))  # exit counts per regime/reason
+
+
 # Regime kill-switch flags
 high_vol_paused = defaultdict(bool)
 trend_paused = defaultdict(bool)
@@ -1277,6 +1283,11 @@ def main():
                 if sell:
                     qty = entry_qty.get(symbol, 1)
                     pnl = (price - entry_price) * qty
+                    # --- Audit trail update (SIM) ---
+                    regime_at_sell = detect_regime(pd.Series(price_deques[symbol]), pd.Series(size_deques[symbol]))
+                    regime_pnl[regime_at_sell] += float(pnl)
+                    regime_trades[regime_at_sell] += 1
+                    exit_reason_count[regime_at_sell][reason] += 1
                     logging.info(f"{symbol} [{RUN_MODE}] SELL qty={qty} @ {price:.4f} | Reason={reason} | Bias={day_bias} | Config={CONFIG} | PnL={pnl:.4f}")
                     csv_rows.append({
                     "timestamp": ts_val.strftime("%Y-%m-%d %H:%M:%S"),
@@ -1535,6 +1546,13 @@ def main():
                                     "%s - SCALP SELL qty=%d @ %.4f | Reason=%s | EntryRef=%.4f",
                                     sym, qty_open, last_price, reason, ref_entry
                                 )
+                                    # --- Audit trail update (LIVE) ---
+                                regime_at_sell = detect_regime(pd.Series(price_deques[sym]), pd.Series(size_deques[sym]))
+                                pnl_est = (last_price - ref_entry) * qty_open  # rough PnL estimate
+                                regime_pnl[regime_at_sell] += float(pnl_est)
+                                regime_trades[regime_at_sell] += 1
+                                exit_reason_count[regime_at_sell][reason] += 1
+
                                 in_position = False
                                 entry_price = None
                                 trailing_active[sym] = False
