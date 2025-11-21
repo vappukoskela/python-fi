@@ -148,7 +148,7 @@ TREND_CONFIG = {
     "EMA_DELTA": 0.0003,
     "RSI_FAIL_TICKS": 5,
     # Entry scoring thresholds
-    "ENTRY_SCORE_THRESHOLD": 1.6,
+    "ENTRY_SCORE_THRESHOLD": 2.5,
     # Indicator gate weights
     "WEIGHTS": {
         "ema_trend": 1.0,      # EMA_fast > EMA_slow + slope positive
@@ -652,7 +652,11 @@ def evaluate_entry(sym, price, size, prices_series, sizes_series, ts_val,
         w = TREND_CONFIG["WEIGHTS"]
         ema_trend_ok = (ema_fast > ema_slow) and (slope > 0)
         vwap_above_ok = (price > vwap_val) and ((price - vwap_val) > CONFIG["VWAP_DELTA"] * vwap_val)
-        macd_ok = (not pd.isna(macd_line) and not pd.isna(macd_signal) and macd_line > macd_signal and macd_hist > 0)
+        macd_ok = (
+            not pd.isna(macd_line) and not pd.isna(macd_signal)
+            and macd_line > macd_signal
+            and macd_hist > 0.10   # require stronger momentum
+        )
         pullback_ok = (pullback_to_ema or pullback_to_vwap)
         vol_ok = vol_spike
 
