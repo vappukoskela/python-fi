@@ -595,6 +595,13 @@ def evaluate_entry(sym, price, size, prices_series, sizes_series, ts_val,
     if regime == "TREND" and trend_paused[sym]:
         return (False, "TREND paused", 0.0, {})
 
+    # FitScore gate: auto-pause regime if underperforming
+    if regime_trades[regime] >= 5:
+        sls = exit_reason_count[regime].get("Stop-loss", 0)
+        net = regime_pnl[regime]
+        if (sls / regime_trades[regime] >= 0.6) and (net < 0):
+            return (False, f"{regime} paused by FitScore", 0.0, {})
+
     # Position/order checks
     no_position = positions_map.get(sym, (0, 0.0))[0] == 0
     inflight_none = inflight_orders.get(sym) is None
