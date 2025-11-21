@@ -111,7 +111,7 @@ EMA_SLOW = 20
 RSI_PERIOD = 14
 RSI_COOL_THRESHOLD = 3    # esim. raja-arvo RSI:lle "cool down" -tilanteessa
 VOL_SPIKE_MULT = 1.2
-ATR_PERIOD = 10
+ATR_PERIOD = 20
 ATR_FLOOR = 0.05  # esim. 2 senttiä NVDA:lle; kalibroi instrumentille
 
 
@@ -186,7 +186,7 @@ RANGE_CONFIG = {
 
 HIGH_VOL_CONFIG = {
     "TP_PCT": 0.0035,
-    "SL_MULTIPLIER": 1.2,
+    "SL_MULTIPLIER": 0,8,
     "TS_ACTIVATION_BUFFER": 0.006,
     "TRAILING_STOP_PCT": 0.007,
     "MAX_TRADES": 4,
@@ -203,7 +203,7 @@ HIGH_VOL_CONFIG = {
         "breakout_bar": 0.6       # price extends above recent high
     },
     "ATR_WINDOW": 50,
-    "ATR_TOP_PCT": 0.8,          # top 20% percentile considered high
+    "ATR_TOP_PCT": 0.9,          # top 20% percentile considered high
     "BOLL_PERIOD": 20,
     "BOLL_STD": 2.0,
     "VOL_ROC_WINDOW": 20,
