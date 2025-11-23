@@ -146,74 +146,74 @@ MAX_INFLIGHT_PER_SYMBOL = 1
 TREND_CONFIG = {
     "TP_PCT": 0.0020,
     "SL_MULTIPLIER": 1.0,
-    "TS_ACTIVATION_BUFFER": 0.004,
+    "TS_ACTIVATION_BUFFER": 0.003,
     "TRAILING_STOP_PCT": 0.005,
-    "MAX_TRADES": 8,
-    "MAX_LOSS_DAY": 1.5,
-    "VWAP_DELTA": 0.003,
+    "MAX_TRADES": 6,
+    "MAX_LOSS_DAY": 1.2,
+    "VWAP_DELTA": 0.004,
     "EMA_DELTA": 0.0003,
     "RSI_FAIL_TICKS": 5,
     # Entry scoring thresholds
-    "ENTRY_SCORE_THRESHOLD": 2.5,
+    "ENTRY_SCORE_THRESHOLD": 3.0,
     # Indicator gate weights
     "WEIGHTS": {
         "ema_trend": 1.0,      # EMA_fast > EMA_slow + slope positive
-        "vwap_above": 0.8,     # location above VWAP
-        "macd_momentum": 0.8,  # MACD > signal, rising histogram
-        "vol_confirm": 0.6,    # volume spike vs median
+        "vwap_above": 1.0,     # location above VWAP
+        "macd_momentum": 1.0,  # MACD > signal, rising histogram
+        "vol_confirm": 0.7,    # volume spike vs median
         "pullback_ok": 0.6,     # pullback to EMA_slow/VWAP then re-accel
         "rsi_ok": 0.7   # new weight
     },
     # pullback tolerances (distance normalized by price)
-    "PULLBACK_TOL": 0.0012
+    "PULLBACK_TOL": 0.0010
 }
 
 RANGE_CONFIG = {
     "TP_PCT": 0.0020,
-    "SL_MULTIPLIER": 0.6,
+    "SL_MULTIPLIER": 0.5,
     "TS_ACTIVATION_BUFFER": 0.003,
     "TRAILING_STOP_PCT": 0.004,
-    "MAX_TRADES": 6,
-    "MAX_LOSS_DAY": 1.2,
-    "VWAP_DELTA": 0.002,
+    "MAX_TRADES": 5,
+    "MAX_LOSS_DAY": 1.0,
+    "VWAP_DELTA": 0.003,
     "EMA_DELTA": 0.0002,
     "RSI_FAIL_TICKS": 4,
-    "ENTRY_SCORE_THRESHOLD": 0.6,
+    "ENTRY_SCORE_THRESHOLD": 1.0,
     "WEIGHTS": {
         "lower_band_touch": 1.0,     # price near lower Bollinger band
         "rsi_uptick": 1.0,           # RSI < 35 and upticking
-        "vwap_reversion": 0.8,       # distance to VWAP favorable
-        "bandwidth_ok": 0.4,         # range (not too wide, not too tight)
+        "vwap_reversion": 1.0,       # distance to VWAP favorable
+        "bandwidth_ok": 0.5,         # range (not too wide, not too tight)
         "vol_not_dry": 0.5,           # avoid illiquid chop
-        "rsi_ok": 0.7
+        "rsi_ok": 0.8
         
     },
     "BOLL_PERIOD": 20,
     "BOLL_STD": 2.0,
-    "BANDWIDTH_MAX": 0.01,  # max relative bandwidth to still count as range
+    "BANDWIDTH_MAX": 0.008,  # max relative bandwidth to still count as range
     "BANDWIDTH_MIN": 0.002  # avoid ultra-tight no-move
 }
 
 HIGH_VOL_CONFIG = {
-    "TP_PCT": 0.0035,
-    "SL_MULTIPLIER": 0.8,
-    "TS_ACTIVATION_BUFFER": 0.006,
-    "TRAILING_STOP_PCT": 0.007,
-    "MAX_TRADES": 4,
-    "MAX_LOSS_DAY": 1.0,
-    "VWAP_DELTA": 0.003,
+    "TP_PCT": 0.0030,
+    "SL_MULTIPLIER": 0.7,
+    "TS_ACTIVATION_BUFFER": 0.007,
+    "TRAILING_STOP_PCT": 0.008,
+    "MAX_TRADES": 1,
+    "MAX_LOSS_DAY": 0.5,
+    "VWAP_DELTA": 0.004,
     "EMA_DELTA": 0.0003,
-    "RSI_FAIL_TICKS": 4,
-    "ENTRY_SCORE_THRESHOLD": 3.2,
+    "RSI_FAIL_TICKS": 3,
+    "ENTRY_SCORE_THRESHOLD": 4.0,
     "WEIGHTS": {
         "atr_high": 1.0,          # ATR in upper decile of rolling window
-        "bb_expanding": 0.8,      # Bollinger bandwidth expansion
+        "bb_expanding": 1.0,      # Bollinger bandwidth expansion
         "macd_strong": 0.8,       # strong momentum
-        "vol_roc": 0.6,           # volume rate-of-change positive
-        "breakout_bar": 0.6       # price extends above recent high
+        "vol_roc": 0.8,           # volume rate-of-change positive
+        "breakout_bar": 0.8       # price extends above recent high
     },
     "ATR_WINDOW": 50,
-    "ATR_TOP_PCT": 0.9,          # top 20% percentile considered high
+    "ATR_TOP_PCT": 0.95,          # top 20% percentile considered high
     "BOLL_PERIOD": 20,
     "BOLL_STD": 2.0,
     "VOL_ROC_WINDOW": 20,
