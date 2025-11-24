@@ -1517,7 +1517,7 @@ def main():
                     highest_price_since_entry[symbol] = price
                     last_buy_time[symbol] = ts_val
                     # --- PATCH: jäädytä config position ajaksi ---
-                    entry_configs[symbol] = CONFIG
+                    entry_configs[symbol] = CONFIG_SESSION
                     logging.info(f"{symbol} [{RUN_MODE}] BUY @ {price:.4f} | Trigger={reason} | Bias={day_bias} | Config={CONFIG}")
                 else:
                     highest_price_since_entry[symbol] = max(highest_price_since_entry[symbol], price)
@@ -1754,8 +1754,8 @@ def main():
                                     entry_prices[sym] = price
                                     entry_times[sym] = datetime.now(timezone.utc)
                                     last_buy_time[sym] = datetime.now(timezone.utc)
-                                    entry_configs[sym] = CONFIG
-                                    logging.info(f"{sym} - ENTRY recorded qty={entry_qty[sym]} price={price:.2f} rsi={rsi_val:.2f} Bias={day_bias} Config={CONFIG}")
+                                    entry_configs[sym] = CONFIG_SESSION
+                                    logging.info(f"{sym} - ENTRY recorded qty={entry_qty[sym]} price={price:.2f} rsi={rsi_val:.2f} Bias={day_bias} Config={CONFIG_SESSION}")
                                     
                                 else:
                                     logging.warning(f"[TRACE] Buy assumed filled but no position found for {sym}")
