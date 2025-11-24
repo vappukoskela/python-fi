@@ -417,6 +417,162 @@ def overlay_by_session(CONFIG, ts):
 
     return adj
 
+# === PATCH 4: ADX and Choppiness proxies ===
+ADX_ENABLED = True
+CHOP_ENABLED = True
+
+def _adx_proxy(series, period=14):
+    # simple directional movement proxy from closes
+    if len(series) < period + 2:
+        return float('nan')
+    deltas = series.diff()
+    plus_dm = deltas.where(deltas > 0, 0).rolling(period).sum()
+    minus_dm = (-deltas.where(deltas < 0, 0)).rolling(period).sum()
+    denom = plus_dm + minus_dm
+    dx = 100 * abs(plus_dm - minus_dm) / denom.replace(0, np.nan)
+    return float(dx.iloc[-1]) if not pd.isna(dx.iloc[-1]) else float('nan')
+
+def _choppiness_proxy(series, period=14):
+    if len(series) < period + 1:
+        return float('nan')
+    # ratio of sum(|returns|) to high-low range proxy
+    returns_abs = series.diff().abs().rolling(period).sum().iloc[-1]
+    hi_lo_range = (series.rolling(period).max() - series.rolling(period).min()).iloc[-1]
+    if pd.isna(returns_abs) or pd.isna(hi_lo_range) or hi_lo_range == 0:
+        return float('nan')
+    # higher value => choppier (consolidation)
+    return float(returns_abs / hi_lo_range)
+
+# Use in evaluate_entry: compute once
+adx_val = _adx_proxy(prices_series) if ADX_ENABLED else float('nan')
+chop_val = _choppiness_proxy(prices_series) if CHOP_ENABLED else float('nan')
+
+# TREND: require adx_val >= 20 (proxy)
+if regime == "TREND":
+    adx_ok = (not pd.isna(adx_val) and adx_val >= 20)
+    signal_stack["adx_ok"] = adx_ok
+    score += 0.4 if adx_ok else 0.0
+
+# LOW_VOL: require chop_val high (consolidation)
+if regime == "LOW_VOL":
+    chop_ok = (not pd.isna(chop_val) and chop_val >= 1.2)
+    signal_stack["chop_proxy_ok"] = chop_ok
+    score += 0.3 if chop_ok else 0.0
+
+# === PATCH 5: High-vol strict but tradable ===
+# Update HIGH_VOL_CONFIG to allow entries with stricter gating
+HIGH_VOL_CONFIG.update({
+    "TP_PCT": 0.0030,
+    "SL_MULTIPLIER": 1.2,        # wider SL per ATR
+    "TS_ACTIVATION_BUFFER": 0.007,
+    "TRAILING_STOP_PCT": 0.008,
+    "MAX_TRADES": 2,
+    "MAX_LOSS_DAY": 0.6,
+    "ENTRY_SCORE_THRESHOLD": max(HIGH_VOL_CONFIG.get("ENTRY_SCORE_THRESHOLD", 3.2), 3.6),
+    "ATR_TOP_PCT": 0.95,
+})
+
+# === PATCH 6: Risk governor (removable) ===
+RISK_GOVERNOR_ENABLED = True
+RISK_GOVERNOR_FILE = AUDIT_CSV_FILE
+RISK_WINDOW_TRADES = 30
+RISK_WINRATE_TARGET = 0.62
+RISK_LOSS_TO_WIN_MAX = 0.7
+
+def _risk_governor_update():
+    if not RISK_GOVERNOR_ENABLED or not os.path.exists(RISK_GOVERNOR_FILE):
+        return
+    import csv
+    rows = []
+    try:
+        with open(RISK_GOVERNOR_FILE, newline="") as f:
+            reader = csv.DictReader(f)
+            for r in reader:
+                rows.append(r)
+        if len(rows) < RISK_WINDOW_TRADES:
+            return
+        # crude rolling window on last N rows: count good_block/bad_block; approximate win rate with TP/SL exits in logs if available elsewhere
+        window = rows[-RISK_WINDOW_TRADES:]
+        good = sum(1 for r in window if r.get("outcome") == "good_block")
+        bad  = sum(1 for r in window if r.get("outcome") == "bad_block")
+        winrate_est = good / max(1, (good + bad))
+        # optional: read live trade CSV to measure avg win/loss; placeholder adjusts conservatively
+        global BUY_POWER_LIMIT
+        global RANGE_CONFIG, TREND_CONFIG, LOW_VOL_CONFIG, HIGH_VOL_CONFIG
+        if winrate_est >= RISK_WINRATE_TARGET:
+            BUY_POWER_LIMIT = min(0.06, BUY_POWER_LIMIT + 0.005)
+            for cfg in (RANGE_CONFIG, TREND_CONFIG, LOW_VOL_CONFIG):
+                cfg["MAX_TRADES"] = min(cfg["MAX_TRADES"] + 1, cfg["MAX_TRADES"] + 1)
+        else:
+            BUY_POWER_LIMIT = max(0.04, BUY_POWER_LIMIT - 0.005)
+            for cfg in (RANGE_CONFIG, TREND_CONFIG, LOW_VOL_CONFIG, HIGH_VOL_CONFIG):
+                cfg["MAX_TRADES"] = max(2, cfg["MAX_TRADES"] - 1)
+    except Exception as e:
+        logging.debug("[RISK] governor read failed: %s", e)
+
+# Call governor once per outer loop in LIVE
+# In main LIVE loop top (INSERT):
+_risk_governor_update()
+
+# === PATCH RG: Risk governor with TP_PCT drawdown response ===
+RISK_GOVERNOR_ENABLED = True
+RISK_GOVERNOR_FILE = AUDIT_CSV_FILE
+RISK_WINDOW_TRADES = 30
+RISK_WINRATE_TARGET = 0.62
+RISK_LOSS_TO_WIN_MAX = 0.7
+RISK_DRAWDOWN_TP_CUT = 0.85   # cut TP_PCT to 85% of current when drawdown detected
+RISK_DRAWDOWN_THRESHOLD_USD = -1500.0  # rolling net threshold
+RISK_SIZE_STEP = 0.005
+RISK_SIZE_MIN = 0.04
+RISK_SIZE_MAX = 0.06
+
+def _risk_stats_from_audit(rows):
+    good = sum(1 for r in rows if r.get("outcome") == "good_block")
+    bad  = sum(1 for r in rows if r.get("outcome") == "bad_block")
+    winrate_est = good / max(1, (good + bad))
+    # Approximate rolling net from blocked outcomes (conservative): good_block ~ saved SL, bad_block ~ missed TP
+    # If you want exact PnL, wire in the live trade CSV similarly.
+    net_est = (good * -ATR_FLOOR) + (bad * ATR_FLOOR)  # crude proxy; keeps directionality
+    return winrate_est, net_est
+
+def _apply_tp_cut_on_drawdown():
+    global RANGE_CONFIG, TREND_CONFIG, LOW_VOL_CONFIG
+    # Cut TP_PCT across active regimes (not HIGH_VOL) to exit faster during drawdowns
+    for cfg in (RANGE_CONFIG, TREND_CONFIG, LOW_VOL_CONFIG):
+        try:
+            cfg["TP_PCT"] = max(0.0010, cfg["TP_PCT"] * RISK_DRAWDOWN_TP_CUT)
+        except Exception:
+            pass
+
+def _risk_governor_update():
+    if not RISK_GOVERNOR_ENABLED or not os.path.exists(RISK_GOVERNOR_FILE):
+        return
+    import csv
+    rows = []
+    try:
+        with open(RISK_GOVERNOR_FILE, newline="") as f:
+            reader = csv.DictReader(f)
+            for r in reader:
+                rows.append(r)
+        if len(rows) < RISK_WINDOW_TRADES:
+            return
+        window = rows[-RISK_WINDOW_TRADES:]
+        winrate_est, net_est = _risk_stats_from_audit(window)
+
+        # Position sizing adjustment
+        global BUY_POWER_LIMIT
+        if winrate_est >= RISK_WINRATE_TARGET:
+            BUY_POWER_LIMIT = min(RISK_SIZE_MAX, BUY_POWER_LIMIT + RISK_SIZE_STEP)
+        else:
+            BUY_POWER_LIMIT = max(RISK_SIZE_MIN, BUY_POWER_LIMIT - RISK_SIZE_STEP)
+
+        # Drawdown TP cut
+        if net_est <= RISK_DRAWDOWN_THRESHOLD_USD:
+            _apply_tp_cut_on_drawdown()
+
+    except Exception as e:
+        logging.debug("[RISK] governor update failed: %s", e)
+
 
 # === Alpaca helpers: defensive ===
 def fetch_latest_trade_price_and_size_batch(stock_data_client, symbols):
@@ -902,6 +1058,18 @@ def evaluate_sell(sym, last_price, ref_entry, price_deque, size_deque, entry_tim
         regime = detect_regime(prices_series, sizes_series)
         CONFIG_E = overlay_exit_params_by_regime(CONFIG, regime)
 
+        # --- LOW_VOL time-stop exit ---
+        LOW_VOL_TIME_STOP_ENABLED = True
+        LOW_VOL_TIME_STOP_SECONDS = 120
+        
+        low_vol_time_stop_hit = False
+        if LOW_VOL_TIME_STOP_ENABLED and (regime == "LOW_VOL"):
+            if entry_time is not None:
+                low_vol_time_stop_hit = elapsed >= LOW_VOL_TIME_STOP_SECONDS
+        
+        if low_vol_time_stop_hit:
+            return True, "Low-vol time-stop"
+
         tp_price = ref_entry * (1 + CONFIG_E["TP_PCT"])
         tp_hit = last_price >= tp_price
 
@@ -1203,9 +1371,13 @@ def main():
         
         from alpaca.data.requests import StockTradesRequest
         from datetime import datetime, timezone
+        
     
         symbol = "NVDA"
         symbols = [symbol]  # tarvitaan deque-rakenteisiin
+
+        # === CALL PATCH RG in LIVE loop (once per outer iteration) ===
+        _risk_governor_update()
 
                 
         # Alusta tilarakenteet
