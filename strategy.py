@@ -150,11 +150,11 @@ TREND_CONFIG = {
     "TRAILING_STOP_PCT": 0.005,
     "MAX_TRADES": 6,
     "MAX_LOSS_DAY": 1.2,
-    "VWAP_DELTA": 0.004,
+    "VWAP_DELTA": 0.005,
     "EMA_DELTA": 0.0003,
     "RSI_FAIL_TICKS": 5,
     # Entry scoring thresholds
-    "ENTRY_SCORE_THRESHOLD": 3.0,
+    "ENTRY_SCORE_THRESHOLD": 3.2,
     # Indicator gate weights
     "WEIGHTS": {
         "ema_trend": 1.0,      # EMA_fast > EMA_slow + slope positive
@@ -170,15 +170,15 @@ TREND_CONFIG = {
 
 RANGE_CONFIG = {
     "TP_PCT": 0.0020,
-    "SL_MULTIPLIER": 0.5,
+    "SL_MULTIPLIER": 0.45,
     "TS_ACTIVATION_BUFFER": 0.003,
     "TRAILING_STOP_PCT": 0.004,
     "MAX_TRADES": 5,
     "MAX_LOSS_DAY": 1.0,
-    "VWAP_DELTA": 0.003,
+    "VWAP_DELTA": 0.004,
     "EMA_DELTA": 0.0002,
     "RSI_FAIL_TICKS": 4,
-    "ENTRY_SCORE_THRESHOLD": 1.0,
+    "ENTRY_SCORE_THRESHOLD": 1.2,
     "WEIGHTS": {
         "lower_band_touch": 1.0,     # price near lower Bollinger band
         "rsi_uptick": 1.0,           # RSI < 35 and upticking
@@ -195,25 +195,25 @@ RANGE_CONFIG = {
 }
 
 HIGH_VOL_CONFIG = {
-    "TP_PCT": 0.0030,
-    "SL_MULTIPLIER": 0.7,
-    "TS_ACTIVATION_BUFFER": 0.007,
-    "TRAILING_STOP_PCT": 0.008,
-    "MAX_TRADES": 1,
-    "MAX_LOSS_DAY": 0.5,
-    "VWAP_DELTA": 0.004,
-    "EMA_DELTA": 0.0003,
-    "RSI_FAIL_TICKS": 3,
-    "ENTRY_SCORE_THRESHOLD": 4.0,
+    "TP_PCT": 0.0,
+    "SL_MULTIPLIER": 0.0,
+    "TS_ACTIVATION_BUFFER": 1.0,
+    "TRAILING_STOP_PCT": 1.0,
+    "MAX_TRADES": 0,
+    "MAX_LOSS_DAY": 0.0,
+    "VWAP_DELTA": 1.0,
+    "EMA_DELTA": 1.0,
+    "RSI_FAIL_TICKS": 99,
+    "ENTRY_SCORE_THRESHOLD": 999,
     "WEIGHTS": {
-        "atr_high": 1.0,          # ATR in upper decile of rolling window
-        "bb_expanding": 1.0,      # Bollinger bandwidth expansion
-        "macd_strong": 0.8,       # strong momentum
-        "vol_roc": 0.8,           # volume rate-of-change positive
-        "breakout_bar": 0.8       # price extends above recent high
+        "atr_high": 0.0,          # ATR in upper decile of rolling window
+        "bb_expanding": 0.0,      # Bollinger bandwidth expansion
+        "macd_strong": 0.0,       # strong momentum
+        "vol_roc": 0.0,           # volume rate-of-change positive
+        "breakout_bar": 0.0       # price extends above recent high
     },
     "ATR_WINDOW": 50,
-    "ATR_TOP_PCT": 0.95,          # top 20% percentile considered high
+    "ATR_TOP_PCT": 1.0,          # top 20% percentile considered high
     "BOLL_PERIOD": 20,
     "BOLL_STD": 2.0,
     "VOL_ROC_WINDOW": 20,
