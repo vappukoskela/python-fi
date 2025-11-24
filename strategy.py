@@ -356,6 +356,36 @@ def ema_slope(series, period=20):
     ema = series.ewm(span=period, adjust=False).mean()
     return float(ema.iloc[-1] - ema.iloc[-2])
 
+# === PATCH 2: Multi-tick confirmation ===
+ENTRY_CONFIRM_ENABLED = True
+ENTRY_CONFIRM_TICKS = 3  # consecutive ticks to validate pattern
+
+def _confirm_trend(prices_series, vwap_val, ema_slow_val):
+    if len(prices_series) < ENTRY_CONFIRM_TICKS + 2 or pd.isna(vwap_val) or pd.isna(ema_slow_val):
+        return False
+    tail = prices_series.iloc[-ENTRY_CONFIRM_TICKS-2:]
+    # pullback near EMA/VWAP then two upticks
+    near_anchor = (abs(tail.iloc[-ENTRY_CONFIRM_TICKS] - ema_slow_val) / tail.iloc[-ENTRY_CONFIRM_TICKS] <= TREND_CONFIG["PULLBACK_TOL"]) or \
+                  (abs(tail.iloc[-ENTRY_CONFIRM_TICKS] - vwap_val) / tail.iloc[-ENTRY_CONFIRM_TICKS] <= TREND_CONFIG["PULLBACK_TOL"])
+    upticks = all(tail.iloc[i] < tail.iloc[i+1] for i in range(len(tail)-1))
+    return near_anchor and upticks
+
+def _confirm_range(prices_series, lower_band):
+    if len(prices_series) < ENTRY_CONFIRM_TICKS + 1 or pd.isna(lower_band):
+        return False
+    tail = prices_series.iloc[-ENTRY_CONFIRM_TICKS-1:]
+    touch = tail.iloc[-ENTRY_CONFIRM_TICKS] <= lower_band * (1 + 0.0002)
+    upticks = sum(tail.diff().fillna(0) > 0) >= ENTRY_CONFIRM_TICKS - 1
+    return touch and upticks
+
+def _confirm_low_vol(prices_series, vwap_val):
+    if len(prices_series) < ENTRY_CONFIRM_TICKS + 1 or pd.isna(vwap_val):
+        return False
+    tail = prices_series.iloc[-ENTRY_CONFIRM_TICKS-1:]
+    below_vwap = tail.iloc[-ENTRY_CONFIRM_TICKS] < vwap_val
+    mean_rev = tail.iloc[-1] > tail.iloc[-2] > tail.iloc[-3]
+    return below_vwap and mean_rev
+
 
 
 # === Alpaca helpers: defensive ===
@@ -751,11 +781,30 @@ def evaluate_entry(sym, price, size, prices_series, sizes_series, ts_val,
         score += w["chop_high"] if chop_ok else 0.0
         score += w["vol_ok"] if vol_ok else 0.0
 
-   
+
+    # Inside evaluate_entry, before computing 'accept'
+    confirm_ok = True
+    if ENTRY_CONFIRM_ENABLED:
+        if regime == "TREND":
+            confirm_ok = _confirm_trend(prices_series, vwap_val, ema_slow)
+        elif regime == "RANGE":
+            confirm_ok = _confirm_range(prices_series, lower)
+        elif regime == "LOW_VOL":
+            confirm_ok = _confirm_low_vol(prices_series, vwap_val)
+        else:  # HIGH_VOL
+            # breakout confirmation: last price > recent high and two higher closes
+            rh = recent_high(prices_series, HIGH_VOL_CONFIG["BREAKOUT_LOOKBACK"])
+            if pd.isna(rh) or len(prices_series) < ENTRY_CONFIRM_TICKS + 1:
+                confirm_ok = False
+            else:
+                tail = prices_series.iloc[-ENTRY_CONFIRM_TICKS-1:]
+                confirm_ok = (tail.iloc[-ENTRY_CONFIRM_TICKS] > rh) and all(tail.diff().fillna(0) > 0)
+
+                       
 
     # Final gate
     threshold = CONFIG.get("ENTRY_SCORE_THRESHOLD", 3.0)
-    accept = (score >= threshold)
+    accept = (score >= threshold) and confirm_ok
 
     if log_stack and (accept or AUDIT_TRAIL_ENABLED):
         logging.info(f"[ENTRY_STACK][{sym}] regime={regime} score={score:.2f} threshold={threshold} stack={signal_stack}")
