@@ -1455,7 +1455,7 @@ def main():
     
             if USE_REGIME_ENTRY:
                 regime_raw = detect_regime(prices, sizes_series)
-                regime = _smooth_regime(sym, regime_raw)
+                regime = _smooth_regime(symbol, regime_raw)
                 CONFIG_SESSION = overlay_by_session(CONFIG, ts_val)
                 accept, reason, score, stack = evaluate_entry(
                     symbol, price, size, prices, sizes_series, ts_val,
