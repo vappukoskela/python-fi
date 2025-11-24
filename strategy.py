@@ -459,7 +459,7 @@ HIGH_VOL_CONFIG.update({
     "ATR_TOP_PCT": 0.95,
 })
 
-
+AUDIT_CSV_FILE = "audit_blocks_live.csv"
 # === PATCH RG: Risk governor with TP_PCT drawdown response ===
 RISK_GOVERNOR_ENABLED = True
 RISK_GOVERNOR_FILE = AUDIT_CSV_FILE
