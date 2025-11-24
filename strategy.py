@@ -1455,7 +1455,7 @@ def main():
     
             if USE_REGIME_ENTRY:
                 regime_raw = detect_regime(prices, sizes_series)
-                regime = _smooth_regime(symbol, regime_raw)
+                regime = _smooth_regime(sym, regime_raw)
                 CONFIG_SESSION = overlay_by_session(CONFIG, ts_val)
                 accept, reason, score, stack = evaluate_entry(
                     symbol, price, size, prices, sizes_series, ts_val,
@@ -1616,6 +1616,7 @@ def main():
     
     while not stop_event.is_set():
         try:
+            _risk_governor_update()  # apply drawdown TP cuts & pos sizing
             positions_map = get_positions_map(trade_client)
             spent_this_loop = 0.0
             max_loop_budget = calculate_buying_power_limit(trade_client, BUY_POWER_LIMIT)
