@@ -386,6 +386,36 @@ def _confirm_low_vol(prices_series, vwap_val):
     mean_rev = tail.iloc[-1] > tail.iloc[-2] > tail.iloc[-3]
     return below_vwap and mean_rev
 
+# === PATCH 3: Session overlays ===
+SESSION_OVERLAYS_ENABLED = True
+SESSION_SLICES = [
+    ("OPEN", 0, 30),   # first 30 minutes after market open
+    ("MID", 30, 330),  # rest of session (example: 30 min to 5.5 hours)
+]
+
+def _session_minutes(ts):
+    # assumes U.S. equities open 13:30 UTC; adjust if needed
+    open_utc = ts.replace(hour=13, minute=30, second=0, microsecond=0)
+    return max(0, int((ts - open_utc).total_seconds() // 60))
+
+def overlay_by_session(CONFIG, ts):
+    if not SESSION_OVERLAYS_ENABLED:
+        return CONFIG
+    minutes = _session_minutes(ts)
+    adj = dict(CONFIG)  # shallow copy
+
+    # OPEN session stricter entries, tighter SL, slightly higher TP
+    if 0 <= minutes < 30:
+        adj["ENTRY_SCORE_THRESHOLD"] = CONFIG.get("ENTRY_SCORE_THRESHOLD", 3.0) + 0.3
+        adj["SL_MULTIPLIER"] = max(0.8, CONFIG["SL_MULTIPLIER"] * 0.9)
+        adj["TP_PCT"] = min(CONFIG["TP_PCT"] * 1.1, CONFIG["TP_PCT"] + 0.0003)
+
+    # MID session: allow RANGE/LOW_VOL slightly easier entries
+    else:
+        if CONFIG is RANGE_CONFIG or CONFIG is LOW_VOL_CONFIG:
+            adj["ENTRY_SCORE_THRESHOLD"] = max(1.0, CONFIG.get("ENTRY_SCORE_THRESHOLD", 3.0) - 0.2)
+
+    return adj
 
 
 # === Alpaca helpers: defensive ===
