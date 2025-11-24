@@ -573,6 +573,31 @@ def _risk_governor_update():
     except Exception as e:
         logging.debug("[RISK] governor update failed: %s", e)
 
+# === PATCH OBV: OBV slope proxy ===
+def _obv_slope_proxy(prices_series, sizes_series, window=20):
+    """
+    Lightweight OBV proxy: cumulative volume adds on up ticks, subtracts on down ticks.
+    Returns last slope over window (positive = confirming).
+    """
+    if len(prices_series) < window + 2 or len(sizes_series) < window + 2:
+        return float('nan')
+    delta = prices_series.diff()
+    vol = sizes_series.fillna(0)
+    obv = []
+    cum = 0.0
+    for i in range(1, len(prices_series)):
+        if pd.isna(delta.iloc[i]) or pd.isna(vol.iloc[i]):
+            continue
+        if delta.iloc[i] > 0:
+            cum += vol.iloc[i]
+        elif delta.iloc[i] < 0:
+            cum -= vol.iloc[i]
+        obv.append(cum)
+    if len(obv) < window + 1:
+        return float('nan')
+    obv_series = pd.Series(obv)
+    return float(obv_series.iloc[-1] - obv_series.iloc[-window])
+
 
 # === Alpaca helpers: defensive ===
 def fetch_latest_trade_price_and_size_batch(stock_data_client, symbols):
@@ -876,6 +901,7 @@ def evaluate_entry(sym, price, size, prices_series, sizes_series, ts_val,
     signal_stack = {}
     score = 0.0
 
+    obv_slope = _obv_slope_proxy(prices_series, sizes_series, window=20)                   
     if regime == "TREND":
         w = TREND_CONFIG["WEIGHTS"]
         ema_trend_ok = (ema_fast > ema_slow) and (slope > 0)
@@ -887,20 +913,23 @@ def evaluate_entry(sym, price, size, prices_series, sizes_series, ts_val,
         )
         pullback_ok = (pullback_to_ema or pullback_to_vwap)
         vol_ok = vol_spike
+        obv_ok = (not pd.isna(obv_slope) and obv_slope > 0)
 
         signal_stack.update({
             "ema_trend_ok": ema_trend_ok,
             "vwap_above_ok": vwap_above_ok,
             "macd_ok": macd_ok,
             "pullback_ok": pullback_ok,
-            "vol_ok": vol_ok
+            "vol_ok": vol_ok,
+            "obv_slope_ok": obv_ok
         })
         score += w["ema_trend"] if ema_trend_ok else 0.0
         score += w["vwap_above"] if vwap_above_ok else 0.0
         score += w["macd_momentum"] if macd_ok else 0.0
         score += w["pullback_ok"] if pullback_ok else 0.0
         score += w["vol_confirm"] if vol_ok else 0.0
-
+        score += 0.3 if obv_ok else 0.0
+                       
     elif regime == "RANGE":
         w = RANGE_CONFIG["WEIGHTS"]
         lb_touch = lower_touch
