@@ -443,21 +443,7 @@ def _choppiness_proxy(series, period=14):
     # higher value => choppier (consolidation)
     return float(returns_abs / hi_lo_range)
 
-# Use in evaluate_entry: compute once
-adx_val = _adx_proxy(prices_series) if ADX_ENABLED else float('nan')
-chop_val = _choppiness_proxy(prices_series) if CHOP_ENABLED else float('nan')
 
-# TREND: require adx_val >= 20 (proxy)
-if regime == "TREND":
-    adx_ok = (not pd.isna(adx_val) and adx_val >= 20)
-    signal_stack["adx_ok"] = adx_ok
-    score += 0.4 if adx_ok else 0.0
-
-# LOW_VOL: require chop_val high (consolidation)
-if regime == "LOW_VOL":
-    chop_ok = (not pd.isna(chop_val) and chop_val >= 1.2)
-    signal_stack["chop_proxy_ok"] = chop_ok
-    score += 0.3 if chop_ok else 0.0
 
 # === PATCH 5: High-vol strict but tradable ===
 # Update HIGH_VOL_CONFIG to allow entries with stricter gating
@@ -472,47 +458,6 @@ HIGH_VOL_CONFIG.update({
     "ATR_TOP_PCT": 0.95,
 })
 
-# === PATCH 6: Risk governor (removable) ===
-RISK_GOVERNOR_ENABLED = True
-RISK_GOVERNOR_FILE = AUDIT_CSV_FILE
-RISK_WINDOW_TRADES = 30
-RISK_WINRATE_TARGET = 0.62
-RISK_LOSS_TO_WIN_MAX = 0.7
-
-def _risk_governor_update():
-    if not RISK_GOVERNOR_ENABLED or not os.path.exists(RISK_GOVERNOR_FILE):
-        return
-    import csv
-    rows = []
-    try:
-        with open(RISK_GOVERNOR_FILE, newline="") as f:
-            reader = csv.DictReader(f)
-            for r in reader:
-                rows.append(r)
-        if len(rows) < RISK_WINDOW_TRADES:
-            return
-        # crude rolling window on last N rows: count good_block/bad_block; approximate win rate with TP/SL exits in logs if available elsewhere
-        window = rows[-RISK_WINDOW_TRADES:]
-        good = sum(1 for r in window if r.get("outcome") == "good_block")
-        bad  = sum(1 for r in window if r.get("outcome") == "bad_block")
-        winrate_est = good / max(1, (good + bad))
-        # optional: read live trade CSV to measure avg win/loss; placeholder adjusts conservatively
-        global BUY_POWER_LIMIT
-        global RANGE_CONFIG, TREND_CONFIG, LOW_VOL_CONFIG, HIGH_VOL_CONFIG
-        if winrate_est >= RISK_WINRATE_TARGET:
-            BUY_POWER_LIMIT = min(0.06, BUY_POWER_LIMIT + 0.005)
-            for cfg in (RANGE_CONFIG, TREND_CONFIG, LOW_VOL_CONFIG):
-                cfg["MAX_TRADES"] = min(cfg["MAX_TRADES"] + 1, cfg["MAX_TRADES"] + 1)
-        else:
-            BUY_POWER_LIMIT = max(0.04, BUY_POWER_LIMIT - 0.005)
-            for cfg in (RANGE_CONFIG, TREND_CONFIG, LOW_VOL_CONFIG, HIGH_VOL_CONFIG):
-                cfg["MAX_TRADES"] = max(2, cfg["MAX_TRADES"] - 1)
-    except Exception as e:
-        logging.debug("[RISK] governor read failed: %s", e)
-
-# Call governor once per outer loop in LIVE
-# In main LIVE loop top (INSERT):
-_risk_governor_update()
 
 # === PATCH RG: Risk governor with TP_PCT drawdown response ===
 RISK_GOVERNOR_ENABLED = True
@@ -863,6 +808,10 @@ def evaluate_entry(sym, price, size, prices_series, sizes_series, ts_val,
     atr_val = compute_atr_from_series(prices_series, ATR_PERIOD)
     slope = ema_slope(prices_series, EMA_SLOW)
 
+    # INSERT ADX/CHOP HERE
+    adx_val = _adx_proxy(prices_series) if ADX_ENABLED else float('nan')
+    chop_val = _choppiness_proxy(prices_series) if CHOP_ENABLED else float('nan')
+
     # RSI uptick check
     rsi_series_full = compute_rsi_from_series(prices_series, RSI_PERIOD)
     rsi_prev = rsi_series_full.iloc[-2] if len(rsi_series_full) >= 2 else float('nan')
@@ -929,6 +878,11 @@ def evaluate_entry(sym, price, size, prices_series, sizes_series, ts_val,
         score += w["pullback_ok"] if pullback_ok else 0.0
         score += w["vol_confirm"] if vol_ok else 0.0
         score += 0.3 if obv_ok else 0.0
+
+        # INSERT ADX SCORING
+        adx_ok = (not pd.isna(adx_val) and adx_val >= 20)
+        signal_stack["adx_ok"] = adx_ok
+        score += 0.4 if adx_ok else 0.0
                        
     elif regime == "RANGE":
         w = RANGE_CONFIG["WEIGHTS"]
@@ -996,6 +950,10 @@ def evaluate_entry(sym, price, size, prices_series, sizes_series, ts_val,
         score += w["chop_high"] if chop_ok else 0.0
         score += w["vol_ok"] if vol_ok else 0.0
 
+        # INSERT CHOPPINESS SCORING
+        chop_ok = (not pd.isna(chop_val) and chop_val >= 1.2)
+        signal_stack["chop_proxy_ok"] = chop_ok
+        score += 0.3 if chop_ok else 0.0
 
     # Inside evaluate_entry, before computing 'accept'
     confirm_ok = True
@@ -1499,7 +1457,7 @@ def main():
             if USE_REGIME_ENTRY:
                 regime_raw = detect_regime(prices, sizes_series)
                 regime = _smooth_regime(symbol, regime_raw)
-                 CONFIG_SESSION = overlay_by_session(CONFIG, ts_val)
+                CONFIG_SESSION = overlay_by_session(CONFIG, ts_val)
                 accept, reason, score, stack = evaluate_entry(
                     symbol, price, size, prices, sizes_series, ts_val,
                     positions_map, inflight_orders, pending_entries,
@@ -1514,12 +1472,14 @@ def main():
                 continue
             else:
                 # Regime-aware entry (SIM): strict parity with LIVE
-                regime = detect_regime(prices, sizes_series)
+                regime_raw = detect_regime(prices, sizes_series)
+                regime = _smooth_regime(symbol, regime_raw)
+                CONFIG_SESSION = overlay_by_session(CONFIG, ts_val)
                 accept, reason, score, stack = evaluate_entry(
                     symbol, price, size, prices, sizes_series, ts_val,
                     positions_map, inflight_orders, pending_entries,
                     last_exit_time[symbol], last_buy_time,
-                    CONFIG, regime, log_stack=False
+                    CONFIG_SESSION, regime, log_stack=False
                 )
                 buy = accept
 
