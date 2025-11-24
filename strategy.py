@@ -443,7 +443,8 @@ def _choppiness_proxy(series, period=14):
     # higher value => choppier (consolidation)
     return float(returns_abs / hi_lo_range)
 
-
+# === AUDIT TRAIL filename (hoisted so risk governor can reference it) ===
+AUDIT_CSV_FILE = "audit_blocks_live.csv"
 
 # === PATCH 5: High-vol strict but tradable ===
 # Update HIGH_VOL_CONFIG to allow entries with stricter gating
