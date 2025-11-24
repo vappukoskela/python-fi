@@ -507,70 +507,69 @@ def detect_day_bias(prices_series, ema_fast_series, ema_slow_series, vwap_series
         return "bearish"
 
 # === REGIME DETECTOR ===
+# === PATCH 1: Regime smoothing and cleanup ===
+# Insert just below detect_regime definition
+
+REGIME_SMOOTH_ENABLED = True
+REGIME_TRANSITION = {
+    # simple sticky transitions; tune with audit
+    "TREND":     {"TREND": 0.70, "RANGE": 0.15, "LOW_VOL": 0.10, "HIGH_VOL": 0.05},
+    "RANGE":     {"TREND": 0.15, "RANGE": 0.65, "LOW_VOL": 0.15, "HIGH_VOL": 0.05},
+    "LOW_VOL":   {"TREND": 0.10, "RANGE": 0.15, "LOW_VOL": 0.70, "HIGH_VOL": 0.05},
+    "HIGH_VOL":  {"TREND": 0.10, "RANGE": 0.10, "LOW_VOL": 0.05, "HIGH_VOL": 0.75}
+}
+_last_regime = defaultdict(lambda: None)
+
+def _smooth_regime(sym, raw_regime):
+    if not REGIME_SMOOTH_ENABLED:
+        return raw_regime
+    prev = _last_regime[sym]
+    if prev is None:
+        _last_regime[sym] = raw_regime
+        return raw_regime
+    # stickiness: if raw flips but probability favors previous, keep previous
+    trans = REGIME_TRANSITION.get(prev, {})
+    prob_prev = trans.get(prev, 0.5)
+    prob_raw = trans.get(raw_regime, 0.0)
+    chosen = prev if prob_prev >= prob_raw else raw_regime
+    _last_regime[sym] = chosen
+    return chosen
+
 def detect_regime(prices_series, sizes_series):
-    """
-    Classify intraday regime using only locally computed features.
-    Returns one of: "TREND", "RANGE", "HIGH_VOL", "LOW_VOL".
-    """
-    # VWAP, EMA context
     ema_fast = compute_ema_from_series(prices_series, EMA_FAST).iloc[-1] if len(prices_series) >= 2 else float('nan')
     ema_slow = compute_ema_from_series(prices_series, EMA_SLOW).iloc[-1] if len(prices_series) >= 2 else float('nan')
     vwap_val = compute_vwap_from_ticks(prices_series, sizes_series).iloc[-1] if len(sizes_series) else float('nan')
     slope = ema_slope(prices_series, EMA_SLOW)
-
-    # Vol and bandwidth
     atr_val = compute_atr_from_series(prices_series, ATR_PERIOD)
     upper, ma, lower, bandwidth = compute_bollinger(prices_series, period=20, std=2.0)
 
-    # Heuristics:
-    # - HIGH_VOL: ATR relatively high vs recent distribution + bandwidth expansion
-    # - LOW_VOL: bandwidth very low
-    # - TREND: EMA_fast > EMA_slow, slope positive, price on the correct side of VWAP
-    # - RANGE: otherwise, with bandwidth within moderate bounds
-
-    # Compute a simple ATR percentile proxy over last N:
+    # ATR percentile proxy
     N = 50
-    if len(prices_series) >= N + 2:
+    if len(prices_series) >= N + ATR_PERIOD:
         atr_series = prices_series.diff().abs().rolling(ATR_PERIOD).mean()
         hist = atr_series.iloc[-N:].dropna()
-        if len(hist) > 10 and not pd.isna(atr_val):
-            pct = (hist < atr_val).mean()  # fraction below current ATR
-        else:
-            pct = 0.5
+        pct = (hist < atr_val).mean() if len(hist) > 10 and not pd.isna(atr_val) else 0.5
     else:
         pct = 0.5
 
-    # Decision (reordered: HIGH_VOL → TREND → LOW_VOL → RANGE)
-    # HIGH_VOL: loosened to require either ATR percentile OR bandwidth expansion
+    # Decision order: HIGH_VOL -> TREND -> LOW_VOL -> RANGE
     if (pct >= HIGH_VOL_CONFIG["ATR_TOP_PCT"]) or (not pd.isna(bandwidth) and bandwidth > RANGE_CONFIG["BANDWIDTH_MAX"]):
-        return "HIGH_VOL"
-
-    # TREND: loosened to allow slope >= 0 and requireed to allow slope >= 0 and require price above VWAP
-    if (
-        not pd.isna(ema_fast) and not pd.isna(ema_slow) and ema_fast > ema_slow
-        and not pd.isna(slope) and slope >= 0
-        and not pd.isna(vwap_val) and prices_series.iloc[-1] >= vwap_val
+        raw = "HIGH_VOL"
+    elif (
+        not pd.isna(ema_fast) and not pd.isna(ema_slow) and (ema_fast > ema_slow) and
+        not pd.isna(slope) and (slope > 0) and
+        not pd.isna(vwap_val) and (prices_series.iloc[-1] >= vwap_val)
     ):
-        return "TREND"
+        raw = "TREND"
+    elif not pd.isna(bandwidth) and (bandwidth <= LOW_VOL_CONFIG["BANDWIDTH_CAP"]):
+        raw = "LOW_VOL"
+    elif not pd.isna(bandwidth) and (RANGE_CONFIG["BANDWIDTH_MIN"] <= bandwidth <= RANGE_CONFIG["BANDWIDTH_MAX"]):
+        raw = "RANGE"
+    else:
+        raw = "RANGE"
 
-
-    #       and (not pd.isna(vwap_val) and prices_series.iloc[-1] >= vwap_val):
-        return "TREND"
-
-    # LOW_VOL: only if LOW_VOL: only if bandwidth is very tight
-    if not pd.isna(bandwidth) and bandwidth <= LOW_VOL_CONFIG["BANDWIDTH_CAP"]:
-        return "LOW_VOL"
-    # RANGE: explicit fallback when bandwidth bandwidth is very tight
-    if not pd.isna(bandwidth) and bandwidth <= LOW_VOL_CONFIG["BANDWIDTH_CAP"]:
-        return "LOW_VOL"
-
-    # RANGE: explicit fallback when bandwidth is moderate
-    
-    if not pd.isna(bandwidth) and RANGE_CONFIG["BANDWIDTH_MIN"] <= bandwidth <= RANGE_CONFIG["BANDWIDTH_MAX"]:
-        return "RANGE"
-
-    # Default fallback
-    return "RANGE"    
+    # Note: smoothing needs 'sym'; adapt call sites to pass symbol for smoothing
+    return raw  # keep raw here; smoothing applied at call sites
 
 
 
