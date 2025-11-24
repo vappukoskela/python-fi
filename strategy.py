@@ -1217,7 +1217,7 @@ def main():
             positions_map = {}
     
             if USE_REGIME_ENTRY:
-                regime = detect_regime(prices, sizes_series)
+                regime = _smooth_regime(symbol, regime_raw)
                 accept, reason, score, stack = evaluate_entry(
                     symbol, price, size, prices, sizes_series, ts_val,
                     positions_map, inflight_orders, pending_entries,
