@@ -1073,8 +1073,13 @@ def evaluate_sell(sym, last_price, ref_entry, price_deque, size_deque, entry_tim
                     current_dist = abs(last_price - vwap_val)
                     progress = 1.0 - (current_dist / entry_dist) if entry_dist > 0 else 0
                     if progress < RANGE_VWAP_PROGRESS_MIN:
-                        logging.debug("[%s] RANGE time-stop exit triggered | progress=%.2f", sym, progress)
-                        return True, "Range time-stop"
+                        # --- Logging + Audit Trail ---
+                        logging.info("[%s] RANGE time-stop exit triggered | elapsed=%ds | progress=%.2f",
+                                     sym, int(elapsed), progress)
+                        exit_reason_count[regime]["Range time-stop"] += 1
+                        regime_trades[regime] += 1
+                        regime_pnl[regime] += (last_price - ref_entry) * entry_qty.get(sym, 0)
+                        return True, "Range time-stop" 
 
                 # --- Hard exits with regime overlay ---
         # Detect regime from local series (SIM and LIVE identical)
