@@ -709,6 +709,25 @@ def safe_market_sell(trade_client_local, symbol, intended_qty, order_lock):
             logging.exception("safe_market_sell error for %s: %s", symbol, e)
             return None
 
+def force_liquidation_at_cutoff(trade_client_local, symbols, cutoff_hour_eet=22, cutoff_min_eet=59):
+    # Convert current UTC to EET naive (UTC-5); for DST use pytz/zoneinfo
+    now_utc = datetime.now(timezone.utc)
+    now_eet = now_utc - timedelta(hours=2)
+    if now_eet.hour > cutoff_hour_eet or (now_eet.hour == cutoff_hour_eet and now_eet.minute >= cutoff_min_eet):
+        positions = trade_client_local.get_all_positions()
+        for p in positions:
+            s = p.symbol
+            q = int(float(p.qty))
+            if q > 0:
+                try:
+                    order = MarketOrderRequest(symbol=s, qty=q, side=OrderSide.SELL,
+                                               type=OrderType.MARKET, time_in_force=TimeInForce.DAY)
+                    trade_client_local.submit_order(order)
+                    logging.warning("%s - EOD forced SELL qty=%d", s, q)
+                except Exception as e:
+                    logging.exception("%s - EOD forced sell error: %s", s, e)
+
+
 def reconcile_positions(trade_client_local,
                         symbols,
                         positions_map,
