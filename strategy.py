@@ -112,6 +112,17 @@ BEARISH_CONFIG = {
     "RSI_FAIL_TICKS": 5
 }
 
+# === RANGE FILTER TOGGLES ===
+RANGE_STRICT_TOUCH_ENABLED = True       # Require strict lower-band touch (no epsilon)
+RANGE_TOUCH_EPSILON = 0.0               # If strict touch, epsilon = 0
+
+RANGE_VWAP_ROOM_MIN = 0.0012            # Minimum VWAP reversion room (e.g. 0.12%)
+RANGE_BB_ROC_MAX = 0.0003               # Block RANGE entries if Bollinger bandwidth ROC > threshold
+
+RANGE_TIME_STOP_ENABLED = True          # Enable RANGE time-stop exit
+RANGE_TIME_STOP_SECONDS = 150           # Exit if VWAP progress fails within N seconds
+RANGE_VWAP_PROGRESS_MIN = 0.40          # Require ≥40% shrink in VWAP distance
+
 
 SCALP = True
 LOOP_SLEEP = 0.5
@@ -891,6 +902,19 @@ def evaluate_entry(sym, price, size, prices_series, sizes_series, ts_val,
         bandwidth_ok = (not pd.isna(bandwidth) and RANGE_CONFIG["BANDWIDTH_MIN"] <= bandwidth <= RANGE_CONFIG["BANDWIDTH_MAX"])
         vol_ok = (not pd.isna(median_vol) and median_vol > 0)
 
+        # === PATCH: Strict lower-band touch ===
+        if RANGE_STRICT_TOUCH_ENABLED:
+            lb_touch = (price <= lower * (1 + RANGE_TOUCH_EPSILON))
+    
+        # === PATCH: VWAP reversion minimum room ===
+        if RANGE_VWAP_ROOM_MIN is not None:
+            vwap_rev_ok = (not pd.isna(vwap_val) and (vwap_val - price) / vwap_val >= RANGE_VWAP_ROOM_MIN)
+    
+        # === PATCH: Bandwidth ROC filter ===
+        bb_roc = (bandwidth - prices_series.rolling(RANGE_CONFIG["BOLL_PERIOD"]).apply(lambda x: (x.max()-x.min())/x.mean()).iloc[-2]) if not pd.isna(bandwidth) else 0
+        if RANGE_BB_ROC_MAX is not None and bb_roc > RANGE_BB_ROC_MAX:
+            return (False, "Range blocked by BB ROC", 0.0, {})
+
         signal_stack.update({
             "lower_band_touch": lb_touch,
             "rsi_uptick": rsi_mean_rev,
@@ -1038,6 +1062,19 @@ def evaluate_sell(sym, last_price, ref_entry, price_deque, size_deque, entry_tim
 
         prices_series = pd.Series(price_deque)
         sizes_series = pd.Series(size_deque)
+
+        # === PATCH: RANGE time-stop exit ===
+        if RANGE_TIME_STOP_ENABLED and regime == "RANGE":
+            if entry_time is not None and elapsed >= RANGE_TIME_STOP_SECONDS:
+                vwap_series = compute_vwap_from_ticks(prices_series, sizes_series)
+                vwap_val = vwap_series.iloc[-1] if len(vwap_series) else float('nan')
+                if not pd.isna(vwap_val):
+                    entry_dist = abs(ref_entry - vwap_val)
+                    current_dist = abs(last_price - vwap_val)
+                    progress = 1.0 - (current_dist / entry_dist) if entry_dist > 0 else 0
+                    if progress < RANGE_VWAP_PROGRESS_MIN:
+                        logging.debug("[%s] RANGE time-stop exit triggered | progress=%.2f", sym, progress)
+                        return True, "Range time-stop"
 
                 # --- Hard exits with regime overlay ---
         # Detect regime from local series (SIM and LIVE identical)
