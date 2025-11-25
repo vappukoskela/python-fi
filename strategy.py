@@ -1682,6 +1682,8 @@ def main():
                                        compute_ema_from_series(prices, EMA_FAST),
                                        compute_ema_from_series(prices, EMA_SLOW),
                                        compute_vwap_from_ticks(prices, sizes_series))
+
+           
             
             if day_bias == "bullish":
                 CONFIG = BULLISH_CONFIG
@@ -1702,6 +1704,8 @@ def main():
                 entry_qty=entry_qty,
                 entry_configs=entry_configs
             )
+            # --- Always initialize regime to a safe default ---
+            regime = None
             if USE_REGIME_ENTRY:
                 regime_raw = detect_regime(prices, sizes_series)
                 regime = _smooth_regime(symbol, regime_raw)
@@ -1713,6 +1717,18 @@ def main():
                     CONFIG_SESSION, regime, log_stack=False
                 )
                 buy = accept
+            else:
+                # Fallback regime if entry detection is disabled
+                regime = "UNKNOWN"
+            
+            # --- SELL evaluation (regime guaranteed to exist) ---
+            accept_exit, reason_exit, stack_exit = evaluate_sell(
+                symbol, price, size, prices, sizes_series, ts_val,
+                positions_map, inflight_orders, pending_entries,
+                entry_times.get(symbol), entry_prices.get(symbol),
+                entry_qty.get(symbol), entry_configs.get(symbol),
+                regime, log_stack=False
+            )    
 
             # === SIM cooldown guard ===
             if last_buy_time[symbol] is not None and \
