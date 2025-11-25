@@ -1205,7 +1205,7 @@ def overlay_exit_params_by_regime(CONFIG, regime):
 
 
 def evaluate_sell(sym, last_price, ref_entry, price_deque, size_deque, entry_times,
-                  CONFIG, ema_fast_period=EMA_FAST, ema_slow_period=EMA_SLOW, rsi_period=RSI_PERIOD, current_time=None):
+                  CONFIG, ema_fast_period=EMA_FAST, ema_slow_period=EMA_SLOW, rsi_period=RSI_PERIOD, current_time=None, log_stack=False):
     """
     Exit evaluation used by both SIM and LIVE loops.
     Returns (True, reason) or (False, None).
