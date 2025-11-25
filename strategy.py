@@ -1079,6 +1079,28 @@ def evaluate_sell(sym, last_price, ref_entry, price_deque, size_deque, entry_tim
                         exit_reason_count[regime]["Range time-stop"] += 1
                         regime_trades[regime] += 1
                         regime_pnl[regime] += (last_price - ref_entry) * entry_qty.get(sym, 0)
+                        # --- CSV Audit Trail ---
+                        try:
+                            _audit_write_row({
+                                "timestamp": now_ts.strftime("%Y-%m-%d %H:%M:%S"),
+                                "symbol": sym,
+                                "reason": "Range time-stop",
+                                "price": round(last_price, 6),
+                                "ema_fast": (round(float(ema_fast), 6) if pd.notna(ema_fast) else None),
+                                "ema_slow": (round(float(ema_slow), 6) if pd.notna(ema_slow) else None),
+                                "rsi": (round(float(rsi_val), 4) if pd.notna(rsi_val) else None),
+                                "vwap": (round(float(vwap_val), 6) if pd.notna(vwap_val) else None),
+                                "size": int(size) if size is not None else None,
+                                "median_vol": (round(float(median_vol), 4) if median_vol is not None else None),
+                                "bias": bias,
+                                "config_profile": ("BULLISH" if CONFIG is BULLISH_CONFIG else "BEARISH"),
+                                "tp_pct": CONFIG.get("TP_PCT", None),
+                                "sl_multiplier": CONFIG.get("SL_MULTIPLIER", None),
+                                "outcome": "neutral_block",  # or classify later
+                                "window_min": AUDIT_OUTCOME_WINDOW_MIN
+                            })
+                        except Exception as e:
+                            logging.warning("[AUDIT][%s] CSV write failed for Range time-stop: %s", sym, e)
                         return True, "Range time-stop" 
 
                 # --- Hard exits with regime overlay ---
