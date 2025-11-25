@@ -1727,7 +1727,7 @@ def main():
                 positions_map, inflight_orders, pending_entries,
                 entry_times.get(symbol), entry_prices.get(symbol),
                 entry_qty.get(symbol), entry_configs.get(symbol),
-                regime, log_stack=False
+                regime
             )    
 
             # === SIM cooldown guard ===
