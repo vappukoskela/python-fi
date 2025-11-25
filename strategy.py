@@ -84,6 +84,13 @@ exit_reason_count = defaultdict(lambda: defaultdict(int))  # exit counts per reg
 # Regime kill-switch flags
 high_vol_paused = defaultdict(bool)
 trend_paused = defaultdict(bool)
+# === RECONCILIATION CONFIG ===
+RECONCILIATION_ENABLED = True
+RECON_MAX_STALE_MIN = 3              # consider context stale if older than N minutes without sell
+RECON_FORCE_SELL_IF_ORPHAN = True    # force sell if position has no local entry context
+RECON_POLL_RETRIES = 30              # extended polling for sell fill confirmation
+RECON_POLL_SLEEP = 2.0               # seconds between polls
+RECON_LOG_STACK = True               # extra logs for reconciliation decisions
 
 # === CONFIG ===
 # === CONFIG PROFILES ===
@@ -632,6 +639,25 @@ def safe_market_buy(trade_client_local, symbol, cash_amount, order_lock):
             logging.exception("safe_market_buy error for %s: %s", symbol, e)
             return None
 
+def _order_status_wait(trade_client_local, order_id, sym, max_retries=RECON_POLL_RETRIES, sleep_s=RECON_POLL_SLEEP):
+    status = None
+    try:
+        for attempt in range(max_retries):
+            confirmed = trade_client_local.get_order_by_id(order_id)
+            status = getattr(confirmed, "status", None)
+            logging.info("%s - RECON SELL order %s status=%s (attempt %d/%d)",
+                         sym, order_id, status, attempt+1, max_retries)
+            if status == "filled":
+                return True
+            time.sleep(sleep_s)
+        logging.warning("%s - RECON SELL order %s not filled after %d polls (last status=%s)",
+                        sym, order_id, max_retries, status)
+        return False
+    except Exception as e:
+        logging.warning("%s - RECON status wait failed for order %s: %s", sym, order_id, e)
+        return False
+
+
 def safe_market_sell(trade_client_local, symbol, intended_qty, order_lock):
     with order_lock:
         available = get_position_qty(trade_client_local, symbol)
@@ -682,6 +708,135 @@ def safe_market_sell(trade_client_local, symbol, intended_qty, order_lock):
         except Exception as e:
             logging.exception("safe_market_sell error for %s: %s", symbol, e)
             return None
+
+def reconcile_positions(trade_client_local,
+                        symbols,
+                        positions_map,
+                        price_deques,
+                        size_deques,
+                        entry_times,
+                        entry_prices,
+                        entry_qty,
+                        entry_configs):
+    """
+    Ensures local state and Alpaca positions are consistent, and forces sell if exit logic says so.
+    - Reattaches orphan positions (no local context).
+    - Re-evaluates exits using evaluate_sell.
+    - Extends sell fill polling window to avoid missed confirmations.
+    """
+    if not RECONCILIATION_ENABLED:
+        return
+
+    now_ts = datetime.now(timezone.utc)
+
+    for sym in symbols:
+        qty_open, avg_entry = positions_map.get(sym, (0, 0.0))
+        if qty_open <= 0:
+            # If no position but local state says in trade, clean up
+            if sym in entry_times or sym in entry_qty or sym in entry_configs:
+                logging.info("%s - RECON cleanup: no live position, purging local entry state", sym)
+                entry_times.pop(sym, None)
+                entry_prices.pop(sym, None)
+                entry_qty.pop(sym, None)
+                entry_configs.pop(sym, None)
+                trailing_active[sym] = False
+                last_exit_time[sym] = now_ts
+            continue
+
+        # There is an open position on Alpaca
+        has_context = (sym in entry_prices) and (sym in entry_configs) and (sym in entry_times)
+
+        # Reattach orphan position context if missing
+        if not has_context:
+            if RECON_FORCE_SELL_IF_ORPHAN:
+                logging.warning("%s - RECON orphan position detected (qty=%d @ %.4f). Attaching minimal context.",
+                                sym, qty_open, avg_entry)
+                entry_prices[sym] = avg_entry
+                entry_qty[sym] = qty_open
+                entry_times[sym] = last_exit_time.get(sym, None) or now_ts  # attach now if unknown
+                # Pick a conservative config (use BEARISH_CONFIG unless bias is available)
+                entry_configs[sym] = BEARISH_CONFIG
+                trailing_active[sym] = False
+            else:
+                logging.info("%s - RECON orphan position detected; skip (toggle off).", sym)
+                continue
+
+        # Build local series (if insufficient data, skip)
+        prices_series = pd.Series(price_deques.get(sym, []))
+        sizes_series = pd.Series(size_deques.get(sym, []))
+
+        if len(prices_series) < 5 or len(sizes_series) < 5:
+            logging.info("%s - RECON insufficient local series for exit evaluation (prices=%d sizes=%d)",
+                         sym, len(prices_series), len(sizes_series))
+            continue
+
+        # Exit evaluation (reuses your logic, SIM/LIVE parity)
+        last_price = float(prices_series.iloc[-1])
+        ref_entry = entry_prices.get(sym, avg_entry)
+        config = entry_configs.get(sym)
+        if config is None:
+            logging.warning("%s - RECON missing entry config; attaching BEARISH_CONFIG", sym)
+            config = BEARISH_CONFIG
+            entry_configs[sym] = config
+
+        sell, reason = evaluate_sell(
+            sym,
+            last_price,
+            ref_entry,
+            price_deques[sym],
+            size_deques[sym],
+            entry_times,
+            config,
+            current_time=now_ts
+        )
+
+        if sell:
+            # Submit sell with extended confirmation polling
+            try:
+                order = MarketOrderRequest(
+                    symbol=sym, qty=qty_open, side=OrderSide.SELL,
+                    type=OrderType.MARKET, time_in_force=TimeInForce.DAY
+                )
+                submitted = trade_client_local.submit_order(order)
+                order_id = getattr(submitted, "id", None)
+                logging.info("%s - RECON SELL submitted qty=%d @ last=%.4f | Reason=%s",
+                             sym, qty_open, last_price, reason)
+
+                filled = False
+                if order_id:
+                    filled = _order_status_wait(trade_client_local, order_id, sym)
+                else:
+                    logging.warning("%s - RECON SELL missing order_id; proceeding with position reconciliation", sym)
+
+                # Reconcile: check if position still exists
+                time.sleep(1.0)
+                qty_after = get_position_qty(trade_client_local, sym)
+                if filled or qty_after == 0:
+                    # Clean up local state
+                    entry_times.pop(sym, None)
+                    entry_prices.pop(sym, None)
+                    entry_qty.pop(sym, None)
+                    entry_configs.pop(sym, None)
+                    trailing_active[sym] = False
+                    last_exit_time[sym] = now_ts
+                    regime_at_sell = detect_regime(prices_series, sizes_series)
+                    pnl_est = (last_price - ref_entry) * qty_open
+                    regime_pnl[regime_at_sell] += float(pnl_est)
+                    regime_trades[regime_at_sell] += 1
+                    exit_reason_count[regime_at_sell][reason] += 1
+                    logging.info("%s - RECON SELL filled or reconciled | PnL≈%.4f | Reason=%s", sym, pnl_est, reason)
+                else:
+                    logging.warning("%s - RECON SELL not confirmed; position qty still %d", sym, qty_after)
+            except Exception as e:
+                logging.exception("%s - RECON SELL error: %s", sym, e)
+        else:
+            # Optional: stale guard — if context is old and no exit triggered, log/watch
+            et = entry_times.get(sym)
+            age_min = ((now_ts - et).total_seconds() / 60.0) if et else None
+            if age_min is not None and age_min >= RECON_MAX_STALE_MIN:
+                logging.info("%s - RECON stale position age=%.1f min | last=%.4f | entry=%.4f | reason=no-exit",
+                             sym, age_min, last_price, ref_entry)
+
 
 # === STRATEGY HELPERS: BUY/SELL CONDITIONS ===
 # === BIAS DETECTION ===
@@ -1515,8 +1670,19 @@ def main():
                 CONFIG = BEARISH_CONFIG
 
                                       
-            positions_map = {}
-    
+            positions_map = get_positions_map(trade_client)
+
+            reconcile_positions(
+                trade_client_local=trade_client,
+                symbols=symbols,
+                positions_map=positions_map,
+                price_deques=price_deques,
+                size_deques=size_deques,
+                entry_times=entry_times,
+                entry_prices=entry_prices,
+                entry_qty=entry_qty,
+                entry_configs=entry_configs
+            )
             if USE_REGIME_ENTRY:
                 regime_raw = detect_regime(prices, sizes_series)
                 regime = _smooth_regime(symbol, regime_raw)
