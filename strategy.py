@@ -1739,7 +1739,7 @@ def main():
                 regime = "UNKNOWN"
             
             # --- SELL evaluation (regime guaranteed to exist) ---
-            accept_exit, reason_exit, stack_exit = evaluate_sell(
+            accept_exit, reason_exit = evaluate_sell(
                 symbol,
                 price,                           # last_price
                 entry_prices.get(symbol),        # ref_entry
