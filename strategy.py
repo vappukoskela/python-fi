@@ -1719,19 +1719,15 @@ def main():
                 CONFIG_SESSION = overlay_by_session(CONFIG, ts_val)
                 accept, reason, score, stack = evaluate_entry(
                     symbol,
-                    price,                           # price
-                    size,                            # single tick size
-                    prices,                          # pandas Series of prices
-                    sizes_series,                    # pandas Series of sizes
-                    ts_val,                          # timestamp value
-                    positions_map,
-                    inflight_orders,
-                    pending_entries,
-                    last_exit_time[symbol],
-                    last_buy_time,
-                    CONFIG_SESSION,                  # config profile
-                    regime,                          # regime classification
-                    log_stack=True
+                    price,                           # last_price
+                    entry_prices.get(symbol),        # ref_entry
+                    price_deques[symbol],            # price_deque
+                    size_deques[symbol],             # size_deque
+                    entry_times,                     # full entry_times dict
+                    entry_configs.get(symbol),       # CONFIG for this entry
+                    current_time=ts_val,             # keyword
+                    regime=regime,                   # keyword
+                    log_stack=True                   # keyword                
                 )
                 buy = accept
             else:
