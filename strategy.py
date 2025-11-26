@@ -1718,10 +1718,16 @@ def main():
                 regime = _smooth_regime(symbol, regime_raw)
                 CONFIG_SESSION = overlay_by_session(CONFIG, ts_val)
                 accept, reason, score, stack = evaluate_entry(
-                    symbol, price, size, prices, sizes_series, ts_val,
-                    positions_map, inflight_orders, pending_entries,
-                    last_exit_time[symbol], last_buy_time,
-                    CONFIG_SESSION, regime, log_stack=False
+                    symbol,
+                    price, 
+                    entry_prices.get(symbol),        # ref_entry
+                    price_deques[symbol],            # price_deque
+                    size_deques[symbol],             # size_deque
+                    entry_times,                     # entry_times dict
+                    entry_configs.get(symbol),       # CONFIG for this entry
+                    current_time=ts_val,             # keyword
+                    regime=regime,                   # keyword
+                    log_stack=True 
                 )
                 buy = accept
             else:
