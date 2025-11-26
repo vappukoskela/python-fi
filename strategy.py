@@ -2,7 +2,7 @@ import re
 import pandas as pd
 
 # Lähdetiedosto
-filename = "jarkko_14112025.txt"
+filename = "2025-11-26.txt"
 
 # Kohdetiedosto
 output_file = "parsed_trades.csv"
