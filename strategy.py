@@ -806,7 +806,9 @@ def reconcile_positions(trade_client_local,
             size_deques[sym],
             entry_times,
             config,
-            current_time=now_ts
+            current_time=now_ts,
+            regime=detect_regime(prices_series, sizes_series),
+            log_stack=True
         )
 
         if sell:
