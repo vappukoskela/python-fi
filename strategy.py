@@ -1719,15 +1719,19 @@ def main():
                 CONFIG_SESSION = overlay_by_session(CONFIG, ts_val)
                 accept, reason, score, stack = evaluate_entry(
                     symbol,
-                    price,                           # last_price
-                    entry_prices.get(symbol),        # ref_entry
-                    price_deques[symbol],            # price_deque
-                    size_deques[symbol],             # size_deque
-                    entry_times,                     # full entry_times dict
-                    entry_configs.get(symbol),       # CONFIG for this entry
-                    current_time=ts_val,             # keyword
-                    regime=regime,                   # keyword
-                    log_stack=True                   # keyword                
+                    price,                           # price
+                    size,                            # single tick size
+                    prices,                          # pandas Series of prices
+                    sizes_series,                    # pandas Series of sizes
+                    ts_val,                          # timestamp value
+                    positions_map,
+                    inflight_orders,
+                    pending_entries,
+                    last_exit_time[symbol],          # last_exit
+                    last_buy_time,                   # last_buy_time dict
+                    CONFIG_SESSION,                  # config profile
+                    regime,                          # regime classification
+                    log_stack=True                   # optional keyword        
                 )
                 buy = accept
             else:
@@ -1736,11 +1740,16 @@ def main():
             
             # --- SELL evaluation (regime guaranteed to exist) ---
             accept_exit, reason_exit, stack_exit = evaluate_sell(
-                symbol, price, size, prices, sizes_series, ts_val,
-                positions_map, inflight_orders, pending_entries,
-                entry_times.get(symbol), entry_prices.get(symbol),
-                entry_qty.get(symbol), entry_configs.get(symbol),
-                regime
+                symbol,
+                price,                           # last_price
+                entry_prices.get(symbol),        # ref_entry
+                price_deques[symbol],            # price_deque
+                size_deques[symbol],             # size_deque
+                entry_times,                     # full entry_times dict
+                entry_configs.get(symbol),       # CONFIG for this entry
+                current_time=ts_val,             # keyword
+                regime=regime,                   # keyword
+                log_stack=True                   # keyword
             )    
 
             # === SIM cooldown guard ===
