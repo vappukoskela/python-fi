@@ -263,6 +263,26 @@ LOW_VOL_CONFIG = {
     "BANDWIDTH_CAP": 0.003       # low-vol consolidation cap
 }
 
+# === Adaptive entry threshold (per symbol, per regime) ===
+ADAPTIVE_ENTRY_ENABLED = True
+ADAPTIVE_BOUNDS = (-0.3, 0.3)
+_adaptive_entry_shift = defaultdict(lambda: defaultdict(float))  # sym -> regime -> shift
+
+def adaptive_entry_update(sym, regime, outcome_label):
+    if not ADAPTIVE_ENTRY_ENABLED or outcome_label not in ("good_block", "bad_block"):
+        return
+    # if many bad_blocks (missed winners), ease threshold by small step
+    step = 0.05 if outcome_label == "bad_block" else -0.05
+    new_shift = _adaptive_entry_shift[sym][regime] + step
+    low, high = ADAPTIVE_BOUNDS
+    _adaptive_entry_shift[sym][regime] = max(low, min(high, new_shift))
+
+def adaptive_entry_threshold(CONFIG, sym, regime):
+    shift = _adaptive_entry_shift[sym][regime]
+    base = CONFIG.get("ENTRY_SCORE_THRESHOLD", 3.0)
+    return max(0.8, base + shift)
+
+
 # === ENTRY GATE TOGGLE ===
 USE_REGIME_ENTRY = True     # if False, uses your original buy_conditions_met
 LOG_SIGNAL_STACK_ON_ACCEPT = False  # you asked for full logs; toggle to True if needed
@@ -1183,7 +1203,7 @@ def evaluate_entry(sym, price, size, prices_series, sizes_series, ts_val,
                        
 
     # Final gate
-    threshold = CONFIG.get("ENTRY_SCORE_THRESHOLD", 3.0)
+    threshold = adaptive_entry_threshold(CONFIG, sym, regime)
     accept = (score >= threshold) and confirm_ok
 
     if log_stack and (accept or AUDIT_TRAIL_ENABLED):
