@@ -1530,7 +1530,14 @@ def _audit_watchdog_deque(sym, ts_val, ref_entry_price, reason,
             if sl_hit:
                 outcome = "good_block"
                 break
+
             time.sleep(1.0)
+       # <-- INSERT adaptive update here
+        adaptive_entry_update(sym, "RANGE" if "Range" in str(reason) else
+                                   "TREND" if "Trend" in str(reason) else
+                                   "LOW_VOL" if "Low" in str(reason) else
+                                   "HIGH_VOL", outcome) 
+            
 
         _audit_write_row({
             "timestamp": ts_val.strftime("%Y-%m-%d %H:%M:%S"),
