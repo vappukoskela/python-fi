@@ -1020,10 +1020,24 @@ def evaluate_entry(sym, price, size, prices_series, sizes_series, ts_val,
     adx_val = _adx_proxy(prices_series) if ADX_ENABLED else float('nan')
     chop_val = _choppiness_proxy(prices_series) if CHOP_ENABLED else float('nan')
 
-    # RSI uptick check
+    # RSI banding by regime + uptick check
+    REGIME_RSI_BANDS = {
+        "TREND": (32, 80),
+        "RANGE": (28, 70),
+        "LOW_VOL": (30, 75),
+    }
+    
+    def rsi_in_band(regime, rsi):
+        lo, hi = REGIME_RSI_BANDS.get(regime, (MIN_RSI_FOR_ENTRY, MAX_RSI_FOR_ENTRY))
+        return (rsi >= lo) and (rsi <= hi)
+    
     rsi_series_full = compute_rsi_from_series(prices_series, RSI_PERIOD)
     rsi_prev = rsi_series_full.iloc[-2] if len(rsi_series_full) >= 2 else float('nan')
     rsi_uptick = (not pd.isna(rsi_prev) and not pd.isna(rsi_val) and rsi_val > rsi_prev)
+    
+    # Final RSI check combines regime band + uptick
+    rsi_ok = rsi_in_band(regime, rsi_val) and rsi_uptick
+
 
     # Pullback checks
     pullback_to_ema = (not pd.isna(ema_slow) and abs(price - ema_slow) / price <= TREND_CONFIG["PULLBACK_TOL"])
