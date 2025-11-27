@@ -1042,7 +1042,13 @@ def evaluate_entry(sym, price, size, prices_series, sizes_series, ts_val,
     if regime == "TREND":
         w = TREND_CONFIG["WEIGHTS"]
         ema_trend_ok = (ema_fast > ema_slow) and (slope > 0)
-        vwap_above_ok = (price > vwap_val) and ((price - vwap_val) > CONFIG["VWAP_DELTA"] * vwap_val)
+        
+        # Conditional VWAP delta
+        strong_trend = (not pd.isna(slope) and slope > 0) and (not pd.isna(adx_val) and adx_val >= 25)
+        vwap_above_ok = (price > vwap_val) and (
+            ((price - vwap_val) > CONFIG["VWAP_DELTA"] * vwap_val) if not strong_trend
+            else ((price - vwap_val) > (CONFIG["VWAP_DELTA"] * 0.6) * vwap_val)  # relaxed if strong_trend
+        )
         macd_ok = (
             not pd.isna(macd_line) and not pd.isna(macd_signal)
             and macd_line > macd_signal
