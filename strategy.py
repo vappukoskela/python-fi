@@ -1224,7 +1224,7 @@ def evaluate_entry(sym, price, size, prices_series, sizes_series, ts_val,
     accept = (score >= threshold) and confirm_ok
 
     if log_stack and (accept or AUDIT_TRAIL_ENABLED):
-        logging.info(f"[ENTRY_STACK][{sym}] regime={regime} score={score:.2f} threshold={threshold} stack={signal_stack}")
+        logging.debug(f"[ENTRY_STACK][{sym}] regime={regime} score={score:.2f} threshold={threshold} stack={signal_stack}")
 
     return (accept, f"Regime={regime} score={score:.2f}", score, signal_stack)
 
