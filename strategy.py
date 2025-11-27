@@ -1092,6 +1092,9 @@ def evaluate_entry(sym, price, size, prices_series, sizes_series, ts_val,
         vol_ok = vol_spike
         obv_ok = (not pd.isna(obv_slope) and obv_slope > 0)
 
+        # NEW: slope-or-OBV confirmation
+        slope_or_obv = (slope > 0.0008) or obv_ok
+
         signal_stack.update({
             "ema_trend_ok": ema_trend_ok,
             "vwap_above_ok": vwap_above_ok,
