@@ -1253,6 +1253,10 @@ def overlay_exit_params_by_regime(CONFIG, regime):
 
 def evaluate_sell(sym, last_price, ref_entry, price_deque, size_deque, entry_times,
                   CONFIG, ema_fast_period=EMA_FAST, ema_slow_period=EMA_SLOW, rsi_period=RSI_PERIOD, current_time=None, regime=None, log_stack=False):
+
+    # Early exit if no entry context
+    if sym not in entry_times or sym not in entry_prices or sym not in entry_configs:
+        return False, None
     """
     Exit evaluation used by both SIM and LIVE loops.
     Returns (True, reason) or (False, None).
@@ -1286,8 +1290,7 @@ def evaluate_sell(sym, last_price, ref_entry, price_deque, size_deque, entry_tim
 
         # --- Optional logging block ---
         if log_stack:
-            logging.info("[%s] SELL evaluation | regime=%s | elapsed=%.2f",
-                         sym, regime, elapsed)
+            logging.debug("[%s] SELL evaluation | regime=%s | elapsed=%.2f", sym, regime, elapsed)
 
         # === PATCH: RANGE time-stop exit ===
         if RANGE_TIME_STOP_ENABLED and regime == "RANGE":
@@ -1482,7 +1485,7 @@ def evaluate_sell(sym, last_price, ref_entry, price_deque, size_deque, entry_tim
         return False, None
 
     except Exception as e:
-        logging.error("[%s] Sell evaluation failed: %s", sym, str(e))
+        logging.debug("[%s] Sell evaluation failed: %s", sym, str(e))
         return False, None
 
 
