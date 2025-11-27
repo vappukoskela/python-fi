@@ -431,8 +431,10 @@ def overlay_by_session(CONFIG, ts):
     # MID session: allow RANGE/LOW_VOL slightly easier entries
     else:
         if CONFIG is RANGE_CONFIG or CONFIG is LOW_VOL_CONFIG:
-            adj["ENTRY_SCORE_THRESHOLD"] = max(1.0, CONFIG.get("ENTRY_SCORE_THRESHOLD", 3.0) - 0.2)
-
+            adj["ENTRY_SCORE_THRESHOLD"] = max(
+                1.4 if CONFIG is RANGE_CONFIG else 1.6,
+                CONFIG.get("ENTRY_SCORE_THRESHOLD", 3.0) - 0.2
+            )
     return adj
 
 # === PATCH 4: ADX and Choppiness proxies ===
