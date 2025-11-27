@@ -1879,7 +1879,7 @@ def main():
                     last_buy_time[symbol] = ts_val
                     # --- PATCH: jäädytä config position ajaksi ---
                     entry_configs[symbol] = CONFIG_SESSION
-                    logging.info(f"{symbol} [{RUN_MODE}] BUY @ {price:.4f} | Trigger={reason} | Bias={day_bias} | Config={CONFIG}")
+                    logging.info(f"[TRADE] {symbol} [{RUN_MODE}] BUY @ {price:.4f} | Trigger={reason} | Bias={day_bias} | Config={CONFIG}")
                 else:
                     highest_price_since_entry[symbol] = max(highest_price_since_entry[symbol], price)
                     sell = False
@@ -1902,7 +1902,7 @@ def main():
                     # --- Regime performance snapshot (logs every N sells) ---
                     regime_perf_snapshot()
 
-                    logging.info(f"{symbol} [{RUN_MODE}] SELL qty={qty} @ {price:.4f} | Reason={reason} | Bias={day_bias} | Config={CONFIG} | PnL={pnl:.4f}")
+                    logging.info(f"[TRADE] {symbol} [{RUN_MODE}] SELL qty={qty} @ {price:.4f} | Reason={reason} | Bias={day_bias} | Config={CONFIG} | PnL={pnl:.4f}")
                     csv_rows.append({
                     "timestamp": ts_val.strftime("%Y-%m-%d %H:%M:%S"),
                     "symbol": symbol,
@@ -2158,7 +2158,7 @@ def main():
                             
                             if sell:
                                 submitted = safe_market_sell(trade_client, sym, qty_open, order_lock)
-                                logging.info(f"{sym} - SCALP SELL qty={qty_open} @ {last_price:.4f} | Reason={reason} | Bias={day_bias} | Config={CONFIG}")
+                                logging.info(f"[TRADE] {sym} - SCALP SELL qty={qty_open} @ {last_price:.4f} | Reason={reason} | Bias={day_bias} | Config={CONFIG}")
                                 logging.info(
                                     "%s - SCALP SELL qty=%d @ %.4f | Reason=%s | EntryRef=%.4f",
                                     sym, qty_open, last_price, reason, ref_entry
