@@ -2165,6 +2165,9 @@ def main():
                                 regime_trades[regime_at_sell] += 1
                                 exit_reason_count[regime_at_sell][reason] += 1
 
+                                # --- Regime performance snapshot (logs every N sells) ---
+                                regime_perf_snapshot()
+
                                 in_position = False
                                 entry_price = None
                                 trailing_active[sym] = False
