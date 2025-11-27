@@ -820,6 +820,7 @@ def reconcile_positions(trade_client_local,
             config = BEARISH_CONFIG
             entry_configs[sym] = config
 
+    if sym in entry_times and sym in entry_configs and sym in entry_prices:      
         sell, reason = evaluate_sell(
             sym,
             last_price,
