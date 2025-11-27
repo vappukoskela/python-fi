@@ -121,9 +121,9 @@ BEARISH_CONFIG = {
 
 # === RANGE FILTER TOGGLES ===
 RANGE_STRICT_TOUCH_ENABLED = True       # Require strict lower-band touch (no epsilon)
-RANGE_TOUCH_EPSILON = 0.0               # If strict touch, epsilon = 0
+RANGE_TOUCH_EPSILON = 0.0002               # If strict touch, epsilon = 0
 
-RANGE_VWAP_ROOM_MIN = 0.0012            # Minimum VWAP reversion room (e.g. 0.12%)
+RANGE_VWAP_ROOM_MIN = 0.0009            # Minimum VWAP reversion room (e.g. 0.12%)
 RANGE_BB_ROC_MAX = 0.0003               # Block RANGE entries if Bollinger bandwidth ROC > threshold
 
 RANGE_TIME_STOP_ENABLED = True          # Enable RANGE time-stop exit
@@ -196,7 +196,7 @@ RANGE_CONFIG = {
     "VWAP_DELTA": 0.004,
     "EMA_DELTA": 0.0002,
     "RSI_FAIL_TICKS": 4,
-    "ENTRY_SCORE_THRESHOLD": 1.2,
+    "ENTRY_SCORE_THRESHOLD": 1.4,
     "WEIGHTS": {
         "lower_band_touch": 1.0,     # price near lower Bollinger band
         "rsi_uptick": 1.0,           # RSI < 35 and upticking
@@ -257,7 +257,7 @@ LOW_VOL_CONFIG = {
         "vol_ok": 0.4,             # avoid ultra-dry tape
         "rsi_ok": 0.7
     },
-    "ENVELOPE_PCT": 0.002,        # +/- around EMA_slow
+    "ENVELOPE_PCT": 0.0022,        # +/- around EMA_slow
     "BOLL_PERIOD": 20,
     "BOLL_STD": 2.0,
     "BANDWIDTH_CAP": 0.003       # low-vol consolidation cap
