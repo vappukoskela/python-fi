@@ -1518,6 +1518,29 @@ def _audit_write_row(row_dict):
     except Exception as e:
         logging.warning("[AUDIT] CSV write failed: %s", e)
 
+# === Regime performance snapshot ===
+PERF_SNAPSHOT_ENABLED = True
+PERF_SNAPSHOT_INTERVAL = 10
+_perf_counter = 0
+
+def regime_perf_snapshot():
+    global _perf_counter
+    if not PERF_SNAPSHOT_ENABLED:
+        return
+    _perf_counter += 1
+    if _perf_counter % PERF_SNAPSHOT_INTERVAL != 0:
+        return
+    for reg, trades in regime_trades.items():
+        if trades == 0:
+            continue
+        sls = exit_reason_count[reg].get("Stop-loss", 0)
+        wr = max(0.0, min(1.0, (trades - sls) / trades))
+        logging.info(
+            f"[PERF] {reg} trades={trades} win_rate≈{wr:.2f} "
+            f"pnl≈{regime_pnl[reg]:.2f} reasons={dict(exit_reason_count[reg])}"
+        )
+
+
 def _audit_watchdog_deque(sym, ts_val, ref_entry_price, reason,
                           ema_fast, ema_slow, rsi_val, vwap_val,
                           size, median_vol, bias, CONFIG,
