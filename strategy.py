@@ -127,8 +127,8 @@ RANGE_VWAP_ROOM_MIN = 0.0009            # Minimum VWAP reversion room (e.g. 0.12
 RANGE_BB_ROC_MAX = 0.0003               # Block RANGE entries if Bollinger bandwidth ROC > threshold
 
 RANGE_TIME_STOP_ENABLED = True          # Enable RANGE time-stop exit
-RANGE_TIME_STOP_SECONDS = 150           # Exit if VWAP progress fails within N seconds
-RANGE_VWAP_PROGRESS_MIN = 0.40          # Require ≥40% shrink in VWAP distance
+RANGE_TIME_STOP_SECONDS = 180           # Exit if VWAP progress fails within N seconds
+RANGE_VWAP_PROGRESS_MIN = 0.35          # Require ≥40% shrink in VWAP distance
 
 
 SCALP = True
@@ -1208,7 +1208,7 @@ def overlay_exit_params_by_regime(CONFIG, regime):
     elif regime == "LOW_VOL":
         adj["TP_PCT"] = max(0.0010, CONFIG["TP_PCT"] * 0.9)
         adj["SL_MULTIPLIER"] = max(0.7, CONFIG["SL_MULTIPLIER"] * 0.9)
-        adj["TS_ACTIVATION_BUFFER"] = max(0.002, CONFIG["TS_ACTIVATION_BUFFER"] * 0.9)
+        adj["TS_ACTIVATION_BUFFER"] = max(0.0025, CONFIG["TS_ACTIVATION_BUFFER"] * 0.85)
     # TREND uses base CONFIG
     return adj
 
