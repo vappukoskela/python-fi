@@ -1897,6 +1897,10 @@ def main():
                     regime_pnl[regime_at_sell] += float(pnl)
                     regime_trades[regime_at_sell] += 1
                     exit_reason_count[regime_at_sell][reason] += 1
+
+                    # --- Regime performance snapshot (logs every N sells) ---
+                    regime_perf_snapshot()
+
                     logging.info(f"{symbol} [{RUN_MODE}] SELL qty={qty} @ {price:.4f} | Reason={reason} | Bias={day_bias} | Config={CONFIG} | PnL={pnl:.4f}")
                     csv_rows.append({
                     "timestamp": ts_val.strftime("%Y-%m-%d %H:%M:%S"),
