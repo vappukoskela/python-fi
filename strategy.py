@@ -1,7 +1,7 @@
 import pandas as pd
 
 # Load the log file (adjust filename)
-df = pd.read_csv("2025-11-26.csv", header=None)
+df = pd.read_csv("2025-11-26.txt", header=None)
 
 # Inspect first row to see column count
 print("Columns detected:", df.shape[1])
