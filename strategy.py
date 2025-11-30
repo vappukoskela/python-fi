@@ -653,7 +653,7 @@ def safe_market_buy(trade_client_local, symbol, cash_amount, order_lock):
                 type=OrderType.MARKET, time_in_force=TimeInForce.DAY
             )
             submitted = trade_client_local.submit_order(order)
-            logging.info("[TRADE] %s - BUY submitted qty=%d (est_price=%s cash=%.2f)", symbol, qty, str(est_price), cash_amount)
+            logging.info("[TRADE] %s - BUY submitted qty=%d (est_price=%s cash=%.2f)", symbol, qty, str(est_price), cash_amount, datetime.now(timezone.utc).strftime("%H:%M:%S"))
             logging.info("%s - BUY assumed filled qty=%d", symbol, qty)
             return submitted
         except Exception as e:
@@ -699,7 +699,7 @@ def safe_market_sell(trade_client_local, symbol, intended_qty, order_lock):
             submitted = trade_client_local.submit_order(order)
             order_id = getattr(submitted, "id", None)
             logging.info("[TRADE] %s - SELL submitted qty=%d (available=%d intended=%s) order_id=%s",
-                         symbol, qty_to_sell, available, intended_qty, order_id)
+                         symbol, qty_to_sell, available, intended_qty, order_id, datetime.now(timezone.utc).strftime("%H:%M:%S"))
 
             if order_id:
                 try:
