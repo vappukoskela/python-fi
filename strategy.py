@@ -1713,7 +1713,7 @@ def main():
 
     # AGG_SIM ja SIM: nyt käytetään 1s bars
     trades = trades.dropna()
-    logging.info("%s mode: using 1-second bars. Total datapoints: %d", RUN_MODE, len(trades)
+    logging.info("%s mode: using 1-second bars. Total datapoints: %d", RUN_MODE, len(trades))
     
         # AGG_SIM ja SIM: molemmat käyttävät raw tick dataa
         if RUN_MODE in ["AGG_SIM", "SIM"]:
