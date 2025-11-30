@@ -1703,6 +1703,17 @@ def main():
     
         # Aikaleima indeksiin
         trades.index = pd.to_datetime(trades.index.get_level_values(1))
+
+        # === NEW: Aggregate ticks into 1-second bars ===
+        trades["bucket"] = trades.index.floor("1s")
+        trades = trades.groupby("bucket").agg({
+            "price": "mean",   # average price in that second
+            "size": "sum"      # total volume in that second
+        })
+
+    # AGG_SIM ja SIM: nyt käytetään 1s bars
+    trades = trades.dropna()
+    logging.info("%s mode: using 1-second bars. Total datapoints: %d", RUN_MODE, len(trades)
     
         # AGG_SIM ja SIM: molemmat käyttävät raw tick dataa
         if RUN_MODE in ["AGG_SIM", "SIM"]:
