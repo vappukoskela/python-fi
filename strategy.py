@@ -1945,7 +1945,7 @@ def main():
                     "pnl": round(pnl, 4),
                     "ema_fast": round(ema_fast, 4),
                     "ema_slow": round(ema_slow, 4),
-                    "rsi": round(rsi_val, 2),Same 
+                    "rsi": round(rsi_val, 2) 
                     "vwap": round(vwap_val, 4)
                 })
 
