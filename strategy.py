@@ -1996,6 +1996,8 @@ def main():
                     last_exit_time[symbol] = ts_val
                     highest_price_since_entry.pop(symbol, None)
                     entry_configs.pop(symbol, None)
+                    trailing_active[symbol] = False
+                    rsi_fail_counter[symbol] = 0
     
         logging.info("%s replay finished for %s", RUN_MODE, symbol)
         with open(csv_filename, mode="w", newline="") as f:
