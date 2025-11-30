@@ -1258,8 +1258,12 @@ def evaluate_sell(sym, last_price, ref_entry, price_deque, size_deque, entry_tim
     if sym not in entry_times or sym not in entry_prices or sym not in entry_configs:
         return False, None
     """
-    Exit evaluation used by both SIM and LIVE loops.
-    Returns (True, reason) or (False, None).
+    # Defensive: CONFIG must be present
+    if CONFIG is None:
+        logging.debug("[%s] Sell skipped: missing CONFIG", sym)
+        return False, None
+        Exit evaluation used by both SIM and LIVE loops.
+        Returns (True, reason) or (False, None).
     """
     try:
         # --- Unpack entry_times ---
@@ -1848,19 +1852,22 @@ def main():
                 regime = "UNKNOWN"
             
             # --- SELL evaluation (regime guaranteed to exist) ---
-            accept_exit, reason_exit = evaluate_sell(
-                symbol,
-                price,                           # last_price
-                entry_prices.get(symbol),        # ref_entry
-                price_deques[symbol],            # price_deque
-                size_deques[symbol],             # size_deque
-                entry_times,                     # full entry_times dict
-                entry_configs.get(symbol),       # CONFIG for this entry
-                current_time=ts_val,             # keyword
-                regime=regime,                   # keyword
-                log_stack=True                   # keyword
-            )    
-
+            has_entry = (symbol in entry_times) and (symbol in entry_prices) and (symbol in entry_configs)
+            if has_entry:
+                accept_exit, reason_exit = evaluate_sell(
+                    symbol,
+                    price,                           # last_price
+                    entry_prices.get(symbol),        # ref_entry
+                    price_deques[symbol],            # price_deque
+                    size_deques[symbol],             # size_deque
+                    entry_times,                     # full entry_times dict
+                    entry_configs.get(symbol),       # CONFIG for this entry
+                    current_time=ts_val,             # keyword
+                    regime=regime,                   # keyword
+                    log_stack=True                   # keyword
+                )    
+            else:
+                accept_exit, reason_exit = (False, None)
             if accept_exit:
                 qty = entry_qty.get(symbol, 0)
                 pnl = (price - entry_prices.get(symbol, price)) * qty
@@ -1950,7 +1957,8 @@ def main():
                     highest_price_since_entry[symbol] = max(highest_price_since_entry[symbol], price)
                     sell = False
                     reason = "no-eval"
-                    if symbol not in entry_prices or symbol not in entry_configs:
+                    has_entry = (symbol in entry_times) and (symbol in entry_prices) and (symbol in entry_configs)
+                    if not has_entry:
                         continue
                     sell, reason = evaluate_sell(
                         symbol, price, entry_prices[symbol],
