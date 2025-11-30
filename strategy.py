@@ -1259,7 +1259,7 @@ def evaluate_sell(sym, last_price, ref_entry, price_deque, size_deque, entry_tim
                   CONFIG, ema_fast_period=EMA_FAST, ema_slow_period=EMA_SLOW, rsi_period=RSI_PERIOD, current_time=None, regime=None, log_stack=False):
 
     # Early exit if no entry context
-    if sym not in entry_times or sym not in entry_prices or CONFIG is Nones:
+    if sym not in entry_times or sym not in entry_prices or CONFIG is None:
         return False, None
     """
     # Defensive: CONFIG must be present
