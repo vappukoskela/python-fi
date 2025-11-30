@@ -1714,6 +1714,17 @@ def main():
         # AGG_SIM ja SIM: nyt käytetään 1s bars
         trades = trades.dropna()
         logging.info("%s mode: using 1-second bars. Total datapoints: %d", RUN_MODE, len(trades))
+        logging.info("Starting %s replay for %s from %s to %s", RUN_MODE, symbol, start, end)
+
+        # --- Now loop over trades bar by bar ---
+        for ts, row in trades.iterrows():
+            try:
+                ts_val = pd.to_datetime(ts, utc=True)
+                price  = float(row["price"])
+                size   = float(row["size"])
+            except Exception as e:
+                logging.error("[%s] Could not parse row: %s", RUN_MODE, e)
+                continue
     
         # AGG_SIM ja SIM: molemmat käyttävät raw tick dataa
         if RUN_MODE in ["AGG_SIM", "SIM"]:
