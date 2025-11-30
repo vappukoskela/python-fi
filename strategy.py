@@ -1861,6 +1861,39 @@ def main():
                 log_stack=True                   # keyword
             )    
 
+            if accept_exit:
+                qty = entry_qty.get(symbol, 0)
+                pnl = (price - entry_prices.get(symbol, price)) * qty
+            
+                logging.info(
+                    f"[TRADE] {symbol} [{RUN_MODE}] SELL qty={qty} @ {price:.4f} | "
+                    f"Time={ts_val.strftime('%H:%M:%S')} | Reason={reason_exit} | "
+                    f"Bias={day_bias} | Config={CONFIG} | PnL={pnl:.4f}"
+                )
+            
+                csv_rows.append({
+                    "timestamp": ts_val.strftime("%Y-%m-%d %H:%M:%S"),
+                    "symbol": symbol,
+                    "action": "SELL",
+                    "price": price,
+                    "reason": reason_exit,
+                    "pnl": round(pnl, 4),
+                    "ema_fast": round(ema_fast, 4),
+                    "ema_slow": round(ema_slow, 4),
+                    "rsi": round(rsi_val, 2),
+                    "vwap": round(vwap_val, 4)
+                })
+
+                # State cleanup
+                in_position = False
+                entry_price = None
+                last_exit_time[symbol] = ts_val
+                highest_price_since_entry.pop(symbol, None)
+                entry_configs.pop(symbol, None)
+
+                # Important: skip entry logic on the same bar after a SELL
+                continue
+
             # === SIM cooldown guard ===
             if last_buy_time[symbol] is not None and \
                (ts_val - last_buy_time[symbol]).total_seconds() < COOLDOWN_SECONDS:
