@@ -1912,7 +1912,7 @@ def main():
                     last_buy_time[symbol] = ts_val
                     # --- PATCH: jäädytä config position ajaksi ---
                     entry_configs[symbol] = CONFIG_SESSION
-                    logging.info(f"[TRADE] {symbol} [{RUN_MODE}] BUY @ {price:.4f} | Trigger={reason} | Bias={day_bias} | Config={CONFIG}")
+                    logging.info(f"[TRADE] {symbol} [{RUN_MODE}] BUY @ {price:.4f} | Time={ts_val.strftime('%H:%M:%S')} | Trigger={reason} | Bias={day_bias} | Config={CONFIG}")
                 else:
                     highest_price_since_entry[symbol] = max(highest_price_since_entry[symbol], price)
                     sell = False
@@ -1935,7 +1935,7 @@ def main():
                     # --- Regime performance snapshot (logs every N sells) ---
                     regime_perf_snapshot()
 
-                    logging.info(f"[TRADE] {symbol} [{RUN_MODE}] SELL qty={qty} @ {price:.4f} | Reason={reason} | Bias={day_bias} | Config={CONFIG} | PnL={pnl:.4f}")
+                    logging.info(f"[TRADE] {symbol} [{RUN_MODE}] SELL qty={qty} @ {price:.4f} | Time={ts_val.strftime('%H:%M:%S')} | Reason={reason} | Bias={day_bias} | Config={CONFIG} | PnL={pnl:.4f}")
                     csv_rows.append({
                     "timestamp": ts_val.strftime("%Y-%m-%d %H:%M:%S"),
                     "symbol": symbol,
@@ -1945,7 +1945,7 @@ def main():
                     "pnl": round(pnl, 4),
                     "ema_fast": round(ema_fast, 4),
                     "ema_slow": round(ema_slow, 4),
-                    "rsi": round(rsi_val, 2),
+                    "rsi": round(rsi_val, 2),Same 
                     "vwap": round(vwap_val, 4)
                 })
 
