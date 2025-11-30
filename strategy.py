@@ -764,6 +764,10 @@ def reconcile_positions(trade_client_local,
     - Re-evaluates exits using evaluate_sell.
     - Extends sell fill polling window to avoid missed confirmations.
     """
+    # --- Skip reconciliation entirely in SIM/AGG_SIM mode ---
+    if RUN_MODE in ["SIM", "AGG_SIM"]:
+        return
+     
     if not RECONCILIATION_ENABLED:
         return
 
