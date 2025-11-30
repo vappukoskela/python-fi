@@ -819,19 +819,19 @@ def reconcile_positions(trade_client_local,
             config = BEARISH_CONFIG
             entry_configs[sym] = config
 
-    if sym in entry_times and sym in entry_configs and sym in entry_prices:      
-        sell, reason = evaluate_sell(
-            sym,
-            last_price,
-            ref_entry,
-            price_deques[sym],
-            size_deques[sym],
-            entry_times,
-            config,
-            current_time=now_ts,
-            regime=detect_regime(prices_series, sizes_series),
-            log_stack=True
-        )
+            if sym in entry_times and sym in entry_configs and sym in entry_prices:      
+                sell, reason = evaluate_sell(
+                    sym,
+                    last_price,
+                    ref_entry,
+                    price_deques[sym],
+                    size_deques[sym],
+                    entry_times,
+                    config,
+                    current_time=now_ts,
+                    regime=detect_regime(prices_series, sizes_series),
+                    log_stack=True
+                )
 
         if sell:
             # Submit sell with extended confirmation polling
