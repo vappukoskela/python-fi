@@ -1752,7 +1752,7 @@ def main():
 
         last_bias = None
             
-        for ts, row in trades.iterrows():
+        for idx, (ts, row) in enumerate(trades.iterrows()):
             try:
                 ts_val = pd.to_datetime(ts, utc=True)
                 price = float(row["price"])
@@ -1760,6 +1760,15 @@ def main():
             except Exception as e:
                 logging.error("[%s] Could not parse row: %s", RUN_MODE, e)
                 continue
+
+            # --- NEW: Progress log every 2000 bars ---
+            if idx % 2000 == 0:
+                logging.info("[PROGRESS] %s replay at %s (%d/%d bars processed)",
+                             symbol,
+                             ts_val.strftime("%H:%M"),
+                             idx,
+                             len(trades))
+
     
             # --- NEW: Tick-aggregointi 1s ---
             bucket_ts = ts_val.replace(microsecond=0)  # pyöristetään sekuntitasolle
