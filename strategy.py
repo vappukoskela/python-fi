@@ -1930,7 +1930,7 @@ def main():
                 # Regime-aware entry (SIM): strict parity with LIVE
                 regime_raw = detect_regime(prices, sizes_series)
                 regime = _smooth_regime(symbol, regime_raw)
-                CONFIG_SESSION = overlay_by_session(CONFIG, ts_val)
+                CONFIG_SESSION = overlay_by_session(CONFIG, ts_val, regime)
                 accept, reason, score, stack = evaluate_entry(
                     symbol, price, size, prices, sizes_series, ts_val,
                     positions_map, inflight_orders, pending_entries,
