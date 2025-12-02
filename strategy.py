@@ -446,13 +446,15 @@ def overlay_by_session(CONFIG, ts):
 
     # OPEN session stricter entries, tighter SL, slightly higher TP
     if 0 <= minutes < 30:
-        adj["ENTRY_SCORE_THRESHOLD"] = CONFIG.get("ENTRY_SCORE_THRESHOLD", 3.0) + 0.3
+        adj["ENTRY_SCORE_THRESHOLD"] = CONFIG.get("ENTRY_SCORE_THRESHOLD", 3.0) + 0.15
         adj["SL_MULTIPLIER"] = max(0.8, CONFIG["SL_MULTIPLIER"] * 0.9)
         adj["TP_PCT"] = min(CONFIG["TP_PCT"] * 1.1, CONFIG["TP_PCT"] + 0.0003)
 
     # MID session: allow RANGE/LOW_VOL slightly easier entries
     else:
-        if CONFIG is RANGE_CONFIG or CONFIG is LOW_VOL_CONFIG:
+        if CONFIG is TREND_CONFIG:
+            adj["ENTRY_SCORE_THRESHOLD"] = max(2.4, CONFIG.get("ENTRY_SCORE_THRESHOLD", 3.0) - 0.2)
+        elif CONFIG is RANGE_CONFIG or CONFIG is LOW_VOL_CONFIG:    
             adj["ENTRY_SCORE_THRESHOLD"] = max(
                 1.4 if CONFIG is RANGE_CONFIG else 1.6,
                 CONFIG.get("ENTRY_SCORE_THRESHOLD", 3.0) - 0.2
