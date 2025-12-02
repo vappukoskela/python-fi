@@ -406,7 +406,9 @@ def _confirm_trend(prices_series, vwap_val, ema_slow_val):
     near_anchor = (abs(tail.iloc[-ENTRY_CONFIRM_TICKS] - ema_slow_val) / tail.iloc[-ENTRY_CONFIRM_TICKS] <= TREND_CONFIG["PULLBACK_TOL"]) or \
                   (abs(tail.iloc[-ENTRY_CONFIRM_TICKS] - vwap_val) / tail.iloc[-ENTRY_CONFIRM_TICKS] <= TREND_CONFIG["PULLBACK_TOL"])
     upticks = all(tail.iloc[i] < tail.iloc[i+1] for i in range(len(tail)-1))
-    return near_anchor and upticks
+    # NEW grinder confirmation path: allow TREND if last N ticks are all higher
+    grinder_ok = sum(tail.diff().fillna(0) > 0) >= ENTRY_CONFIRM_TICKS
+    return (near_anchor and upticks) or grinder_ok
 
 def _confirm_range(prices_series, lower_band):
     if len(prices_series) < ENTRY_CONFIRM_TICKS + 1 or pd.isna(lower_band):
