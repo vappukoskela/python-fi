@@ -278,8 +278,16 @@ def adaptive_entry_update(sym, regime, outcome_label):
     _adaptive_entry_shift[sym][regime] = max(low, min(high, new_shift))
 
 def adaptive_entry_threshold(CONFIG, sym, regime):
+    # Use regime-native base thresholds, not the outer CONFIG profile
+    if regime == "TREND":
+        base = TREND_CONFIG.get("ENTRY_SCORE_THRESHOLD", 2.8)
+    elif regime == "RANGE":
+        base = RANGE_CONFIG.get("ENTRY_SCORE_THRESHOLD", 1.4)
+    elif regime == "LOW_VOL":
+        base = LOW_VOL_CONFIG.get("ENTRY_SCORE_THRESHOLD", 1.8)
+    else:
+        base = HIGH_VOL_CONFIG.get("ENTRY_SCORE_THRESHOLD", 3.6)
     shift = _adaptive_entry_shift[sym][regime]
-    base = CONFIG.get("ENTRY_SCORE_THRESHOLD", 3.0)
     return max(0.8, base + shift)
 
 
@@ -438,7 +446,7 @@ def _session_minutes(ts):
     open_utc = ts.replace(hour=13, minute=30, second=0, microsecond=0)
     return max(0, int((ts - open_utc).total_seconds() // 60))
 
-def overlay_by_session(CONFIG, ts):
+def overlay_by_session(CONFIG, ts, regime):
     if not SESSION_OVERLAYS_ENABLED:
         return CONFIG
     minutes = _session_minutes(ts)
@@ -452,13 +460,13 @@ def overlay_by_session(CONFIG, ts):
 
     # MID session: allow RANGE/LOW_VOL slightly easier entries
     else:
-        if CONFIG is TREND_CONFIG:
+        if regime == "TREND":
             adj["ENTRY_SCORE_THRESHOLD"] = max(2.4, CONFIG.get("ENTRY_SCORE_THRESHOLD", 3.0) - 0.2)
-        elif CONFIG is RANGE_CONFIG or CONFIG is LOW_VOL_CONFIG:    
-            adj["ENTRY_SCORE_THRESHOLD"] = max(
-                1.4 if CONFIG is RANGE_CONFIG else 1.6,
-                CONFIG.get("ENTRY_SCORE_THRESHOLD", 3.0) - 0.2
-            )
+        elif regime == "RANGE":
+            adj["ENTRY_SCORE_THRESHOLD"] = max(1.4, CONFIG.get("ENTRY_SCORE_THRESHOLD", 3.0) - 0.2)
+        elif regime == "LOW_VOL":
+            adj["ENTRY_SCORE_THRESHOLD"] = max(1.6, CONFIG.get("ENTRY_SCORE_THRESHOLD", 3.0) - 0.2)
+            
     return adj
 
 # === PATCH 4: ADX and Choppiness proxies ===
