@@ -987,9 +987,12 @@ def evaluate_entry(sym, price, size, prices_series, sizes_series, ts_val,
     # Cooldown
     since_last_exit = (ts_val - last_exit).total_seconds() if last_exit is not None else float("inf")
     since_last_buy = (ts_val - last_buy_time[sym]).total_seconds() if last_buy_time[sym] is not None else float("inf")
-    if since_last_exit < COOLDOWN_SECONDS or since_last_buy < COOLDOWN_SECONDS:
-        return (False, "Cooldown", 0.0, {})
+    def _regime_cooldown(regime):
+        return 40 if regime == "TREND" else COOLDOWN_SECONDS
 
+    if since_last_exit < _regime_cooldown(regime) or since_last_buy < _regime_cooldown(regime):
+        return (False, "Cooldown", 0.0, {})
+        
     # Regime kill-switch gates
     if regime == "HIGH_VOL" and high_vol_paused[sym]:
         return (False, "HIGH_VOL paused", 0.0, {})
