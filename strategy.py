@@ -1092,7 +1092,7 @@ def evaluate_entry(sym, price, size, prices_series, sizes_series, ts_val,
         macd_ok = (
             not pd.isna(macd_line) and not pd.isna(macd_signal)
             and macd_line > macd_signal
-            and macd_hist > 0.07   # require stronger momentum
+            and macd_hist > 0.03   # require stronger momentum
         )
         pullback_ok = (pullback_to_ema or pullback_to_vwap)
         vol_ok = vol_spike
