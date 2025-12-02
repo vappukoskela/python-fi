@@ -168,11 +168,11 @@ TREND_CONFIG = {
     "TRAILING_STOP_PCT": 0.005,
     "MAX_TRADES": 6,
     "MAX_LOSS_DAY": 1.2,
-    "VWAP_DELTA": 0.005,
+    "VWAP_DELTA": 0.0025,
     "EMA_DELTA": 0.0003,
     "RSI_FAIL_TICKS": 5,
     # Entry scoring thresholds
-    "ENTRY_SCORE_THRESHOLD": 3.2,
+    "ENTRY_SCORE_THRESHOLD": 2.8,
     # Indicator gate weights
     "WEIGHTS": {
         "ema_trend": 1.0,      # EMA_fast > EMA_slow + slope positive
