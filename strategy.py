@@ -1773,6 +1773,7 @@ def main():
         import csv
         csv_filename = f"{symbol}_{RUN_MODE}_trades.csv"
         csv_rows = []
+        audit_rows = []
 
         last_bias = None
             
