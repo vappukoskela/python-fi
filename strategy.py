@@ -1794,6 +1794,18 @@ def main():
             # --- detect regime before using it ---
             regime = detect_regime(prices_series, sizes_series)
 
+            # --- set CONFIG based on bias before using it ---
+            day_bias = detect_day_bias(
+                prices_series,
+                compute_ema_from_series(prices_series, EMA_FAST),
+                compute_ema_from_series(prices_series, EMA_SLOW),
+                compute_vwap_from_ticks(prices_series, sizes_series)
+            )
+            if day_bias == "bullish":
+                CONFIG = BULLISH_CONFIG
+            else:
+                CONFIG = BEARISH_CONFIG
+
             # --- evaluate entry to get score and reason ---
             # This is the missing part. It sets score and reason so they exist.
             accept, reason, score, signal_stack = evaluate_entry(
