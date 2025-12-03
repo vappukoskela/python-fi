@@ -1792,6 +1792,24 @@ def main():
             # --- detect regime before using it ---
             regime = detect_regime(prices_series, sizes_series)
 
+            # --- evaluate entry to get score and reason ---
+            # This is the missing part. It sets score and reason so they exist.
+            accept, reason, score, signal_stack = evaluate_entry(
+                symbol,
+                price,
+                size,
+                prices_series,
+                sizes_series,
+                ts_val,
+                positions_map,
+                inflight_orders,
+                pending_entries,
+                last_exit_time[symbol],
+                last_buy_time,
+                CONFIG,
+                regime,
+                log_stack=True
+            )
             csv_rows.append({
                 "timestamp": ts_val.strftime("%Y-%m-%d %H:%M:%S"),
                 "price": price,
