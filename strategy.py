@@ -2066,12 +2066,12 @@ def main():
         exec_filename = f"{symbol}_{RUN_MODE}_exec.csv"
         exec_fields = ["timestamp", "symbol", "action", "price", "reason", "pnl", "ema_fast", "ema_slow", "rsi", "vwap"]
         with open(exec_filename, "w", newline="") as f:
-            
-            writer = csv.DictWriter(f, fieldnames=exec_fieldnames)
+            import csv
+            writer = csv.DictWriter(f, fieldnames=exec_fields)
             writer.writeheader()
             writer.writerows(csv_rows)
         
-        logging.info("Trades saved to %s", csv_filename)
+        logging.info("Trades saved to %s", exec_filename)
 
         # Write audit/entry evaluation log
         audit_filename = f"{symbol}_{RUN_MODE}_audit.csv"
@@ -2079,6 +2079,7 @@ def main():
         
         try:
             with open(csv_filename, "w", newline="") as f:
+                import csv
                 writer = csv.DictWriter(f, fieldnames=audit_fields)
                 writer.writeheader()
                 writer.writerows(csv_rows)
