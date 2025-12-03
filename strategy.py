@@ -1785,6 +1785,13 @@ def main():
                 logging.error("[%s] Could not parse row: %s", RUN_MODE, e)
                 continue
 
+            # --- build series for indicators ---
+            prices_series = pd.Series(price_deques[symbol])
+            sizes_series = pd.Series(size_deques[symbol])
+        
+            # --- detect regime before using it ---
+            regime = detect_regime(prices_series, sizes_series)
+
             csv_rows.append({
                 "timestamp": ts_val.strftime("%Y-%m-%d %H:%M:%S"),
                 "price": price,
