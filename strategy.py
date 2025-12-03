@@ -2006,7 +2006,8 @@ def main():
 
                     # --- Regime performance snapshot (logs every N sells) ---
                     regime_perf_snapshot()
-
+                    
+                                        
                     logging.info(f"[TRADE] {symbol} [{RUN_MODE}] SELL qty={qty} @ {price:.4f} | Time={ts_val.strftime('%H:%M:%S')} | Reason={reason} | Bias={day_bias} | Config={CONFIG} | PnL={pnl:.4f}")
                     csv_rows.append({
                     "timestamp": ts_val.strftime("%Y-%m-%d %H:%M:%S"),
@@ -2018,7 +2019,8 @@ def main():
                     "ema_fast": round(ema_fast, 4),
                     "ema_slow": round(ema_slow, 4),
                     "rsi": round(rsi_val, 2), 
-                    "vwap": round(vwap_val, 4)
+                    "vwap": round(vwap_val, 4),
+                    "regime": regime_at_sell    
                 })
 
                     logging.info(f"{symbol} [{RUN_MODE}] SELL @ {price:.4f} | Reason={reason} | PnL={pnl:.4f} | Time={ts_val.strftime('%Y-%m-%dT%H:%M:%S')}")
