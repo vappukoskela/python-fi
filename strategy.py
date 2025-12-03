@@ -1785,6 +1785,16 @@ def main():
                 logging.error("[%s] Could not parse row: %s", RUN_MODE, e)
                 continue
 
+            csv_rows.append({
+                "timestamp": ts_val.strftime("%Y-%m-%d %H:%M:%S"),
+                "price": price,
+                "size": size,
+                "regime": regime,   # once you’ve called detect_regime
+                "score": score,     # from evaluate_entry
+                "reason": reason    # from evaluate_entry or evaluate_sell
+            })
+
+
             # --- NEW: Progress log every 2000 bars ---
             if idx % 2000 == 0:
                 logging.info("[PROGRESS] %s replay at %s (%d/%d bars processed)",
@@ -2021,13 +2031,30 @@ def main():
                     rsi_fail_counter[symbol] = 0
     
         logging.info("%s replay finished for %s", RUN_MODE, symbol)
-        with open(csv_filename, mode="w", newline="") as f:
-            fieldnames = ["timestamp", "symbol", "action", "price", "reason", "pnl", "ema_fast", "ema_slow", "rsi", "vwap"]
-            writer = csv.DictWriter(f, fieldnames=fieldnames)
+        # Write trade execution log
+        exec_filename = f"{symbol}_{RUN_MODE}_exec.csv"
+        exec_fields = ["timestamp", "symbol", "action", "price", "reason", "pnl", "ema_fast", "ema_slow", "rsi", "vwap"]
+        with open(exec_filename, "w", newline="") as f:
+            
+            writer = csv.DictWriter(f, fieldnames=exec_fieldnames)
             writer.writeheader()
             writer.writerows(csv_rows)
         
         logging.info("Trades saved to %s", csv_filename)
+
+        # Write audit/entry evaluation log
+        audit_filename = f"{symbol}_{RUN_MODE}_audit.csv"
+        audit_fields = ["timestamp", "price", "size", "regime", "score", "reason"]
+        
+        try:
+            with open(csv_filename, "w", newline="") as f:
+                writer = csv.DictWriter(f, fieldnames=audit_fields)
+                writer.writeheader()
+                writer.writerows(csv_rows)
+            logging.info(f"[SIM] Audit written to {audit_filename} ({len(csv_rows)} rows)")
+        except Exception as e:
+            logging.warning(f"[SIM] Could not write {audit_filename}: {e}")
+ 
 
         return
     # === END SIMULATION BRANCH ===
