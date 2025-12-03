@@ -2213,10 +2213,15 @@ def main():
                         logging.info(f"{sym} - Cooldown active: buy={since_last_buy:.1f}s exit={since_last_exit:.1f}s")
                         continue
 
+                    # --- Always initialize outputs to safe defaults ---
+                    reason = None
+                    score = None
+                    buy = False
+
                     if USE_REGIME_ENTRY:
                         regime_raw = detect_regime(prices, sizes_series)
                         regime = _smooth_regime(sym, regime_raw)
-                        CONFIG_SESSION = overlay_by_session(CONFIG, ts_val)
+                        CONFIG_SESSION = overlay_by_session(CONFIG, ts_val, regime)
                         accept, reason, score, stack = evaluate_entry(
                             sym, price, size, prices, sizes_series, ts_val,
                             positions_map, inflight_orders, pending_entries,
@@ -2224,9 +2229,10 @@ def main():
                             CONFIG_SESSION, regime, log_stack=False
                         )
                         buy = accept
-                    
-
-                    
+                    else:
+                        regime = "UNKNOWN"
+                        # reason and score stay None
+                   
                     
                     # AUDIT: jos BUY hylättiin, käynnistä watchdog dequen datalla
                     if AUDIT_TRAIL_ENABLED and not buy:
