@@ -2006,9 +2006,13 @@ def main():
 
                     # --- Regime performance snapshot (logs every N sells) ---
                     regime_perf_snapshot()
-                    
                                         
-                    logging.info(f"[TRADE] {symbol} [{RUN_MODE}] SELL qty={qty} @ {price:.4f} | Time={ts_val.strftime('%H:%M:%S')} | Reason={reason} | Bias={day_bias} | Config={CONFIG} | PnL={pnl:.4f}")
+                                                           
+                    logging.info(
+                        f"[TRADE] {symbol} [{RUN_MODE}] SELL qty={qty} @ {price:.4f} "
+                        f"| Time={ts_val.strftime('%H:%M:%S')} | Reason={reason} | Bias={day_bias} "
+                        f"| Config={CONFIG} | PnL={pnl:.4f} | Regime={regime_at_sell}"
+                    )
                     csv_rows.append({
                     "timestamp": ts_val.strftime("%Y-%m-%d %H:%M:%S"),
                     "symbol": symbol,
