@@ -2070,7 +2070,7 @@ def main():
             import csv
             writer = csv.DictWriter(f, fieldnames=exec_fields)
             writer.writeheader()
-            writer.writerows(csv_rows)
+            writer.writerows(exec_rows)
         
         logging.info("Trades saved to %s", exec_filename)
 
@@ -2079,12 +2079,12 @@ def main():
         audit_fields = ["timestamp", "price", "size", "regime", "score", "reason"]
         
         try:
-            with open(csv_filename, "w", newline="") as f:
+            with open(audit_filename, "w", newline="") as f:
                 import csv
                 writer = csv.DictWriter(f, fieldnames=audit_fields)
                 writer.writeheader()
-                writer.writerows(csv_rows)
-            logging.info(f"[SIM] Audit written to {audit_filename} ({len(csv_rows)} rows)")
+                writer.writerows(audit_rows)
+            logging.info(f"[SIM] Audit written to {audit_filename} ({len(audit_rows)} rows)")
         except Exception as e:
             logging.warning(f"[SIM] Could not write {audit_filename}: {e}")
  
