@@ -2023,6 +2023,21 @@ def main():
                     # --- PATCH: jäädytä config position ajaksi ---
                     entry_configs[symbol] = CONFIG_SESSION
                     logging.info(f"[TRADE] {symbol} [{RUN_MODE}] BUY @ {price:.4f} | Time={ts_val.strftime('%H:%M:%S')} | Trigger={reason} | Bias={day_bias} | Config={CONFIG}")
+                
+                # --- NEW: append BUY trade to exec_rows ---
+                exec_rows.append({
+                    "timestamp": ts_val.strftime("%Y-%m-%d %H:%M:%S"),
+                    "symbol": symbol,
+                    "action": "BUY",
+                    "price": price,
+                    "reason": reason,
+                    "pnl": None,  # no PnL yet on entry
+                    "ema_fast": round(ema_fast, 4) if not pd.isna(ema_fast) else None,
+                    "ema_slow": round(ema_slow, 4) if not pd.isna(ema_slow) else None,
+                    "rsi": round(rsi_val, 2) if not pd.isna(rsi_val) else None,
+                    "vwap": round(vwap_val, 4) if not pd.isna(vwap_val) else None
+                })
+                
                 else:
                     highest_price_since_entry[symbol] = max(highest_price_since_entry[symbol], price)
                     sell = False
@@ -2051,8 +2066,8 @@ def main():
                         f"[TRADE] {symbol} [{RUN_MODE}] SELL qty={qty} @ {price:.4f} "
                         f"| Time={ts_val.strftime('%H:%M:%S')} | Reason={reason} | Bias={day_bias} "
                         f"| Config={CONFIG} | PnL={pnl:.4f} | Regime={regime_at_sell}"
-                    )
-                    csv_rows.append({
+                    ) 
+                exec_rows.append({
                     "timestamp": ts_val.strftime("%Y-%m-%d %H:%M:%S"),
                     "symbol": symbol,
                     "action": "SELL",
