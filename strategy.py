@@ -2095,7 +2095,7 @@ def main():
                 logging.info("%s replay finished for %s", RUN_MODE, symbol)
                 # Write trade execution log
                 exec_filename = f"{symbol}_{RUN_MODE}_exec.csv"
-                exec_fields = ["timestamp", "symbol", "action", "price", "reason", "pnl", "ema_fast", "ema_slow", "rsi", "vwap"]
+                exec_fields = ["timestamp", "symbol", "action", "price", "reason", "pnl", "ema_fast", "ema_slow", "rsi", "vwap", "regime"]
                 with open(exec_filename, "w", newline="") as f:
                     import csv
                     writer = csv.DictWriter(f, fieldnames=exec_fields)
