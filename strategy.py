@@ -2083,24 +2083,24 @@ def main():
                         "regime": regime_at_sell    
                     })
 
-                logging.info(f"{symbol} [{RUN_MODE}] SELL @ {price:.4f} | Reason={reason} | PnL={pnl:.4f} | Time={ts_val.strftime('%Y-%m-%dT%H:%M:%S')}")
-                in_position = False
-                entry_price = None
-                last_exit_time[symbol] = ts_val
-                highest_price_since_entry.pop(symbol, None)
-                entry_configs.pop(symbol, None)
-                trailing_active[symbol] = False
-                rsi_fail_counter[symbol] = 0
+                    logging.info(f"{symbol} [{RUN_MODE}] SELL @ {price:.4f} | Reason={reason} | PnL={pnl:.4f} | Time={ts_val.strftime('%Y-%m-%dT%H:%M:%S')}")
+                    in_position = False
+                    entry_price = None
+                    last_exit_time[symbol] = ts_val
+                    highest_price_since_entry.pop(symbol, None)
+                    entry_configs.pop(symbol, None)
+                    trailing_active[symbol] = False
+                    rsi_fail_counter[symbol] = 0
     
-        logging.info("%s replay finished for %s", RUN_MODE, symbol)
-        # Write trade execution log
-        exec_filename = f"{symbol}_{RUN_MODE}_exec.csv"
-        exec_fields = ["timestamp", "symbol", "action", "price", "reason", "pnl", "ema_fast", "ema_slow", "rsi", "vwap"]
-        with open(exec_filename, "w", newline="") as f:
-            import csv
-            writer = csv.DictWriter(f, fieldnames=exec_fields)
-            writer.writeheader()
-            writer.writerows(exec_rows)
+                logging.info("%s replay finished for %s", RUN_MODE, symbol)
+                # Write trade execution log
+                exec_filename = f"{symbol}_{RUN_MODE}_exec.csv"
+                exec_fields = ["timestamp", "symbol", "action", "price", "reason", "pnl", "ema_fast", "ema_slow", "rsi", "vwap"]
+                with open(exec_filename, "w", newline="") as f:
+                    import csv
+                    writer = csv.DictWriter(f, fieldnames=exec_fields)
+                    writer.writeheader()
+                    writer.writerows(exec_rows)
         
         logging.info("Trades saved to %s", exec_filename)
 
