@@ -1664,7 +1664,7 @@ def _audit_watchdog_deque(sym, ts_val, ref_entry_price, reason,
             "outcome": outcome,
             "window_min": AUDIT_OUTCOME_WINDOW_MIN
         })
-        logging.info("[AUDIT][%s] outcome=%s reason=%s ref=%.4f window=%dm",
+        logging.debug("[AUDIT][%s] outcome=%s reason=%s ref=%.4f window=%dm",
                      sym, outcome, reason, ref_entry_price, AUDIT_OUTCOME_WINDOW_MIN)
     except Exception as e:
         logging.warning("[AUDIT][%s] watchdog failed: %s", sym, e)
