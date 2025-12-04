@@ -645,11 +645,10 @@ def get_position_qty(trade_client_local, symbol):
 def safe_market_buy(trade_client_local, symbol, cash_amount, order_lock):
     with order_lock:
         try:
-            try:
-                resp = stock_data_client.get_stock_latest_trade(
-                    StockLatestTradeRequest(symbol_or_symbols=symbol)
-                )
-                est_price = float(resp[symbol].price)
+            resp = stock_data_client.get_stock_latest_trade(
+                StockLatestTradeRequest(symbol_or_symbols=symbol)
+            )
+            est_price = float(resp[symbol].price)
             except Exception:
                 est_price = None
             if est_price and est_price > 0:
