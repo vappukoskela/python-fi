@@ -654,12 +654,12 @@ def safe_market_buy(trade_client, symbol, cash_for_buy, order_lock, price_deques
             except Exception:
                 est_price = None
             if est_price and est_price > 0:
-                qty = int((cash_amount * BUY_CASH_BUFFER) // est_price)
+                qty = int((cash_for_buy * BUY_CASH_BUFFER) // est_price)
             else:
                 qty = 1
             if qty <= 0 or (est_price and qty * est_price < MIN_TRADE_USD):
                 logging.debug("Computed buy qty too small for %s (qty=%s est_price=%s cash=%.2f)",
-                              symbol, qty, est_price, cash_amount)
+                              symbol, qty, est_price, cash_for_buy)
                 return None
             order = MarketOrderRequest(
                 symbol=symbol, qty=qty, side=OrderSide.BUY,
