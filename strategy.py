@@ -680,8 +680,10 @@ def safe_market_buy(trade_client_local, symbol, cash_amount, order_lock):
             "vwap": None,
             "regime": regime_at_entry    
         })
-        logging.info(f"[TRADE] {symbol} [{RUN_MODE}] BUY qty={qty} @ {est_price:.4f} | Time={datetime.now(timezone.utc).strftime('%H:%M:%S')}")
-
+        logging.info(
+            f"[TRADE] {symbol} [{RUN_MODE}] BUY qty={qty} @ {est_price:.4f} "
+            f"| Time={datetime.now(timezone.utc).strftime('%H:%M:%S')}"
+        )
         return submitted
         except Exception as e:
             logging.exception("safe_market_buy error for %s: %s", symbol, e)
