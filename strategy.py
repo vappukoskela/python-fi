@@ -2069,19 +2069,19 @@ def main():
                         f"| Time={ts_val.strftime('%H:%M:%S')} | Reason={reason} | Bias={day_bias} "
                         f"| Config={CONFIG} | PnL={pnl:.4f} | Regime={regime_at_sell}"
                     ) 
-                exec_rows.append({
-                    "timestamp": ts_val.strftime("%Y-%m-%d %H:%M:%S"),
-                    "symbol": symbol,
-                    "action": "SELL",
-                    "price": price,
-                    "reason": reason,
-                    "pnl": round(pnl, 4),
-                    "ema_fast": round(ema_fast, 4),
-                    "ema_slow": round(ema_slow, 4),
-                    "rsi": round(rsi_val, 2), 
-                    "vwap": round(vwap_val, 4),
-                    "regime": regime_at_sell    
-                })
+                    exec_rows.append({
+                        "timestamp": ts_val.strftime("%Y-%m-%d %H:%M:%S"),
+                        "symbol": symbol,
+                        "action": "SELL",
+                        "price": price,
+                        "reason": reason,
+                        "pnl": round(pnl, 4),
+                        "ema_fast": round(ema_fast, 4),
+                        "ema_slow": round(ema_slow, 4),
+                        "rsi": round(rsi_val, 2), 
+                        "vwap": round(vwap_val, 4),
+                        "regime": regime_at_sell    
+                    })
 
                 logging.info(f"{symbol} [{RUN_MODE}] SELL @ {price:.4f} | Reason={reason} | PnL={pnl:.4f} | Time={ts_val.strftime('%Y-%m-%dT%H:%M:%S')}")
                 in_position = False
