@@ -725,8 +725,9 @@ def safe_market_sell(trade_client_local, symbol, intended_qty, order_lock):
             )
             submitted = trade_client_local.submit_order(order)
             order_id = getattr(submitted, "id", None)
-            logging.info("[TRADE] %s - SELL submitted qty=%d (available=%d intended=%s) order_id=%s | Time=%s",
-                         symbol, qty_to_sell, available, intended_qty, order_id, datetime.now(timezone.utc).strftime("%H:%M:%S"))
+            logging.info(f"[TRADE] {symbol} [{RUN_MODE}] SELL submitted qty={qty_to_sell} "
+                         f"(available={available} intended={intended_qty}) order_id={order_id} "
+                         f"| Time={datetime.now(timezone.utc).strftime('%H:%M:%S')}")
 
             if order_id:
                 try:
