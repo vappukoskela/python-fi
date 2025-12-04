@@ -766,7 +766,7 @@ def safe_market_sell(trade_client_local, symbol, intended_qty, order_lock):
                             entry_qty.pop(symbol, None)
                             entry_configs.pop(symbol, None)
                             last_exit_time[symbol] = datetime.now(timezone.utc)
-                            logging.info("%s - EXIT state cleanup completed", symbol)
+                            logging.debug("%s - EXIT state cleanup completed", symbol)
                             break
                         time.sleep(1.0)
                     else:
