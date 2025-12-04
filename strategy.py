@@ -642,7 +642,7 @@ def get_position_qty(trade_client_local, symbol):
         logging.warning(f"get_position_qty failed for {symbol}: {e}")
         return 0
 
-def safe_market_buy(trading_client, sym, cash_amount, order_lock, price_deques,size_deques)
+def safe_market_buy(trading_client, sym, cash_amount, order_lock, price_deques,size_deques):
     with order_lock:
         try:
 
