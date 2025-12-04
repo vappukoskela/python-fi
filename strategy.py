@@ -57,6 +57,7 @@ inflight_orders = {}
 entry_times = {}
 entry_prices = {}
 entry_qty = {}
+exec_rows = []
 
 tp1_hit = defaultdict(bool)
 
