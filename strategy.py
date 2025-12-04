@@ -1774,6 +1774,7 @@ def main():
         csv_filename = f"{symbol}_{RUN_MODE}_trades.csv"
         csv_rows = []
         audit_rows = []
+        exec_rows = []
         positions_map = {}
 
         last_bias = None
