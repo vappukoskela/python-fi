@@ -2375,7 +2375,7 @@ def main():
                             ref_entry = entry_prices.get(sym, avg_entry)
                             config = entry_configs.get(sym)
                             if ref_entry is None or config is None:
-                                logging.error("[%s] Sell skipped: missing entry context", sym)
+                                logging.debug("[%s] Sell skipped: missing entry context", sym)
                                 continue
                             
                             sell, reason = evaluate_sell(
