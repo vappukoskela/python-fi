@@ -739,6 +739,28 @@ def safe_market_sell(trade_client_local, symbol, intended_qty, order_lock):
                         logging.info("%s - SELL order %s status=%s (attempt %d/%d)",
                                      symbol, order_id, status, attempt+1, max_retries)
                         if status == "filled":
+                            # --- Compute PnL and regime for parity ---
+                            ref_entry = entry_prices.get(symbol, float("nan"))
+                            last_price = float(confirmed.price) if hasattr(confirmed, "price") else 0.0
+                            pnl = (last_price - ref_entry) * qty_to_sell if ref_entry else 0.0
+                            regime_at_sell = detect_regime(pd.Series(price_deques[symbol]), pd.Series(size_deques[symbol]))
+                        
+                            # --- Append SELL trade to exec_rows ---
+                            exec_rows.append({
+                                "timestamp": datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M:%S"),
+                                "symbol": symbol,
+                                "action": "SELL",
+                                "price": last_price,
+                                "reason": reason,   # or use evaluate_sell reason if available
+                                "pnl": round(pnl, 4),
+                                "ema_fast": None,
+                                "ema_slow": None,
+                                "rsi": None,
+                                "vwap": None,
+                                "regime": regime_at_sell
+                            })
+                            logging.info(f"[TRADE] {symbol} [{RUN_MODE}] SELL qty={qty_to_sell} @ {last_price:.4f} "
+                                         f"| Reason=exit | PnL={pnl:.4f} | Time={datetime.now(timezone.utc).strftime('%H:%M:%S')}")
                             entry_times.pop(symbol, None)
                             entry_prices.pop(symbol, None)
                             entry_qty.pop(symbol, None)
@@ -748,7 +770,7 @@ def safe_market_sell(trade_client_local, symbol, intended_qty, order_lock):
                             break
                         time.sleep(1.0)
                     else:
-                        logging.warning("%s - SELL order %s not filled after %d retries (last status=%s)",
+                        logging.debug("%s - SELL order %s not filled after %d retries (last status=%s)",
                                         symbol, order_id, max_retries, status)
                 except Exception as e:
                     logging.warning("%s - Could not verify SELL order %s: %s", symbol, order_id, e)
