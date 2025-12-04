@@ -2038,17 +2038,18 @@ def main():
                     "vwap": round(vwap_val, 4) if not pd.isna(vwap_val) else None
                 })
                 
-                else:
-                    highest_price_since_entry[symbol] = max(highest_price_since_entry[symbol], price)
-                    sell = False
-                    reason = "no-eval"
-                    has_entry = (symbol in entry_times) and (symbol in entry_prices) and (symbol in entry_configs)
-                    if not has_entry:
-                        continue
-                    sell, reason = evaluate_sell(
-                        symbol, price, entry_prices[symbol],
-                        price_deques[symbol], size_deques[symbol], entry_times, entry_configs[symbol], current_time=ts_val
-                    )
+                
+                highest_price_since_entry[symbol] = max(highest_price_since_entry[symbol], price)
+                sell = False
+                reason = "no-eval"
+                has_entry = (symbol in entry_times) and (symbol in entry_prices) and (symbol in entry_configs)
+                if not has_entry:
+                    continue
+                    
+                sell, reason = evaluate_sell(
+                    symbol, price, entry_prices[symbol],
+                    price_deques[symbol], size_deques[symbol], entry_times, entry_configs[symbol], current_time=ts_val
+                )
                 if sell:
                     qty = entry_qty.get(symbol, 1)
                     pnl = (price - entry_price) * qty
