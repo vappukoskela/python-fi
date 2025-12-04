@@ -2280,9 +2280,9 @@ def main():
                         (datetime.now(timezone.utc) - last_exit_time[sym]).total_seconds()
                         if last_exit_time[sym] is not None else float("inf")
                     )
-                    logging.info(f"{sym} cooldown check: buy={since_last_buy:.2f}s exit={since_last_exit:.2f}s")
+                    logging.debug(f"{sym} cooldown check: buy={since_last_buy:.2f}s exit={since_last_exit:.2f}s")
                     if since_last_buy < COOLDOWN_SECONDS or since_last_exit < COOLDOWN_SECONDS:
-                        logging.info(f"{sym} - Cooldown active: buy={since_last_buy:.1f}s exit={since_last_exit:.1f}s")
+                        logging.debug(f"{sym} - Cooldown active: buy={since_last_buy:.1f}s exit={since_last_exit:.1f}s")
                         continue
 
                     # --- Always initialize outputs to safe defaults ---
