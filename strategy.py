@@ -2335,7 +2335,7 @@ def main():
                                 cash_for_buy *= 0.5   # halve position size in high volatility
                     
                             spent_this_loop += est_trade_cost  # reserve budget immediately
-                            submitted = safe_market_buy(trade_client, sym, cash_for_buy, order_lock)
+                            submitted = safe_market_buy(trade_client, sym, cash_for_buy, order_lock, price_deques, size_deques)
                             logging.debug(f"[TRACE] Buy submitted: {submitted}")
                             
                             if submitted:
