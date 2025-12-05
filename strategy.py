@@ -680,6 +680,7 @@ def safe_market_buy(trade_client_local, symbol, cash_for_buy, order_lock, price_
                 "ema_slow": None,
                 "rsi": None,
                 "vwap": None,
+                "reason": entry,
                 "regime": regime_at_entry    
             })
             logging.info(
