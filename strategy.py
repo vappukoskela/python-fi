@@ -674,13 +674,12 @@ def safe_market_buy(trade_client_local, symbol, cash_for_buy, order_lock, price_
                 "symbol": symbol,
                 "action": "BUY",
                 "price": est_price if est_price else 0.0,
-                "reason": reason,   # or use evaluate_entry reason if available
+                "reason": "entry",   # or use evaluate_entry reason if available
                 "pnl": None,
                 "ema_fast": None,
                 "ema_slow": None,
                 "rsi": None,
                 "vwap": None,
-                "reason": "entry",
                 "regime": regime_at_entry    
             })
             logging.info(
