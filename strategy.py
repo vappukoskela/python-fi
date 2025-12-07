@@ -1143,7 +1143,7 @@ def evaluate_entry(sym, price, size, prices_series, sizes_series, ts_val,
 
     # Base sanity filters to avoid nonsense:
     if pd.isna(ema_fast) or pd.isna(ema_slow) or pd.isna(vwap_val) or pd.isna(rsi_val):
-        logging.DEBUG(f"[BLOCK] {sym} rejected | Reason=Missing core indicators")
+        logging.debug(f"[BLOCK] {sym} rejected | Reason=Missing core indicators")
         return (False, "Missing core indicators", 0.0, {})
 
     signal_stack = {}
