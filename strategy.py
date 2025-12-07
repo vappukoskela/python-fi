@@ -1940,7 +1940,7 @@ def main():
                 CONFIG = BEARISH_CONFIG
 
                                       
-            positions_map = get_positions_map(trade_client)
+            positions_map = {} if RUN_MODE in ["SIM", "AGG_SIM"] else get_positions_map(trade_client)
 
             reconcile_positions(
                 trade_client_local=trade_client,
