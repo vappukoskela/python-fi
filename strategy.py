@@ -1070,7 +1070,8 @@ def evaluate_entry(sym, price, size, prices_series, sizes_series, ts_val,
     inflight_none = inflight_orders.get(sym) is None
     not_pending = sym not in pending_entries
     if not (no_position and inflight_none and not_pending):
-        logging.info(f"[BLOCK] {sym} rejected | Reason=Position/order block")
+        logging.info(f"[BLOCK] {sym} rejected | Reason=Position/order block | "
+                     f"no_position={no_position} inflight_none={inflight_none} not_pending={not_pending}")
         return (False, "Position/order block", 0.0, {})
 
     # Base features
