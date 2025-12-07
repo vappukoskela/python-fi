@@ -943,6 +943,14 @@ def reconcile_positions(trade_client_local,
 # === BIAS DETECTION ===
 def detect_day_bias(prices_series, ema_fast_series, ema_slow_series, vwap_series):
     try:
+        # === SAFETY GUARD: prevent out-of-bounds at start of session ===
+        if (len(prices_series) == 0 or
+            len(ema_fast_series) == 0 or
+            len(ema_slow_series) == 0 or
+            len(vwap_series) == 0):
+            logging.debug("[BIAS] Series not ready yet, defaulting to bearish")
+            return "bearish"
+                
         last_price = float(prices_series.iloc[-1])
         ema_fast_now = float(ema_fast_series.iloc[-1])
         ema_slow_now = float(ema_slow_series.iloc[-1])
