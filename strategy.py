@@ -736,7 +736,33 @@ def safe_market_sell(trade_client_local, symbol, intended_qty, order_lock):
             # === SIM cleanup: remove symbol from positions_map so no_position=True again ===
             if RUN_MODE in ["SIM", "AGG_SIM"]:
                 positions_map.pop(symbol, None)
-               
+
+                # Immediate SELL append for SIM/AGG_SIM
+                ref_entry = entry_prices.get(symbol, float("nan"))
+                last_price = entry_prices.get(symbol, 0.0)
+                pnl = (last_price - ref_entry) * qty_to_sell if ref_entry else 0.0
+                regime_at_sell = detect_regime(pd.Series(price_deques[symbol]), pd.Series(size_deques[symbol]))
+                exec_rows.append({
+                    "timestamp": datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M:%S"),
+                    "symbol": symbol,
+                    "action": "SELL",
+                    "price": last_price,
+                    "reason": "SIM exit",
+                    "pnl": round(pnl, 4),
+                    "ema_fast": None,
+                    "ema_slow": None,
+                    "rsi": None,
+                    "vwap": None,
+                    "regime": regime_at_sell
+                })
+                logging.info(f"[TRADE] {symbol} [{RUN_MODE}] SELL @ {last_price:.4f} | PnL={pnl:.4f}")
+                entry_times.pop(symbol, None)
+                entry_prices.pop(symbol, None)
+                entry_qty.pop(symbol, None)
+                entry_configs.pop(symbol, None)
+                last_exit_time[symbol] = datetime.now(timezone.utc)
+                logging.debug("%s - EXIT state cleanup completed", symbol)
+
             if order_id:
                 try:
                     max_retries = 5
@@ -745,7 +771,7 @@ def safe_market_sell(trade_client_local, symbol, intended_qty, order_lock):
                         confirmed = trade_client_local.get_order_by_id(order_id)
                         status = getattr(confirmed, "status", None)
                         logging.info("%s - SELL order %s status=%s (attempt %d/%d)",
-                                     symbol, order_id, status, attempt+1, max_retries)
+                                    symbol, order_id, status, attempt+1, max_retries)
                         if status == "filled":
                             # --- Compute PnL and regime for parity ---
                             ref_entry = entry_prices.get(symbol, float("nan"))
