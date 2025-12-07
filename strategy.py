@@ -734,8 +734,8 @@ def safe_market_sell(trade_client_local, symbol, intended_qty, order_lock):
                          f"| Time={datetime.now(timezone.utc).strftime('%H:%M:%S')}")
 
             # === SIM cleanup: remove symbol from positions_map so no_position=True again ===
-           if RUN_MODE in ["SIM", "AGG_SIM"]:
-               positions_map.pop(symbol, None)
+            if RUN_MODE in ["SIM", "AGG_SIM"]:
+                positions_map.pop(symbol, None)
                
             if order_id:
                 try:
