@@ -1053,7 +1053,7 @@ def evaluate_entry(sym, price, size, prices_series, sizes_series, ts_val,
         return 40 if regime == "TREND" else COOLDOWN_SECONDS
 
     if since_last_exit < _regime_cooldown(regime) or since_last_buy < _regime_cooldown(regime):
-        logging.DEBUG(f"[BLOCK] {sym} rejected | Reason=Cooldown")
+        logging.debug(f"[BLOCK] {sym} rejected | Reason=Cooldown")
         return (False, "Cooldown", 0.0, {})
         
     # Regime kill-switch gates
@@ -1074,7 +1074,7 @@ def evaluate_entry(sym, price, size, prices_series, sizes_series, ts_val,
     inflight_none = inflight_orders.get(sym) is None
     not_pending = sym not in pending_entries
     if not (no_position and inflight_none and not_pending):
-        logging.DEBUG(f"[BLOCK] {sym} rejected | Reason=Position/order block | "
+        logging.debug(f"[BLOCK] {sym} rejected | Reason=Position/order block | "
                      f"no_position={no_position} inflight_none={inflight_none} not_pending={not_pending}")
         return (False, "Position/order block", 0.0, {})
 
