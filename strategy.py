@@ -767,8 +767,7 @@ def safe_market_sell(trade_client_local, symbol, intended_qty, order_lock):
                                 "vwap": None,
                                 "regime": regime_at_sell
                             })
-                            logging.info(f"[TRADE] {symbol} [{RUN_MODE}] SELL qty={qty_to_sell} @ {last_price:.4f} "
-                                         f"| Reason=exit | PnL={pnl:.4f} | Time={datetime.now(timezone.utc).strftime('%H:%M:%S')}")
+                            logging.info(f"[TRADE] {symbol} [{RUN_MODE}] SELL @ {last_price:.4f} | PnL={pnl:.4f}")
                             entry_times.pop(symbol, None)
                             entry_prices.pop(symbol, None)
                             entry_qty.pop(symbol, None)
