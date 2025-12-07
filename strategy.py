@@ -1770,9 +1770,10 @@ def main():
         # Alusta tilarakenteet
         inflight_orders = {}
         pending_entries = set()
+        positions_map = {}
         last_exit_time = {s: None for s in symbols}
         last_buy_time = {s: None for s in symbols}
-
+        
         start = "2025-12-05T14:30:00Z"
         end = "2025-12-05T21:00:00Z"
     
