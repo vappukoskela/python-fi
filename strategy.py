@@ -298,11 +298,11 @@ LOG_SIGNAL_STACK_ON_ACCEPT = False  # you asked for full logs; toggle to True if
 
 
 # === LOGGING ===
-logging.basicConfig(level=logging.DEBUG,
+logging.basicConfig(level=logging.INFO,
                     format="%(asctime)s %(levelname)s %(message)s",
                     filename="scalper_safe.log")
 console = logging.StreamHandler()
-console.setLevel(logging.DEBUG)
+console.setLevel(logging.INFO)
 logging.getLogger().addHandler(console)
 
 logging.debug("[TRACE] Logging system initialized")
@@ -1049,6 +1049,7 @@ def evaluate_entry(sym, price, size, prices_series, sizes_series, ts_val,
         return 40 if regime == "TREND" else COOLDOWN_SECONDS
 
     if since_last_exit < _regime_cooldown(regime) or since_last_buy < _regime_cooldown(regime):
+        logging.info(f"[BLOCK] {sym} rejected | Reason=Cooldown")
         return (False, "Cooldown", 0.0, {})
         
     # Regime kill-switch gates
@@ -1069,6 +1070,7 @@ def evaluate_entry(sym, price, size, prices_series, sizes_series, ts_val,
     inflight_none = inflight_orders.get(sym) is None
     not_pending = sym not in pending_entries
     if not (no_position and inflight_none and not_pending):
+        logging.info(f"[BLOCK] {sym} rejected | Reason=Position/order block")
         return (False, "Position/order block", 0.0, {})
 
     # Base features
@@ -1136,6 +1138,7 @@ def evaluate_entry(sym, price, size, prices_series, sizes_series, ts_val,
 
     # Base sanity filters to avoid nonsense:
     if pd.isna(ema_fast) or pd.isna(ema_slow) or pd.isna(vwap_val) or pd.isna(rsi_val):
+        logging.info(f"[BLOCK] {sym} rejected | Reason=Missing core indicators")
         return (False, "Missing core indicators", 0.0, {})
 
     signal_stack = {}
