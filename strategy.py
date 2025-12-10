@@ -742,12 +742,18 @@ def safe_market_sell(trade_client_local, symbol, intended_qty, order_lock):
                 last_price = entry_prices.get(symbol, 0.0)
                 pnl = (last_price - ref_entry) * qty_to_sell if ref_entry else 0.0
                 regime_at_sell = detect_regime(pd.Series(price_deques[symbol]), pd.Series(size_deques[symbol]))
+
+                # Use actual exit reason if available, else fallback
+                sell_reason = "exit"
+                if "reason" in locals() and reason:
+                    sell_reason = reason
+                    
                 exec_rows.append({
                     "timestamp": datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M:%S"),
                     "symbol": symbol,
                     "action": "SELL",
                     "price": last_price,
-                    "reason": "SIM exit",
+                    "reason": sell_reason,
                     "pnl": round(pnl, 4),
                     "ema_fast": None,
                     "ema_slow": None,
