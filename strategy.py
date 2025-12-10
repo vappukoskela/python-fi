@@ -744,6 +744,14 @@ def safe_market_sell(trade_client_local, symbol, intended_qty, order_lock):
                 pnl = (last_price - ref_entry) * qty_to_sell if ref_entry else 0.0
                 regime_at_sell = detect_regime(pd.Series(price_deques[symbol]), pd.Series(size_deques[symbol]))
 
+                # Compute indicators for parity with BUY rows
+                prices_series = pd.Series(price_deques[symbol])
+                sizes_series = pd.Series(size_deques[symbol])
+                ema_fast_val = compute_ema_from_series(prices_series, EMA_FAST).iloc[-1]
+                ema_slow_val = compute_ema_from_series(prices_series, EMA_SLOW).iloc[-1]
+                rsi_val = compute_rsi_from_series(prices_series, RSI_PERIOD).iloc[-1]
+                vwap_val = compute_vwap_from_ticks(prices_series, sizes_series).iloc[-1]
+
                 # Use actual exit reason if available, else fallback
                 sell_reason = "exit"
                                    
