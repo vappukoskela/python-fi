@@ -752,7 +752,7 @@ def safe_market_sell(trade_client_local, symbol, intended_qty, order_lock):
                     "symbol": symbol,
                     "action": "SELL",
                     "price": last_price,
-                    "reason": sell_reason,
+                    "reason": "exit",
                     "pnl": round(pnl, 4),
                     "ema_fast": None,
                     "ema_slow": None,
@@ -790,7 +790,7 @@ def safe_market_sell(trade_client_local, symbol, intended_qty, order_lock):
                                 "symbol": symbol,
                                 "action": "SELL",
                                 "price": last_price,
-                                "reason": reason,   # or use evaluate_sell reason if available
+                                "reason": "exit",   # or use evaluate_sell reason if available
                                 "pnl": round(pnl, 4),
                                 "ema_fast": None,
                                 "ema_slow": None,
