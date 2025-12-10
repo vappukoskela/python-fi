@@ -266,17 +266,6 @@ LOW_VOL_CONFIG = {
 
 EXEC_AUDIT_ENABLED = True
 EXEC_AUDIT_FILE = "audit_trades_live.csv"
-if EXEC_AUDIT_ENABLED:
-    try:
-        import csv
-        with open(EXEC_AUDIT_FILE, "a", newline="") as f:
-            writer = csv.DictWriter(f, fieldnames=sell_row.keys())
-            if f.tell() == 0:
-                writer.writeheader()
-            writer.writerow(sell_row)
-    except Exception as e:
-        logging.warning("Failed to write SELL to audit file: %s", e)
-
 
 # === Adaptive entry threshold (per symbol, per regime) ===
 ADAPTIVE_ENTRY_ENABLED = True
@@ -786,7 +775,7 @@ def safe_market_sell(trade_client_local, symbol, intended_qty, order_lock, price
                 ema_slow_val = compute_ema_from_series(prices_series, EMA_SLOW).iloc[-1]
                 rsi_val = compute_rsi_from_series(prices_series, RSI_PERIOD).iloc[-1]
                 vwap_val = compute_vwap_from_ticks(prices_series, sizes_series).iloc[-1]
-                regime_at_sell = detect_regime(pd.Series(price_deques[symbol]), pd.Series(size_deques[symbol]))
+                regime_at_sell = detect_regime(prices_series, sizes_series)
 
                 sell_row = {
                     "timestamp": datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M:%S"),
@@ -804,17 +793,16 @@ def safe_market_sell(trade_client_local, symbol, intended_qty, order_lock, price
                 exec_rows.append(sell_row)
                 logging.info(f"[TRADE] {symbol} [{RUN_MODE}] SELL @ {last_price:.4f} | PnL={pnl:.4f} | Regime={regime_at_sell}")               
 
-                # Optional lightweight execution audit
-                try:
-                    audit_file = "audit_trades_live.csv"
-                    import csv
-                    with open(audit_file, "a", newline="") as f:
-                        writer = csv.DictWriter(f, fieldnames=sell_row.keys())
-                        if f.tell() == 0:
-                            writer.writeheader()
-                        writer.writerow(sell_row)
-                except Exception as e:
-                    logging.warning("Failed to write SELL to audit file: %s", e)
+                if EXEC_AUDIT_ENABLED:
+                    try:
+                        import csv
+                        with open(EXEC_AUDIT_FILE, "a", newline="") as f:
+                            writer = csv.DictWriter(f, fieldnames=sell_row.keys())
+                            if f.tell() == 0:
+                                writer.writeheader()
+                            writer.writerow(sell_row)
+                    except Exception as e:
+                        logging.warning("Failed to write SELL to audit file: %s", e)
 
                 # Cleanup
                 entry_times.pop(symbol, None)
@@ -864,20 +852,20 @@ def safe_market_sell(trade_client_local, symbol, intended_qty, order_lock, price
                             }
                             exec_rows.append(sell_row)
                             logging.info(f"[TRADE] {symbol} [{RUN_MODE}] SELL @ {last_price:.4f} | PnL={pnl:.4f} | Regime={regime_at_sell}")
+
+                            # audit write must be here, inside the same block
+                            if EXEC_AUDIT_ENABLED:
+                                try:
+                                    import csv
+                                    with open(EXEC_AUDIT_FILE, "a", newline="") as f:
+                                        writer = csv.DictWriter(f, fieldnames=sell_row.keys())
+                                        if f.tell() == 0:
+                                            writer.writeheader()
+                                        writer.writerow(sell_row)
+                                except Exception as e:
+                                    logging.warning("Failed to write SELL to audit file: %s", e)
+
                             
-
-                            # 3) Optional: write to dedicated execution audit file (non-blocking)
-                            try:
-                                audit_file = "audit_trades_live.csv"
-                                import csv
-                                with open(audit_file, "a", newline="") as f:
-                                    writer = csv.DictWriter(f, fieldnames=sell_row.keys())
-                                    if f.tell() == 0:
-                                        writer.writeheader()
-                                    writer.writerow(sell_row)
-                            except Exception as e:
-                                logging.warning("Failed to write SELL to audit file: %s", e)
-
                             entry_times.pop(symbol, None)
                             entry_prices.pop(symbol, None)
                             entry_qty.pop(symbol, None)
