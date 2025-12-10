@@ -264,6 +264,20 @@ LOW_VOL_CONFIG = {
     "BANDWIDTH_CAP": 0.003       # low-vol consolidation cap
 }
 
+EXEC_AUDIT_ENABLED = True
+EXEC_AUDIT_FILE = "audit_trades_live.csv"
+if EXEC_AUDIT_ENABLED:
+    try:
+        import csv
+        with open(EXEC_AUDIT_FILE, "a", newline="") as f:
+            writer = csv.DictWriter(f, fieldnames=sell_row.keys())
+            if f.tell() == 0:
+                writer.writeheader()
+            writer.writerow(sell_row)
+    except Exception as e:
+        logging.warning("Failed to write SELL to audit file: %s", e)
+
+
 # === Adaptive entry threshold (per symbol, per regime) ===
 ADAPTIVE_ENTRY_ENABLED = True
 ADAPTIVE_BOUNDS = (-0.3, 0.3)
@@ -667,25 +681,47 @@ def safe_market_buy(trade_client_local, symbol, cash_for_buy, order_lock, price_
                 type=OrderType.MARKET, time_in_force=TimeInForce.DAY
             )
             submitted = trade_client_local.submit_order(order)
-            regime_at_entry = detect_regime(pd.Series(price_deques[symbol]), pd.Series(size_deques[symbol]))
+
+            # Compute indicators for parity with SELL
+            prices_series = pd.Series(price_deques[symbol])
+            sizes_series = pd.Series(size_deques[symbol])
+            ema_fast_val = compute_ema_from_series(prices_series, EMA_FAST).iloc[-1]
+            ema_slow_val = compute_ema_from_series(prices_series, EMA_SLOW).iloc[-1]
+            rsi_val = compute_rsi_from_series(prices_series, RSI_PERIOD).iloc[-1]
+            vwap_val = compute_vwap_from_ticks(prices_series, sizes_series).iloc[-1]
+            regime_at_entry = detect_regime(prices_series, sizes_series)
             
-            exec_rows.append({
+            buy_row = {
                 "timestamp": datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M:%S"),
                 "symbol": symbol,
                 "action": "BUY",
                 "price": est_price if est_price else 0.0,
                 "reason": "entry",   # or use evaluate_entry reason if available
                 "pnl": None,
-                "ema_fast": None,
-                "ema_slow": None,
-                "rsi": None,
-                "vwap": None,
+                "ema_fast": ema_fast_val,
+                "ema_slow": ema_slow_val,
+                "rsi": rsi_val,
+                "vwap": vwap_val,
                 "regime": regime_at_entry    
-            })
+            }
+            exec_rows.append(buy_row)
             logging.info(
-                f"[TRADE] {symbol} [{RUN_MODE}] BUY qty={qty} @ {est_price:.4f} "
-                f"| Time={datetime.now(timezone.utc).strftime('%H:%M:%S')}"
+                f"[TRADE] {symbol} [{RUN_MODE}] BUY qty={qty} @ {(est_price if est_price else 0.0):.4f} "
+                f"| Time={datetime.now(timezone.utc).strftime('%H:%M:%S')} | Regime={regime_at_entry}"
             )
+
+            # Optional lightweight execution audit
+            if EXEC_AUDIT_ENABLED:
+                try:
+                    import csv
+                    with open(EXEC_AUDIT_FILE, "a", newline="") as f:
+                        writer = csv.DictWriter(f, fieldnames=buy_row.keys())
+                        if f.tell() == 0:
+                            writer.writeheader()
+                        writer.writerow(buy_row)
+                except Exception as e:
+                    logging.warning("Failed to write BUY to audit file: %s", e)
+                    
             return submitted
         except Exception as e:
             logging.exception("safe_market_buy error for %s: %s", symbol, e)
@@ -710,7 +746,7 @@ def _order_status_wait(trade_client_local, order_id, sym, max_retries=RECON_POLL
         return False
 
 
-def safe_market_sell(trade_client_local, symbol, intended_qty, order_lock):
+def safe_market_sell(trade_client_local, symbol, intended_qty, order_lock, price_deques, size_deques):
     with order_lock:
         available = get_position_qty(trade_client_local, symbol)
         if available == 0 and intended_qty > 0:
@@ -742,8 +778,7 @@ def safe_market_sell(trade_client_local, symbol, intended_qty, order_lock):
                 last_price = float(price_deques[symbol][-1]) if price_deques[symbol] else 0.0
                 
                 pnl = (last_price - ref_entry) * qty_to_sell if ref_entry else 0.0
-                regime_at_sell = detect_regime(pd.Series(price_deques[symbol]), pd.Series(size_deques[symbol]))
-
+               
                 # Compute indicators for parity with BUY rows
                 prices_series = pd.Series(price_deques[symbol])
                 sizes_series = pd.Series(size_deques[symbol])
@@ -751,31 +786,45 @@ def safe_market_sell(trade_client_local, symbol, intended_qty, order_lock):
                 ema_slow_val = compute_ema_from_series(prices_series, EMA_SLOW).iloc[-1]
                 rsi_val = compute_rsi_from_series(prices_series, RSI_PERIOD).iloc[-1]
                 vwap_val = compute_vwap_from_ticks(prices_series, sizes_series).iloc[-1]
+                regime_at_sell = detect_regime(pd.Series(price_deques[symbol]), pd.Series(size_deques[symbol]))
 
-                # Use actual exit reason if available, else fallback
-                sell_reason = "exit"
-                                   
-                exec_rows.append({
+                sell_row = {
                     "timestamp": datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M:%S"),
                     "symbol": symbol,
                     "action": "SELL",
                     "price": last_price,
                     "reason": "exit",
                     "pnl": round(pnl, 4),
-                    "ema_fast": None,
-                    "ema_slow": None,
-                    "rsi": None,
-                    "vwap": None,
+                    "ema_fast": ema_fast_val,
+                    "ema_slow": ema_slow_val,
+                    "rsi": rsi_val,
+                    "vwap": vwap_val,
                     "regime": regime_at_sell
-                })
-                logging.info(f"[TRADE] {symbol} [{RUN_MODE}] SELL @ {last_price:.4f} | PnL={pnl:.4f}")
+                }                
+                exec_rows.append(sell_row)
+                logging.info(f"[TRADE] {symbol} [{RUN_MODE}] SELL @ {last_price:.4f} | PnL={pnl:.4f} | Regime={regime_at_sell}")               
+
+                # Optional lightweight execution audit
+                try:
+                    audit_file = "audit_trades_live.csv"
+                    import csv
+                    with open(audit_file, "a", newline="") as f:
+                        writer = csv.DictWriter(f, fieldnames=sell_row.keys())
+                        if f.tell() == 0:
+                            writer.writeheader()
+                        writer.writerow(sell_row)
+                except Exception as e:
+                    logging.warning("Failed to write SELL to audit file: %s", e)
+
+                # Cleanup
                 entry_times.pop(symbol, None)
                 entry_prices.pop(symbol, None)
                 entry_qty.pop(symbol, None)
                 entry_configs.pop(symbol, None)
                 last_exit_time[symbol] = datetime.now(timezone.utc)
+                trailing_active[symbol] = False
                 logging.debug("%s - EXIT state cleanup completed", symbol)
-
+                
             if order_id:
                 try:
                     max_retries = 5
@@ -788,30 +837,53 @@ def safe_market_sell(trade_client_local, symbol, intended_qty, order_lock):
                         if status == "filled":
                             # --- Compute PnL and regime for parity ---
                             ref_entry = entry_prices.get(symbol, float("nan"))
-                            last_price = float(confirmed.price) if hasattr(confirmed, "price") else 0.0
+                            last_price = float(getattr(confirmed, "filled_avg_price", getattr(confirmed, "price", 0.0)))
                             pnl = (last_price - ref_entry) * qty_to_sell if ref_entry else 0.0
-                            regime_at_sell = detect_regime(pd.Series(price_deques[symbol]), pd.Series(size_deques[symbol]))
+                            
+                            prices_series = pd.Series(price_deques[symbol])
+                            sizes_series = pd.Series(size_deques[symbol])
+                            ema_fast_val = compute_ema_from_series(prices_series, EMA_FAST).iloc[-1]
+                            ema_slow_val = compute_ema_from_series(prices_series, EMA_SLOW).iloc[-1]
+                            rsi_val = compute_rsi_from_series(prices_series, RSI_PERIOD).iloc[-1]
+                            vwap_val = compute_vwap_from_ticks(prices_series, sizes_series).iloc[-1]
+                            regime_at_sell = detect_regime(prices_series, sizes_series)
                         
                             # --- Append SELL trade to exec_rows ---
-                            exec_rows.append({
+                            sell_row = {
                                 "timestamp": datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M:%S"),
                                 "symbol": symbol,
                                 "action": "SELL",
                                 "price": last_price,
                                 "reason": "exit",   # or use evaluate_sell reason if available
                                 "pnl": round(pnl, 4),
-                                "ema_fast": None,
-                                "ema_slow": None,
-                                "rsi": None,
-                                "vwap": None,
+                                "ema_fast": ema_fast_val,
+                                "ema_slow": ema_slow_val,
+                                "rsi": rsi_val,
+                                "vwap": vwap_val,
                                 "regime": regime_at_sell
-                            })
-                            logging.info(f"[TRADE] {symbol} [{RUN_MODE}] SELL @ {last_price:.4f} | PnL={pnl:.4f}")
+                            }
+                            exec_rows.append(sell_row)
+                            logging.info(f"[TRADE] {symbol} [{RUN_MODE}] SELL @ {last_price:.4f} | PnL={pnl:.4f} | Regime={regime_at_sell}")
+                            
+
+                            # 3) Optional: write to dedicated execution audit file (non-blocking)
+                            try:
+                                audit_file = "audit_trades_live.csv"
+                                import csv
+                                with open(audit_file, "a", newline="") as f:
+                                    writer = csv.DictWriter(f, fieldnames=sell_row.keys())
+                                    if f.tell() == 0:
+                                        writer.writeheader()
+                                    writer.writerow(sell_row)
+                            except Exception as e:
+                                logging.warning("Failed to write SELL to audit file: %s", e)
+
                             entry_times.pop(symbol, None)
                             entry_prices.pop(symbol, None)
                             entry_qty.pop(symbol, None)
                             entry_configs.pop(symbol, None)
                             last_exit_time[symbol] = datetime.now(timezone.utc)
+                            trailing_active[symbol] = False
                             logging.debug("%s - EXIT state cleanup completed", symbol)
                             break
                         time.sleep(1.0)
