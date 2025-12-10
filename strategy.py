@@ -2507,7 +2507,7 @@ def main():
                             )
                             
                             if sell:
-                                submitted = safe_market_sell(trade_client, sym, qty_open, order_lock)
+                                submitted = safe_market_sell(trade_client, sym, qty_open, order_lock, price_deques, size_deques)
                                 logging.info(f"[TRADE] {sym} - SCALP SELL qty={qty_open} @ {last_price:.4f} | Reason={reason} | Bias={day_bias} | Config={CONFIG}")
                                 logging.info(
                                     "%s - SCALP SELL qty=%d @ %.4f | Reason=%s | EntryRef=%.4f",
