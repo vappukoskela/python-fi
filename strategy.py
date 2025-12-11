@@ -778,12 +778,17 @@ def safe_market_sell(trade_client_local, symbol, intended_qty, order_lock, price
                 vwap_val = compute_vwap_from_ticks(prices_series, sizes_series).iloc[-1]
                 regime_at_sell = detect_regime(prices_series, sizes_series)
 
+
+                bias_moment = "bullish" if ema_fast_val > ema_slow_val else "bearish"
+                sell_reason = "exit"   # replace with evaluate_sell output if available
+                
                 sell_row = {
                     "timestamp": datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M:%S"),
                     "symbol": symbol,
                     "action": "SELL",
                     "price": last_price,
-                    "reason": "exit",
+                    "reason": sell_reason,
+                    "bias": bias_moment,
                     "pnl": round(pnl, 4),
                     "ema_fast": ema_fast_val,
                     "ema_slow": ema_slow_val,
@@ -830,14 +835,17 @@ def safe_market_sell(trade_client_local, symbol, intended_qty, order_lock, price
                             rsi_val = compute_rsi_from_series(prices_series, RSI_PERIOD).iloc[-1]
                             vwap_val = compute_vwap_from_ticks(prices_series, sizes_series).iloc[-1]
                             regime_at_sell = detect_regime(prices_series, sizes_series)
-                        
+
+                            bias_moment = "bullish" if ema_fast_val > ema_slow_val else "bearish"
+                            sell_reason = "exit"   # replace with evaluate_sell output if available
                             # --- Append SELL trade to exec_rows ---
                             sell_row = {
                                 "timestamp": datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M:%S"),
                                 "symbol": symbol,
                                 "action": "SELL",
                                 "price": last_price,
-                                "reason": "exit",   # or use evaluate_sell reason if available
+                                "reason": sell_reason,   # or use evaluate_sell reason if available
+                                "bias": bias_moment,
                                 "pnl": round(pnl, 4),
                                 "ema_fast": ema_fast_val,
                                 "ema_slow": ema_slow_val,
@@ -859,10 +867,10 @@ def safe_market_sell(trade_client_local, symbol, intended_qty, order_lock, price
                                         writer.writerow(sell_row)
                                 except Exception as e:
                                     logging.warning("Failed to write SELL to audit file: %s", e)
-                                         
-                           return submitted
-               except Exception as e:
-                   logging.warning("SELL verification failed for %s: %s", symbol, e) 
+                                 
+                            return submitted
+                except Exception as e:
+                    logging.warning("SELL verification failed for %s: %s", symbol, e) 
             return submitted 
         except Exception as e:
             logging.exception("safe_market_sell error for %s: %s", symbol, e)
