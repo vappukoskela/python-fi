@@ -804,14 +804,8 @@ def safe_market_sell(trade_client_local, symbol, intended_qty, order_lock, price
                     except Exception as e:
                         logging.warning("Failed to write SELL to audit file: %s", e)
 
-                # Cleanup
-                entry_times.pop(symbol, None)
-                entry_prices.pop(symbol, None)
-                entry_qty.pop(symbol, None)
-                entry_configs.pop(symbol, None)
-                last_exit_time[symbol] = datetime.now(timezone.utc)
-                trailing_active[symbol] = False
-                logging.debug("%s - EXIT state cleanup completed", symbol)
+                # ✅ No cleanup here; caller will handle it
+                return submitted
                 
             if order_id:
                 try:
@@ -864,24 +858,8 @@ def safe_market_sell(trade_client_local, symbol, intended_qty, order_lock, price
                                         writer.writerow(sell_row)
                                 except Exception as e:
                                     logging.warning("Failed to write SELL to audit file: %s", e)
-
-                            
-                            entry_times.pop(symbol, None)
-                            entry_prices.pop(symbol, None)
-                            entry_qty.pop(symbol, None)
-                            entry_configs.pop(symbol, None)
-                            last_exit_time[symbol] = datetime.now(timezone.utc)
-                            trailing_active[symbol] = False
-                            logging.debug("%s - EXIT state cleanup completed", symbol)
-                            break
-                        time.sleep(1.0)
-                    else:
-                        logging.debug("%s - SELL order %s not filled after %d retries (last status=%s)",
-                                        symbol, order_id, max_retries, status)
-                except Exception as e:
-                    logging.warning("%s - Could not verify SELL order %s: %s", symbol, order_id, e)
-
-            return submitted
+                                         
+                            return submitted
         except Exception as e:
             logging.exception("safe_market_sell error for %s: %s", symbol, e)
             return None
@@ -2511,6 +2489,14 @@ def main():
                             
                             if sell:
                                 submitted = safe_market_sell(trade_client, sym, qty_open, order_lock, price_deques, size_deques)
+                                if submitted:
+                                    entry_times.pop(sym, None)
+                                    entry_prices.pop(sym, None)
+                                    entry_qty.pop(sym, None)
+                                    entry_configs.pop(sym, None)
+                                    last_exit_time[sym] = datetime.now(timezone.utc)
+                                    trailing_active[sym] = False
+                                    logging.debug("%s - EXIT state cleanup completed", symbol)
                                 logging.info(f"[TRADE] {sym} - SCALP SELL qty={qty_open} @ {last_price:.4f} | Reason={reason} | Bias={day_bias} | Config={CONFIG}")
                                 logging.info(
                                     "%s - SCALP SELL qty=%d @ %.4f | Reason=%s | EntryRef=%.4f",
