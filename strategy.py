@@ -2458,9 +2458,10 @@ def main():
                                 inflight_orders[sym] = getattr(submitted, "id", None) or True
                                 # 🔍 Retry loop for post-buy verification
                                 actual_qty = 0
-                                for attempt in range(3):
+                                max_verify_attempts = 6
+                                for attempt in range(max_verify_attempts):
                                     actual_qty = get_position_qty(trade_client, sym)
-                                    logging.debug(f"[TRACE] Post-buy verification attempt {attempt+1} for {sym}: actual_qty={actual_qty}")
+                                    logging.debug(f"[TRACE] Post-buy verification attempt {attempt+1}/{max_verify_attempts} for {sym}: actual_qty={actual_qty}")
                                     if actual_qty > 0:
                                         break
                                     time.sleep(1.0)
@@ -2471,10 +2472,12 @@ def main():
                                     entry_times[sym] = datetime.now(timezone.utc)
                                     last_buy_time[sym] = datetime.now(timezone.utc)
                                     entry_configs[sym] = CONFIG_SESSION
+                                    pending_entries.discard(sym)
                                     logging.info(f"{sym} - ENTRY recorded qty={entry_qty[sym]} price={price:.2f} rsi={rsi_val:.2f} Bias={day_bias} Config={CONFIG_SESSION}")
                                     
                                 else:
-                                    logging.warning(f"[TRACE] Buy assumed filled but no position found for {sym}")
+                                    pending_entries.discard(sym)
+                                    logging.warning(f"[BUY-VERIFY] No position found for {sym} after {max_verify_attempts}s; entry not recorded.")
       
                         except Exception as e:
                             logging.exception("%s - BUY error: %s", sym, str(e))
