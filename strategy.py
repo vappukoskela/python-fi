@@ -760,6 +760,7 @@ def safe_market_sell(trade_client_local, symbol, intended_qty, order_lock, price
 
             # === SIM cleanup: remove symbol from positions_map so no_position=True again ===
             if RUN_MODE in ["SIM", "AGG_SIM"]:
+                global positions_map
                 positions_map.pop(symbol, None)
 
                 # Immediate SELL append for SIM/AGG_SIM
@@ -806,7 +807,7 @@ def safe_market_sell(trade_client_local, symbol, intended_qty, order_lock, price
 
                 # ✅ No cleanup here; caller will handle it
                 return submitted
-                
+            # === LIVE branch ===   
             if order_id:
                 try:
                     max_retries = 5
@@ -816,7 +817,7 @@ def safe_market_sell(trade_client_local, symbol, intended_qty, order_lock, price
                         status = getattr(confirmed, "status", None)
                         logging.info("%s - SELL order %s status=%s (attempt %d/%d)",
                                     symbol, order_id, status, attempt+1, max_retries)
-                        if status == "filled":
+                        if str(status).lower() == "filled":
                             # --- Compute PnL and regime for parity ---
                             ref_entry = entry_prices.get(symbol, float("nan"))
                             last_price = float(getattr(confirmed, "filled_avg_price", getattr(confirmed, "price", 0.0)))
@@ -859,7 +860,10 @@ def safe_market_sell(trade_client_local, symbol, intended_qty, order_lock, price
                                 except Exception as e:
                                     logging.warning("Failed to write SELL to audit file: %s", e)
                                          
-                            return submitted
+                           return submitted
+               except Exception as e:
+                   logging.warning("SELL verification failed for %s: %s", symbol, e) 
+            return submitted 
         except Exception as e:
             logging.exception("safe_market_sell error for %s: %s", symbol, e)
             return None
