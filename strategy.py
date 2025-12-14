@@ -815,7 +815,9 @@ def safe_market_sell(trade_client_local, symbol, intended_qty, order_lock, price
             # === LIVE branch ===   
             if order_id:
                 try:
-                    max_retries = 5
+                    # Use reconciliation polling window for truth and parity
+                    max_retries = RECON_POLL_RETRIES
+                    sleep_s = RECON_POLL_SLEEP
                     status = None
                     for attempt in range(max_retries):
                         confirmed = trade_client_local.get_order_by_id(order_id)
@@ -869,6 +871,9 @@ def safe_market_sell(trade_client_local, symbol, intended_qty, order_lock, price
                                     logging.warning("Failed to write SELL to audit file: %s", e)
                                  
                             return submitted
+                        time.sleep(sleep_s)
+                    logging.warning("%s - SELL order %s not filled within poll window; reconciliation will handle audit.",
+                        symbol, order_id)
                 except Exception as e:
                     logging.warning("SELL verification failed for %s: %s", symbol, e) 
             return submitted 
