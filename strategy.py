@@ -1023,6 +1023,38 @@ def reconcile_positions(trade_client_local,
                     regime_trades[regime_at_sell] += 1
                     exit_reason_count[regime_at_sell][reason] += 1
                     logging.info("%s - RECON SELL filled or reconciled | PnL≈%.4f | Reason=%s", sym, pnl_est, reason)
+                    # --- Write SELL to audit_trades_live for parity ---
+                    if EXEC_AUDIT_ENABLED:
+                        try:
+                            import csv
+                            ema_fast_val = compute_ema_from_series(prices_series, EMA_FAST).iloc[-1]
+                            ema_slow_val = compute_ema_from_series(prices_series, EMA_SLOW).iloc[-1]
+                            rsi_val = compute_rsi_from_series(prices_series, RSI_PERIOD).iloc[-1]
+                            vwap_val = compute_vwap_from_ticks(prices_series, sizes_series).iloc[-1]
+
+                            sell_row = {
+                                "timestamp": now_ts.strftime("%Y-%m-%d %H:%M:%S"),
+                                "symbol": sym,
+                                "action": "SELL",
+                                "price": round(last_price, 6),
+                                "reason": reason or "exit",
+                                "bias": "bullish" if ema_fast_val > ema_slow_val else "bearish",
+                                "pnl": round(pnl_est, 4),
+                                "ema_fast": ema_fast_val,
+                                "ema_slow": ema_slow_val,
+                                "rsi": rsi_val,
+                                "vwap": vwap_val,
+                                "regime": regime_at_sell
+                            }
+                            fieldnames = ["timestamp","symbol","action","price","reason","bias","pnl",
+                                          "ema_fast","ema_slow","rsi","vwap","regime"]
+                            with open(EXEC_AUDIT_FILE, "a", newline="") as f:
+                                writer = csv.DictWriter(f, fieldnames=fieldnames)
+                                if f.tell() == 0:
+                                    writer.writeheader()
+                                writer.writerow(sell_row)
+                        except Exception as e:
+                            logging.warning("[RECON] Failed to write SELL to audit file: %s", e)
                 else:
                     logging.warning("%s - RECON SELL not confirmed; position qty still %d", sym, qty_after)
             except Exception as e:
