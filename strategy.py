@@ -805,8 +805,10 @@ def safe_market_sell(trade_client_local, symbol, intended_qty, order_lock, price
                 if EXEC_AUDIT_ENABLED:
                     try:
                         import csv
+                        fieldnames = ["timestamp","symbol","action","price","reason","bias","pnl",
+                                      "ema_fast","ema_slow","rsi","vwap","regime"]
                         with open(EXEC_AUDIT_FILE, "a", newline="") as f:
-                            writer = csv.DictWriter(f, fieldnames=sell_row.keys())
+                            writer = csv.DictWriter(f, fieldnames=fieldnames)
                             if f.tell() == 0:
                                 writer.writeheader()
                             writer.writerow(sell_row)
