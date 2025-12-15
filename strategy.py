@@ -646,6 +646,24 @@ def get_position_qty(trade_client_local, symbol):
         logging.warning(f"get_position_qty failed for {symbol}: {e}")
         return 0
 
+# --- NEW helper for status normalization ---
+def _status_is(status, target):
+    """
+    Normalize Alpaca order status (enum or string) and compare to target.
+    Example: _status_is(status, "filled")
+    """
+    try:
+        val = getattr(status, "value", None)
+        if isinstance(val, str):
+            return val.lower() == target.lower()
+        name = getattr(status, "name", None)
+        if isinstance(name, str):
+            return name.lower() == target.lower()
+        s = str(status)
+        return s.split(".")[-1].lower() == target.lower()
+    except Exception:
+        return False
+
 def safe_market_buy(trade_client_local, symbol, cash_for_buy, order_lock, price_deques, size_deques):
     with order_lock:
         try:
