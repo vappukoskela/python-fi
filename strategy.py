@@ -745,7 +745,7 @@ def _order_status_wait(trade_client_local, order_id, sym, max_retries=RECON_POLL
             status = getattr(confirmed, "status", None)
             logging.info("%s - RECON SELL order %s status=%s (attempt %d/%d)",
                          sym, order_id, status, attempt+1, max_retries)
-            if status == "filled":
+            if _status_is(status, "filled"):
                 return True
             time.sleep(sleep_s)
         logging.warning("%s - RECON SELL order %s not filled after %d polls (last status=%s)",
@@ -847,7 +847,7 @@ def safe_market_sell(trade_client_local, symbol, intended_qty, order_lock, price
                         status = getattr(confirmed, "status", None)
                         logging.info("%s - SELL order %s status=%s (attempt %d/%d)",
                                     symbol, order_id, status, attempt+1, max_retries)
-                        if str(status).lower() == "filled":
+                        if _status_is(status, "filled"):
                             # --- Compute PnL and regime for parity ---
                             ref_entry = entry_prices.get(symbol, float("nan"))
                             last_price = float(getattr(confirmed, "filled_avg_price", getattr(confirmed, "price", 0.0)))
