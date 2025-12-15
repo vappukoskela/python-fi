@@ -686,6 +686,7 @@ def safe_market_buy(trade_client_local, symbol, cash_for_buy, order_lock, price_
                 "action": "BUY",
                 "price": est_price if est_price else 0.0,
                 "reason": "entry",   # or use evaluate_entry reason if available
+                "bias": None,
                 "pnl": None,
                 "ema_fast": ema_fast_val,
                 "ema_slow": ema_slow_val,
@@ -703,8 +704,10 @@ def safe_market_buy(trade_client_local, symbol, cash_for_buy, order_lock, price_
             if EXEC_AUDIT_ENABLED:
                 try:
                     import csv
+                    fieldnames = ["timestamp","symbol","action","price","reason","bias","pnl",
+                                  "ema_fast","ema_slow","rsi","vwap","regime"]
                     with open(EXEC_AUDIT_FILE, "a", newline="") as f:
-                        writer = csv.DictWriter(f, fieldnames=buy_row.keys())
+                        writer = csv.DictWriter(f, fieldnames=fieldnames)
                         if f.tell() == 0:
                             writer.writeheader()
                         writer.writerow(buy_row)
