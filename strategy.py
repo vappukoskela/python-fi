@@ -1229,7 +1229,7 @@ def detect_regime(prices_series, sizes_series):
 def evaluate_entry(sym, price, size, prices_series, sizes_series, ts_val,
                    positions_map, inflight_orders, pending_entries,
                    last_exit, last_buy_time, CONFIG, regime,
-                   log_stack=False):
+                   bias=None, log_stack=False):
     """
     Returns (accept: bool, reason: str, score: float, signal_stack: dict)
     Gate is regime-dependent. Keeps your cooldown and position safety checks.
