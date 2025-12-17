@@ -264,6 +264,27 @@ LOW_VOL_CONFIG = {
     "BANDWIDTH_CAP": 0.003       # low-vol consolidation cap
 }
 
+# === Bias-specific overlays (defined AFTER the base dict) ===
+LOW_VOL_CONFIG_BULL = dict(LOW_VOL_CONFIG)
+LOW_VOL_CONFIG_BULL.update({
+    "ENTRY_SCORE_THRESHOLD": 1.7, # slightly easier entries
+    "TP_PCT": 0.0012,
+    "OBV_REQUIRED": False, # soft requirement
+    "ENTRY_CONFIRM_TICKS": 3
+})
+
+LOW_VOL_CONFIG_BEAR = dict(LOW_VOL_CONFIG)
+LOW_VOL_CONFIG_BEAR.update({
+    "ENTRY_SCORE_THRESHOLD": 2.2, # stricter gating
+    "TP_PCT": 0.0010, # faster exits
+    "VWAP_DELTA": 0.0025,
+    "EMA_DELTA": 0.0003,
+    "OBV_REQUIRED": True, # hard requirement
+    "ENTRY_CONFIRM_TICKS": 4,
+    "TIME_STOP_SECONDS": 90, # shorter time-stop
+    "VWAP_PROGRESS_MIN": 0.30 # require progress shrink
+})    
+    
 EXEC_AUDIT_ENABLED = True
 EXEC_AUDIT_FILE = "audit_trades_live.csv"
 
@@ -288,7 +309,12 @@ def adaptive_entry_threshold(CONFIG, sym, regime):
     elif regime == "RANGE":
         base = RANGE_CONFIG.get("ENTRY_SCORE_THRESHOLD", 1.4)
     elif regime == "LOW_VOL":
-        base = LOW_VOL_CONFIG.get("ENTRY_SCORE_THRESHOLD", 1.8)
+        # choose bias-aware config if available
+        if sym in _adaptive_entry_shift and "bias" in _adaptive_entry_shift[sym]:
+            bias = _adaptive_entry_shift[sym]["bias"]
+            base = LOW_VOL_CONFIG_BULL["ENTRY_SCORE_THRESHOLD"] if bias == "bullish" else LOW_VOL_CONFIG_BEAR["ENTRY_SCORE_THRESHOLD"]
+        else:    
+            base = LOW_VOL_CONFIG.get("ENTRY_SCORE_THRESHOLD", 1.8)
     else:
         base = HIGH_VOL_CONFIG.get("ENTRY_SCORE_THRESHOLD", 3.6)
     shift = _adaptive_entry_shift[sym][regime]
@@ -430,13 +456,25 @@ def _confirm_range(prices_series, lower_band):
     upticks = sum(tail.diff().fillna(0) > 0) >= ENTRY_CONFIRM_TICKS - 1
     return touch and upticks
 
-def _confirm_low_vol(prices_series, vwap_val):
-    if len(prices_series) < ENTRY_CONFIRM_TICKS + 1 or pd.isna(vwap_val):
+def _confirm_low_vol(prices_series, vwap_val, bias="bullish"):
+    ticks_required = 3 if bias == "bullish" else 4
+    if len(prices_series) < ticks_required + 1 or pd.isna(vwap_val):
         return False
     tail = prices_series.iloc[-ENTRY_CONFIRM_TICKS-1:]
     below_vwap = tail.iloc[-ENTRY_CONFIRM_TICKS] < vwap_val
-    mean_rev = tail.iloc[-1] > tail.iloc[-2] > tail.iloc[-3]
+    mean_rev = all(tail.iloc[i] < tail.iloc[i+1] for i in range(len(tail)-1))
     return below_vwap and mean_rev
+
+def overlay_exit_params_by_regime(CONFIG, regime, bias="bullish"):
+    adj = dict(CONFIG)
+    if regime == "LOW_VOL" and bias == "bearish":
+        adj["EMA_DELTA"] = 0.0003
+        adj["VWAP_DELTA"] = 0.0025
+        adj["TP_PCT"] = 0.0010
+        adj["TIME_STOP_SECONDS"] = 90
+        adj["VWAP_PROGRESS_MIN"] = 0.30
+    return adj
+
 
 # === PATCH 3: Session overlays ===
 SESSION_OVERLAYS_ENABLED = True
@@ -1425,7 +1463,18 @@ def evaluate_entry(sym, price, size, prices_series, sizes_series, ts_val,
         chop_ok = (not pd.isna(chop_val) and chop_val >= 1.2)
         signal_stack["chop_proxy_ok"] = chop_ok
         score += 0.3 if chop_ok else 0.0
-
+        
+        # === NEW: OBV slope enforcement for LOW_VOL ===
+        obv_ok = (not pd.isna(obv_slope) and obv_slope > 0)
+        signal_stack["obv_slope_ok"] = obv_ok
+        
+        if bias == "bearish":
+            if not obv_ok:
+                return (False, "LOW_VOL bearish blocked by OBV slope<=0", score, signal_stack)
+        else: # bullish
+            if not obv_ok:
+                score -= 0.5 # penalize but allow if other signals are strong
+                       
     # Inside evaluate_entry, before computing 'accept'
     confirm_ok = True
     if ENTRY_CONFIRM_ENABLED:
