@@ -8,6 +8,7 @@ from collections import deque, defaultdict
 
 # === CODE VERSION TAG (for audit comparison) ===
 CODE_VERSION = "PATCH_EPOCH_5" # increment manually when you apply new patches
+CODE_VERSION = "PATCH5_2025-12-19"
 
 rsi_fail_counter = defaultdict(int)
 
@@ -857,7 +858,8 @@ def safe_market_sell(trade_client_local, symbol, intended_qty, order_lock, price
                     "ema_slow": ema_slow_val,
                     "rsi": rsi_val,
                     "vwap": vwap_val,
-                    "regime": regime_at_sell
+                    "regime": regime_at_sell,
+                    "code_version": CODE_VERSION
                 }                
                 exec_rows.append(sell_row)
                 logging.info(f"[TRADE] {symbol} [{RUN_MODE}] SELL @ {last_price:.4f} | PnL={pnl:.4f} | Regime={regime_at_sell}")               
