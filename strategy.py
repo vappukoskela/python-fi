@@ -766,7 +766,7 @@ def safe_market_buy(trade_client_local, symbol, cash_for_buy, order_lock, price_
                 try:
                     import csv
                     fieldnames = ["timestamp","symbol","action","price","reason","bias","pnl",
-                                  "ema_fast","ema_slow","rsi","vwap","regime"]
+                                  "ema_fast","ema_slow","rsi","vwap","regime","code_version"]
                     with open(EXEC_AUDIT_FILE, "a", newline="") as f:
                         writer = csv.DictWriter(f, fieldnames=fieldnames)
                         if f.tell() == 0:
