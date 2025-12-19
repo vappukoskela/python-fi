@@ -6,6 +6,9 @@ from collections import deque
 from datetime import datetime, timezone, timedelta
 from collections import deque, defaultdict
 
+# === CODE VERSION TAG (for audit comparison) ===
+CODE_VERSION = "PATCH_EPOCH_5" # increment manually when you apply new patches
+
 rsi_fail_counter = defaultdict(int)
 
 import pandas as pd
@@ -748,7 +751,8 @@ def safe_market_buy(trade_client_local, symbol, cash_for_buy, order_lock, price_
                 "ema_slow": ema_slow_val,
                 "rsi": rsi_val,
                 "vwap": vwap_val,
-                "regime": regime_at_entry    
+                "regime": regime_at_entry,
+                "code_version": CODE_VERSION
             }
             exec_rows.append(buy_row)
             logging.info(
@@ -862,7 +866,7 @@ def safe_market_sell(trade_client_local, symbol, intended_qty, order_lock, price
                     try:
                         import csv
                         fieldnames = ["timestamp","symbol","action","price","reason","bias","pnl",
-                                      "ema_fast","ema_slow","rsi","vwap","regime"]
+                                      "ema_fast","ema_slow","rsi","vwap","regime","code_version" ]
                         with open(EXEC_AUDIT_FILE, "a", newline="") as f:
                             writer = csv.DictWriter(f, fieldnames=fieldnames)
                             if f.tell() == 0:
