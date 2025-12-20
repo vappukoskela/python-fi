@@ -2225,6 +2225,20 @@ def main():
                     "vwap": round(vwap_val, 4)
                 })
 
+                # --- ALSO write to exec_rows (exec log for NVDA_AGG_SIM_exec.csv) ---
+                exec_rows.append({
+                    "timestamp": ts_val.strftime("%Y-%m-%d %H:%M:%S"),
+                    "symbol": symbol,
+                    "action": "SELL",
+                    "price": price,
+                    "reason": reason_exit,
+                    "pnl": round(pnl, 4),
+                    "ema_fast": round(ema_fast, 4),
+                    "ema_slow": round(ema_slow, 4),
+                    "rsi": round(rsi_val, 2),
+                    "vwap": round(vwap_val, 4),
+                    "regime": regime # or regime_at_sell if you prefer recomputing
+                })    
                 # State cleanup
                 in_position = False
                 entry_price = None
