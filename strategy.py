@@ -2195,7 +2195,6 @@ def main():
                     price_deques[symbol],            # price_deque
                     size_deques[symbol],             # size_deque
                     entry_times,                     # full entry_times dict
-                    entry_configs,
                     entry_configs[symbol],           # CONFIG for this entry
                     current_time=ts_val,             # keyword
                     regime=regime,                   # keyword
