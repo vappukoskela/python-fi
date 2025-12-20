@@ -2038,8 +2038,9 @@ def main():
         csv_filename = f"{symbol}_{RUN_MODE}_trades.csv"
         csv_rows = []
         audit_rows = []
-        exec_rows = []
         positions_map = {}
+        sell_decisions = 0
+        
 
         last_bias = None
             
