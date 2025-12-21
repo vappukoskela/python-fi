@@ -2390,8 +2390,16 @@ def main():
                     writer = csv.DictWriter(f, fieldnames=exec_fields)
                     writer.writeheader()
                     writer.writerows(exec_rows)
-        
-        logging.info("Trades saved to %s", exec_filename)
+                    
+                    # after writer.writerows(exec_rows)
+                    logging.info("[SIM DIAG] wrote exec file %s rows=%d", exec_filename, len(exec_rows))
+                    logging.info("[SIM DIAG] sell_decisions=%d exec_rows_len=%d", sell_decisions, len(exec_rows))            
+                                        
+                    # Optional: log first few exec_rows for quick inspection
+                    for i, r in enumerate(exec_rows[:8]):
+                        logging.info("[SIM DIAG] exec_rows[%d]=%s", i, r)
+            
+                logging.info("Trades saved to %s", exec_filename)
 
         # Write audit/entry evaluation log
         audit_filename = f"{symbol}_{RUN_MODE}_audit.csv"
