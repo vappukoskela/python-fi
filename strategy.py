@@ -2203,6 +2203,10 @@ def main():
                 )    
             else:
                 accept_exit, reason_exit = (False, None)
+
+            # Diagnostic: log evaluate_sell result (SIM only)
+            logging.debug("[SIM] evaluate_sell (early) -> accept_exit=%s reason=%s ts=%s",
+                          accept_exit, reason_exit, ts_val.strftime("%H:%M:%S"))
             if accept_exit:
                 sell_decisions += 1
                 qty = entry_qty.get(symbol, 0)
@@ -2330,6 +2334,11 @@ def main():
                     symbol, price, entry_prices[symbol],
                     price_deques[symbol], size_deques[symbol], entry_times, entry_configs[symbol], current_time=ts_val
                 )
+
+                # Diagnostic: log evaluate_sell result (SIM only, late branch)
+                logging.debug("[SIM] evaluate_sell (late) -> sell=%s reason=%s ts=%s",
+                              sell, reason, ts_val.strftime("%H:%M:%S"))
+                
                 if sell:
                     sell_decisions += 1
                     qty = entry_qty.get(symbol, 1)
