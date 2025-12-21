@@ -336,7 +336,7 @@ logging.basicConfig(level=logging.DEBUG,
                     format="%(asctime)s %(levelname)s %(message)s",
                     filename="scalper_safe.log")
 console = logging.StreamHandler()
-console.setLevel(logging.INFO)
+console.setLevel(logging.WARNING)
 logging.getLogger().addHandler(console)
 
 logging.debug("[TRACE] Logging system initialized")
@@ -2295,7 +2295,12 @@ def main():
                 )
                 buy = accept
 
-                if buy:
+                if buy and not in_position and (symbol not in entry_times):
+                    # Extra safety: avoid multiple buys within the same second (or very short interval)
+                    if last_buy_time.get(symbol) is not None and (ts_val - last_buy_time[symbol]).total_seconds() < 1:
+                        # skip duplicate buy within same second
+                        continue
+                        
                     csv_rows.append({
                         "timestamp": ts_val.strftime("%Y-%m-%d %H:%M:%S"),
                         "symbol": symbol,
@@ -2344,7 +2349,7 @@ def main():
                     "rsi": round(rsi_val, 2) if not pd.isna(rsi_val) else None,
                     "vwap": round(vwap_val, 4) if not pd.isna(vwap_val) else None
                 })
-                
+                write_exec_row_immediate(exec_rows[-1], symbol, RUN_MODE)
                 
                 highest_price_since_entry[symbol] = max(highest_price_since_entry[symbol], price)
                 sell = False
