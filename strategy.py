@@ -362,15 +362,15 @@ def write_exec_row_immediate(exec_row, symbol, run_mode):
     filename = f"{symbol}_{run_mode}_exec.csv"
     fieldnames = ["timestamp","symbol","action","price","reason","pnl",
                   "ema_fast","ema_slow","rsi","vwap","regime"]
-try:
-    file_exists = os.path.exists(filename) and os.path.getsize(filename) > 0
-    with open(filename, "a", newline="") as f:
-        writer = csv.DictWriter(f, fieldnames=fieldnames)
-        if not file_exists:
-            writer.writeheader()
-        writer.writerow(exec_row)     
-except Exception as e:
-    logging.debug("[IO] write_exec_row_immediate failed for %s: %s", filename, e)
+    try:
+        file_exists = os.path.exists(filename) and os.path.getsize(filename) > 0
+        with open(filename, "a", newline="") as f:
+            writer = csv.DictWriter(f, fieldnames=fieldnames)
+            if not file_exists:
+                writer.writeheader()
+            writer.writerow(exec_row)     
+    except Exception as e:
+        logging.debug("[IO] write_exec_row_immediate failed for %s: %s", filename, e)
 
 # === helpers: indicators ===
 def compute_ema_from_series(series, period):
