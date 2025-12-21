@@ -331,7 +331,7 @@ LOG_SIGNAL_STACK_ON_ACCEPT = False  # you asked for full logs; toggle to True if
 
 
 # === LOGGING ===
-logging.basicConfig(level=logging.INFO,
+logging.basicConfig(level=logging.DEBUG,
                     format="%(asctime)s %(levelname)s %(message)s",
                     filename="scalper_safe.log")
 console = logging.StreamHandler()
