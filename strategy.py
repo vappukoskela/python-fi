@@ -2204,6 +2204,7 @@ def main():
             else:
                 accept_exit, reason_exit = (False, None)
             if accept_exit:
+                sell_decisions += 1
                 qty = entry_qty.get(symbol, 0)
                 pnl = (price - entry_prices.get(symbol, price)) * qty
             
@@ -2330,6 +2331,7 @@ def main():
                     price_deques[symbol], size_deques[symbol], entry_times, entry_configs[symbol], current_time=ts_val
                 )
                 if sell:
+                    sell_decisions += 1
                     qty = entry_qty.get(symbol, 1)
                     pnl = (price - entry_price) * qty
                     # --- Audit trail update (SIM) ---
