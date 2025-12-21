@@ -355,13 +355,13 @@ def run_simulation(symbols, start, end):
                       #sym, last_exit_time[sym], type(last_exit_time[sym]))
 
 def write_exec_row_immediate(exec_row, symbol, run_mode):
-"""
-Append a single execution row to the per-symbol exec CSV immediately.
-Safe to call from SIM and LIVE; idempotent header handling.
-"""
-filename = f"{symbol}_{run_mode}_exec.csv"
-fieldnames = ["timestamp","symbol","action","price","reason","pnl",
-              "ema_fast","ema_slow","rsi","vwap","regime"]
+    """
+    Append a single execution row to the per-symbol exec CSV immediately.
+    Safe to call from SIM and LIVE; idempotent header handling.
+    """
+    filename = f"{symbol}_{run_mode}_exec.csv"
+    fieldnames = ["timestamp","symbol","action","price","reason","pnl",
+                  "ema_fast","ema_slow","rsi","vwap","regime"]
 try:
     file_exists = os.path.exists(filename) and os.path.getsize(filename) > 0
     with open(filename, "a", newline="") as f:
