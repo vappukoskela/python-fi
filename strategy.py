@@ -775,6 +775,7 @@ def safe_market_buy(trade_client_local, symbol, cash_for_buy, order_lock, price_
                 "code_version": CODE_VERSION
             }
             exec_rows.append(buy_row)
+            write_exec_row_immediate(exec_rows[-1], symbol, RUN_MODE)
             logging.info(
                 f"[TRADE] {symbol} [{RUN_MODE}] BUY qty={qty} @ {(est_price if est_price else 0.0):.4f} "
                 f"| Time={datetime.now(timezone.utc).strftime('%H:%M:%S')} | Regime={regime_at_entry}"
@@ -2263,7 +2264,10 @@ def main():
                     "rsi": round(rsi_val, 2),
                     "vwap": round(vwap_val, 4),
                     "regime": regime # or regime_at_sell if you prefer recomputing
-                })    
+                })
+                # Immediate persistence for SIM
+                write_exec_row_immediate(exec_rows[-1], symbol, RUN_MODE)
+                
                 # State cleanup
                 in_position = False
                 entry_price = None
@@ -2390,7 +2394,7 @@ def main():
                         "vwap": round(vwap_val, 4),
                         "regime": regime_at_sell    
                     })
-
+                    write_exec_row_immediate(exec_rows[-1], symbol, RUN_MODE)
                     logging.info(f"{symbol} [{RUN_MODE}] SELL @ {price:.4f} | Reason={reason} | PnL={pnl:.4f} | Time={ts_val.strftime('%Y-%m-%dT%H:%M:%S')}")
                     in_position = False
                     entry_price = None
