@@ -1,6 +1,7 @@
 import logging
 import time
 import os
+import csv
 import threading
 from collections import deque
 from datetime import datetime, timezone, timedelta
@@ -352,6 +353,24 @@ def run_simulation(symbols, start, end):
     #if sym in last_exit_time:
         #logging.debug("[DEBUG] last_exit_time[%s] = %s (type=%s)",
                       #sym, last_exit_time[sym], type(last_exit_time[sym]))
+
+def write_exec_row_immediate(exec_row, symbol, run_mode):
+"""
+Append a single execution row to the per-symbol exec CSV immediately.
+Safe to call from SIM and LIVE; idempotent header handling.
+"""
+filename = f"{symbol}_{run_mode}_exec.csv"
+fieldnames = ["timestamp","symbol","action","price","reason","pnl",
+              "ema_fast","ema_slow","rsi","vwap","regime"]
+try:
+    file_exists = os.path.exists(filename) and os.path.getsize(filename) > 0
+    with open(filename, "a", newline="") as f:
+        writer = csv.DictWriter(f, fieldnames=fieldnames)
+        if not file_exists:
+            writer.writeheader()
+       writer.writerow(exec_row)     
+except Exception as e:
+    logging.debug("[IO] write_exec_row_immediate failed for %s: %s", filename, e)
 
 # === helpers: indicators ===
 def compute_ema_from_series(series, period):
