@@ -368,7 +368,7 @@ try:
         writer = csv.DictWriter(f, fieldnames=fieldnames)
         if not file_exists:
             writer.writeheader()
-       writer.writerow(exec_row)     
+        writer.writerow(exec_row)     
 except Exception as e:
     logging.debug("[IO] write_exec_row_immediate failed for %s: %s", filename, e)
 
