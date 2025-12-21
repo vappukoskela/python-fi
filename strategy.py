@@ -2385,12 +2385,13 @@ def main():
                 # Write trade execution log
                 exec_filename = f"{symbol}_{RUN_MODE}_exec.csv"
                 exec_fields = ["timestamp", "symbol", "action", "price", "reason", "pnl", "ema_fast", "ema_slow", "rsi", "vwap", "regime"]
-                with open(exec_filename, "w", newline="") as f:
-                    import csv
-                    writer = csv.DictWriter(f, fieldnames=exec_fields)
-                    writer.writeheader()
-                    writer.writerows(exec_rows)
-                    
+                try:
+                    with open(exec_filename, "w", newline="") as f:
+                        import csv
+                        writer = csv.DictWriter(f, fieldnames=exec_fields)
+                        writer.writeheader()
+                        writer.writerows(exec_rows)
+                                                            
                     # after writer.writerows(exec_rows)
                     logging.info("[SIM DIAG] wrote exec file %s rows=%d", exec_filename, len(exec_rows))
                     logging.info("[SIM DIAG] sell_decisions=%d exec_rows_len=%d", sell_decisions, len(exec_rows))            
@@ -2399,8 +2400,10 @@ def main():
                     for i, r in enumerate(exec_rows[:8]):
                         logging.info("[SIM DIAG] exec_rows[%d]=%s", i, r)
             
-                logging.info("Trades saved to %s", exec_filename)
-
+                    logging.info("Trades saved to %s", exec_filename)
+                except Exception as e:
+                    logging.exception("[SIM DIAG] Failed to write exec file %s: %s", exec_filename, e)
+            
         # Write audit/entry evaluation log
         audit_filename = f"{symbol}_{RUN_MODE}_audit.csv"
         audit_fields = ["timestamp", "price", "size", "regime", "score", "reason"]
