@@ -2001,7 +2001,10 @@ def main():
         pending_entries = set()
         positions_map = {}
         last_exit_time = {s: None for s in symbols}
-        last_buy_time = {s: None for s in symbols}
+
+        # NEW: per-symbol buy guards
+        last_buy_time = defaultdict(lambda: None)
+        in_position_map = defaultdict(bool)
         
         start = "2025-12-19T14:30:00Z"
         end = "2025-12-19T21:00:00Z"
@@ -2270,6 +2273,9 @@ def main():
                 
                 # State cleanup
                 in_position = False
+                in_position_map[symbol] = False
+                last_buy_time[symbol] = None
+
                 entry_price = None
                 last_exit_time[symbol] = ts_val
                 highest_price_since_entry.pop(symbol, None)
@@ -2295,13 +2301,35 @@ def main():
                 )
                 buy = accept
 
-                if buy and not in_position and (symbol not in entry_times):
-                    # Extra safety: avoid multiple buys within the same second (or very short interval)
-                    if last_buy_time.get(symbol) is not None and (ts_val - last_buy_time[symbol]).total_seconds() < 1:
-                        # skip duplicate buy within same second
+                if buy:
+                    # Already in position? Skip duplicate BUY.
+                    if in_position_map[symbol]:
                         continue
-                        
-                    csv_rows.append({
+                    
+                    # Bought very recently? Skip duplicate BUY.
+                    last_ts = last_buy_time.get(symbol)
+                    if last_ts is not None and (ts_val - last_ts).total_seconds() < 1:
+                        continue
+
+                    # --- Proceed with real entry ---
+                    est_price = price
+                    qty = int((max_loop_budget * BUY_CASH_BUFFER) // est_price)
+                    if regime == "HIGH_VOL":
+                        qty = max(1, int(qty * 0.5))
+                    if qty <= 0 or qty * est_price < MIN_TRADE_USD:
+                        continue
+                    entry_price = price
+                    entry_times[symbol] = ts_val
+                    entry_prices[symbol] = price
+                    entry_qty[symbol] = qty
+
+                    # Mark symbol as in position
+                    in_position_map[symbol] = True
+                    last_buy_time[symbol] = ts_val
+                    logging.info("[TRADE] %s [%s] BUY @ %.4f | %s",
+                                 symbol, RUN_MODE, price, ts_val.strftime("%H:%M:%S"))
+                    
+                    exec_rows.append({
                         "timestamp": ts_val.strftime("%Y-%m-%d %H:%M:%S"),
                         "symbol": symbol,
                         "action": "BUY",
@@ -2313,44 +2341,10 @@ def main():
                         "rsi": round(rsi_val, 2),
                         "vwap": round(vwap_val, 4)
                     })
-
-                    entry_price = price
-                    entry_times[symbol] = ts_val
-                    entry_prices[symbol] = price
-                    est_price = price
-                    qty = int((max_loop_budget * BUY_CASH_BUFFER) // est_price)
-                    # Regime-specific size adjustment
-                    if regime == "HIGH_VOL":
-                        qty = max(1, int(qty * 0.5))
-                    if qty <= 0 or qty * est_price < MIN_TRADE_USD:
-                        logging.info("%s - Skipping buy: qty too small (est_price=%.2f)",
-                                     symbol, est_price)
-                        continue
-                    entry_qty[symbol] = qty
-                    
-                    
-                    in_position = True
-                    highest_price_since_entry[symbol] = price
-                    last_buy_time[symbol] = ts_val
-                    # --- PATCH: jäädytä config position ajaksi ---
-                    entry_configs[symbol] = CONFIG_SESSION
-                    logging.info(f"[TRADE] {symbol} [{RUN_MODE}] BUY @ {price:.4f} | Time={ts_val.strftime('%H:%M:%S')} | Trigger={reason} | Bias={day_bias} | Config={CONFIG}")
-                
-                # --- NEW: append BUY trade to exec_rows ---
-                exec_rows.append({
-                    "timestamp": ts_val.strftime("%Y-%m-%d %H:%M:%S"),
-                    "symbol": symbol,
-                    "action": "BUY",
-                    "price": price,
-                    "reason": reason,
-                    "pnl": None,  # no PnL yet on entry
-                    "ema_fast": round(ema_fast, 4) if not pd.isna(ema_fast) else None,
-                    "ema_slow": round(ema_slow, 4) if not pd.isna(ema_slow) else None,
-                    "rsi": round(rsi_val, 2) if not pd.isna(rsi_val) else None,
-                    "vwap": round(vwap_val, 4) if not pd.isna(vwap_val) else None
-                })
-                write_exec_row_immediate(exec_rows[-1], symbol, RUN_MODE)
-                
+                    write_exec_row_immediate(exec_rows[-1], symbol, RUN_MODE)
+                 
+                                
+                               
                 highest_price_since_entry[symbol] = max(highest_price_since_entry[symbol], price)
                 sell = False
                 reason = "no-eval"
@@ -2401,7 +2395,11 @@ def main():
                     })
                     write_exec_row_immediate(exec_rows[-1], symbol, RUN_MODE)
                     logging.info(f"{symbol} [{RUN_MODE}] SELL @ {price:.4f} | Reason={reason} | PnL={pnl:.4f} | Time={ts_val.strftime('%Y-%m-%dT%H:%M:%S')}")
+                    
                     in_position = False
+                    in_position_map[symbol] = False
+                    last_buy_time[symbol] = None
+                    
                     entry_price = None
                     last_exit_time[symbol] = ts_val
                     highest_price_since_entry.pop(symbol, None)
@@ -2409,43 +2407,43 @@ def main():
                     trailing_active[symbol] = False
                     rsi_fail_counter[symbol] = 0
     
-                logging.info("%s replay finished for %s", RUN_MODE, symbol)
-                # Write trade execution log
-                exec_filename = f"{symbol}_{RUN_MODE}_exec.csv"
-                exec_fields = ["timestamp", "symbol", "action", "price", "reason", "pnl", "ema_fast", "ema_slow", "rsi", "vwap", "regime"]
-                try:
-                    with open(exec_filename, "w", newline="") as f:
-                        import csv
-                        writer = csv.DictWriter(f, fieldnames=exec_fields)
-                        writer.writeheader()
-                        writer.writerows(exec_rows)
-                                                            
-                    # after writer.writerows(exec_rows)
-                    logging.info("[SIM DIAG] wrote exec file %s rows=%d", exec_filename, len(exec_rows))
-                    logging.info("[SIM DIAG] sell_decisions=%d exec_rows_len=%d", sell_decisions, len(exec_rows))            
-                                        
-                    # Optional: log first few exec_rows for quick inspection
-                    for i, r in enumerate(exec_rows[:8]):
-                        logging.info("[SIM DIAG] exec_rows[%d]=%s", i, r)
+                            
+            # Write audit/entry evaluation log
+            logging.info("%s replay finished for %s", RUN_MODE, symbol)
+            # Write trade execution log
+            exec_filename = f"{symbol}_{RUN_MODE}_exec.csv"
+            exec_fields = ["timestamp", "symbol", "action", "price", "reason", "pnl", "ema_fast", "ema_slow", "rsi", "vwap", "regime"]
+            try:
+                with open(exec_filename, "w", newline="") as f:
+                    import csv
+                    writer = csv.DictWriter(f, fieldnames=exec_fields)
+                    writer.writeheader()
+                    writer.writerows(exec_rows)
+                                                                    
+                # after writer.writerows(exec_rows)
+                logging.info("[SIM DIAG] wrote exec file %s rows=%d", exec_filename, len(exec_rows))
+                logging.info("[SIM DIAG] sell_decisions=%d exec_rows_len=%d", sell_decisions, len(exec_rows))            
+                                                
+                # Optional: log first few exec_rows for quick inspection
+                for i, r in enumerate(exec_rows[:8]):
+                    logging.info("[SIM DIAG] exec_rows[%d]=%s", i, r)
+                    
+                logging.info("Trades saved to %s", exec_filename)
+            except Exception as e:
+                logging.exception("[SIM DIAG] Failed to write exec file %s: %s", exec_filename, e)        
+            audit_filename = f"{symbol}_{RUN_MODE}_audit.csv"
+            audit_fields = ["timestamp", "price", "size", "regime", "score", "reason"]
             
-                    logging.info("Trades saved to %s", exec_filename)
-                except Exception as e:
-                    logging.exception("[SIM DIAG] Failed to write exec file %s: %s", exec_filename, e)
-            
-        # Write audit/entry evaluation log
-        audit_filename = f"{symbol}_{RUN_MODE}_audit.csv"
-        audit_fields = ["timestamp", "price", "size", "regime", "score", "reason"]
-        
-        try:
-            with open(audit_filename, "w", newline="") as f:
-                import csv
-                writer = csv.DictWriter(f, fieldnames=audit_fields)
-                writer.writeheader()
-                writer.writerows(audit_rows)
-            logging.info(f"[SIM] Audit written to {audit_filename} ({len(audit_rows)} rows)")
-        except Exception as e:
-            logging.warning(f"[SIM] Could not write {audit_filename}: {e}")
- 
+            try:
+                with open(audit_filename, "w", newline="") as f:
+                    import csv
+                    writer = csv.DictWriter(f, fieldnames=audit_fields)
+                    writer.writeheader()
+                    writer.writerows(audit_rows)
+                logging.info(f"[SIM] Audit written to {audit_filename} ({len(audit_rows)} rows)")
+            except Exception as e:
+                logging.warning(f"[SIM] Could not write {audit_filename}: {e}")
+     
 
         return
     # === END SIMULATION BRANCH ===
