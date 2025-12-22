@@ -336,7 +336,7 @@ logging.basicConfig(level=logging.DEBUG,
                     format="%(asctime)s %(levelname)s %(message)s",
                     filename="scalper_safe.log")
 console = logging.StreamHandler()
-console.setLevel(logging.WARNING)
+console.setLevel(logging.INFO)
 logging.getLogger().addHandler(console)
 
 logging.debug("[TRACE] Logging system initialized")
