@@ -2008,13 +2008,20 @@ def main():
         
         start = "2025-12-23T14:30:00Z"
         end = "2025-12-23T21:00:00Z"
-    
-        req = StockTradesRequest(symbol_or_symbols=symbol, start=start, end=end)
-        trades = stock_data_client.get_stock_trades(req).df
-    
-        # Aikaleima indeksiin
-        trades.index = pd.to_datetime(trades.index.get_level_values(1))
 
+        # Use 1-second bars instead of SIP trades (subscription-safe)
+        bars_req = StockBarsRequest(symbol_or_symbols=symbol, start=start, end=end, timeframe=TimeFrame.Second)
+        bars = stock_data_client.get_stock_bars(bars_req).df
+
+        # Normalize bars to a simple per-second DataFrame with price (close) and size (volume)
+        bars = bars.reset_index().set_index("timestamp")
+        trades = pd.DataFrame({
+            "price": bars["close"],
+            "size": bars["volume"].fillna(0)
+        })
+        trades.index = pd.to_datetime(trades.index) 
+        
+        
         # === NEW: Aggregate ticks into 1-second bars ===
         trades["bucket"] = trades.index.floor("1s")
         trades = trades.groupby("bucket").agg({
