@@ -2010,7 +2010,7 @@ def main():
         end = "2025-12-23T21:00:00Z"
 
         # Use 1-second bars instead of SIP trades (subscription-safe)
-        bars_req = StockBarsRequest(symbol_or_symbols=symbol, start=start, end=end, timeframe=TimeFrame.Second)
+        bars_req = StockBarsRequest(symbol_or_symbols=symbol, start=start, end=end, timeframe=TimeFrame(1, TimeFrameUnit.Second))
         bars = stock_data_client.get_stock_bars(bars_req).df
 
         # Normalize bars to a simple per-second DataFrame with price (close) and size (volume)
