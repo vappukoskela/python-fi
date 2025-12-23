@@ -2009,13 +2009,17 @@ def main():
         start = "2025-12-23T14:30:00Z"
         end = "2025-12-23T21:00:00Z"
 
+        print("TimeFrame attrs:", [a for a in dir(TimeFrame) if not a.startswith("_")])
+        print("TimeFrameUnit attrs:", [a for a in dir(TimeFrameUnit) if not a.startswith("_")])
+
+
         # Build a 1-second TimeFrame in a way that works across SDK versions tf = None
         tf = None
         try:
             tf = TimeFrame(1, TimeFrameUnit.SECOND) 
         except Exception:
             try:
-                tf = TimeFrame(1, TimeFrameUnit.SECOND) # alternate enum name
+                tf = TimeFrame(1, TimeFrameUnit.Second) # alternate enum name
             except Exception:
                 try:
                     tf = TimeFrame.Second
@@ -2029,9 +2033,7 @@ def main():
                             # Nothing worked — raise a clear error with instructions
                             raise RuntimeError(
                                 "Could not construct a 1-second TimeFrame with your Alpaca SDK. "
-                                "Please run the following two debug prints and paste their output here so I can give a one-line fix:\n\n"
-                                "print('TimeFrame attrs:', [a for a in dir(TimeFrame) if not a.startswith('_')])\n"
-                                "print('TimeFrameUnit attrs:', [a for a in dir(TimeFrameUnit) if not a.startswith('_')])"
+                                "Please paste the output of the two debug prints above so I can give a one-line fix."
                             )
                             
         bars_req = StockBarsRequest(symbol_or_symbols=symbol, start=start, end=end, timeframe=tf)
