@@ -2009,24 +2009,37 @@ def main():
         start = "2025-12-23T14:30:00Z"
         end = "2025-12-23T21:00:00Z"
 
-        # Use 1-second bars instead of SIP trades (subscription-safe)
+        # Build a 1-second TimeFrame in a way that works across SDK versions tf = None
+        tf = None
         try:
-            tf = TimeFrame(1, TimeFrameUnit.Second) # common form
+            tf = TimeFrame(1, TimeFrameUnit.SECOND) 
         except Exception:
             try:
                 tf = TimeFrame(1, TimeFrameUnit.SECOND) # alternate enum name
             except Exception:
                 try:
-                    tf = TimeFrame.Second # some SDKs expose a class constant
+                    tf = TimeFrame.Second
                 except Exception:
-                    # Last-resort fallback: use a string timeframe accepted by some SDK versions
-                    tf = "1Sec"
-                    
+                    try:
+                        tf = TimeFrame("1Sec")
+                    except Exception:
+                        try:
+                            tf = TimeFrame.from_string("1Sec")
+                        except Exception:
+                            # Nothing worked — raise a clear error with instructions
+                            raise RuntimeError(
+                                "Could not construct a 1-second TimeFrame with your Alpaca SDK. "
+                                "Please run the following two debug prints and paste their output here so I can give a one-line fix:\n\n"
+                                "print('TimeFrame attrs:', [a for a in dir(TimeFrame) if not a.startswith('_')])\n"
+                                "print('TimeFrameUnit attrs:', [a for a in dir(TimeFrameUnit) if not a.startswith('_')])"
+                            )
+                            
         bars_req = StockBarsRequest(symbol_or_symbols=symbol, start=start, end=end, timeframe=tf)
         bars = stock_data_client.get_stock_bars(bars_req).df
 
         # Normalize bars to a simple per-second DataFrame with price (close) and size (volume)
         bars = bars.reset_index().set_index("timestamp")
+        
         trades = pd.DataFrame({
             "price": bars["close"],
             "size": bars["volume"].fillna(0)
