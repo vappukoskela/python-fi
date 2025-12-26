@@ -2236,6 +2236,7 @@ def main():
                     last_buy_time,                   # last_buy_time dict
                     CONFIG_SESSION,                  # config profile
                     regime,                          # regime classification
+                    bias=day_bias,
                     log_stack=True                   # optional keyword        
                 )
                 buy = accept
