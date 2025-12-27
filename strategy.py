@@ -360,7 +360,7 @@ def write_exec_row_immediate(exec_row, symbol, run_mode):
     Safe to call from SIM and LIVE; idempotent header handling.
     """
     filename = f"{symbol}_{run_mode}_exec.csv"
-    fieldnames = ["timestamp","symbol","action","price","reason","pnl",
+    fieldnames = ["timestamp","symbol","action","price","reason","bias","pnl",
                   "ema_fast","ema_slow","rsi","vwap","regime"]
     try:
         file_exists = os.path.exists(filename) and os.path.getsize(filename) > 0
@@ -783,7 +783,7 @@ def safe_market_buy(trade_client_local, symbol, cash_for_buy, order_lock, price_
             write_exec_row_immediate(exec_rows[-1], symbol, RUN_MODE)
             logging.info(
                 f"[TRADE] {symbol} [{RUN_MODE}] BUY qty={qty} @ {(est_price if est_price else 0.0):.4f} "
-                f"| Time={datetime.now(timezone.utc).strftime('%H:%M:%S')} | Regime={regime_at_entry}"
+                f"| Time={datetime.now(timezone.utc).strftime('%H:%M:%S')} | Regime={regime_at_entry} | Bias={bias_val}"
             )
 
             # Optional lightweight execution audit
