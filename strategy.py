@@ -2014,46 +2014,98 @@ def main():
         start = "2025-12-23T14:30:00Z"
         end = "2025-12-23T21:00:00Z"
 
+        
+        # Debug prints (optional; safe to keep or remove)
         print("TimeFrame attrs:", [a for a in dir(TimeFrame) if not a.startswith("_")])
         print("TimeFrameUnit attrs:", [a for a in dir(TimeFrameUnit) if not a.startswith("_")])
-
-
-        # Build a 1-second TimeFrame in a way that works across SDK versions tf = None
-        tf = None
-        try:
-            tf = TimeFrame(1, TimeFrameUnit.SECOND) 
-        except Exception:
-            try:
-                tf = TimeFrame(1, TimeFrameUnit.Second) # alternate enum name
-            except Exception:
+        
+        def _build_1s_timeframe():
+            """
+            Robustly construct a 1-second TimeFrame across Alpaca SDK variants.
+            Returns a valid TimeFrame object or raises RuntimeError with helpful debug hint.
+            """
+            # 1) Preferred: TimeFrame(1, TimeFrameUnit.SECOND) or TimeFrame(1, TimeFrameUnit.Second)
+            for unit_name in ("SECOND", "Second", "second"):
                 try:
-                    tf = TimeFrame.Second
-                except Exception:
+                    unit = getattr(TimeFrameUnit, unit_name)
                     try:
-                        tf = TimeFrame("1Sec")
+                        return TimeFrame(1, unit)
                     except Exception:
-                        try:
-                            tf = TimeFrame.from_string("1Sec")
-                        except Exception:
-                            # Nothing worked — raise a clear error with instructions
-                            raise RuntimeError(
-                                "Could not construct a 1-second TimeFrame with your Alpaca SDK. "
-                                "Please paste the output of the two debug prints above so I can give a one-line fix."
-                            )
-                            
-        bars_req = StockBarsRequest(symbol_or_symbols=symbol, start=start, end=end, timeframe=tf)
-        bars = stock_data_client.get_stock_bars(bars_req).df
+                        # some SDKs accept TimeFrame(1, TimeFrameUnit.SECOND) but not this call;
+                        # fall through to other attempts
+                        pass
+                except Exception:
+                    pass
+        
+            # 2) Some SDKs expose TimeFrame.Second or TimeFrame("1Sec") / "1S" / "1sec"
+            for candidate in ("Second", "SECOND", "1Sec", "1S", "1sec", "1s"):
+                try:
+                    # Try attribute on TimeFrame (e.g., TimeFrame.Second)
+                    if hasattr(TimeFrame, candidate):
+                        return getattr(TimeFrame, candidate)
+                except Exception:
+                    pass
+                try:
+                    # Try string constructor variants
+                    return TimeFrame(candidate)
+                except Exception:
+                    pass
+                try:
+                    # Try classmethod from_string if present
+                    if hasattr(TimeFrame, "from_string"):
+                        return TimeFrame.from_string(candidate)
+                except Exception:
+                    pass
+        
+            # 3) Last resort: try numeric constructor without unit (some SDKs accept "1S" as int)
+            try:
+                return TimeFrame("1S")
+            except Exception:
+                pass
+        
+            # Nothing worked — raise with debug hint
+            raise RuntimeError(
+                "Could not construct a 1-second TimeFrame with your Alpaca SDK. "
+                "Paste the two debug prints above (TimeFrame attrs and TimeFrameUnit attrs) and I'll give a one-line fix."
+            )
+        
+        # Build timeframe (SIM path uses this; LIVE code unchanged)
+        tf = _build_1s_timeframe()
 
-        # Normalize bars to a simple per-second DataFrame with price (close) and size (volume)
-        bars = bars.reset_index().set_index("timestamp")
+        # Prefer datetime objects for start/end to avoid SDK differences 
+        try: 
+            start_dt = parser.isoparse(start) if isinstance(start, str) else start 
+            end_dt = parser.isoparse(end) if isinstance(end, str) else end 
+        except Exception: 
+            start_dt, end_dt = start, end # fall back to original values if parsing fails        
         
-        trades = pd.DataFrame({
-            "price": bars["close"],
-            "size": bars["volume"].fillna(0)
+        logging.debug("Using timeframe=%s start=%s end=%s", tf, start_dt, end_dt)
+        bars_req = StockBarsRequest(symbol_or_symbols=symbol, start=start_dt, end=end_dt, timeframe=tf)
+        try:
+            bars = stock_data_client.get_stock_bars(bars_req).df
+        except Exception as e:
+            logging.warning("get_stock_bars failed for %s: %s", symbol, e)
+            bars = pd.DataFrame()
+
+        # Defensive check: ensure we have data
+        if bars is None or bars.empty:
+            logging.warning("No bars returned for %s from %s to %s (timeframe=%s)", symbol, start_dt, end_dt, tf)
+            # create an empty trades DataFrame with expected columns to avoid downstream crashes
+            trades = pd.DataFrame(columns=["price", "size"])
+            trades.index = pd.to_datetime(pd.Series(dtype="datetime64[ns]"))
+        else:
+            # Normalize bars to a simple per-second DataFrame with price (close) and size (volume)
+            bars = bars.reset_index().set_index("timestamp")
+        
+            trades = pd.DataFrame({
+                "price": bars["close"].astype(float),
+                "size": bars["volume"].fillna(0).astype(float)
         })
-        trades.index = pd.to_datetime(trades.index) 
-        
-        
+        trades.index = pd.to_datetime(trades.index)
+           
+
+              
+       
         # === NEW: Aggregate ticks into 1-second bars ===
         trades["bucket"] = trades.index.floor("1s")
         trades = trades.groupby("bucket").agg({
