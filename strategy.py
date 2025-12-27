@@ -759,13 +759,18 @@ def safe_market_buy(trade_client_local, symbol, cash_for_buy, order_lock, price_
             vwap_val = compute_vwap_from_ticks(prices_series, sizes_series).iloc[-1]
             regime_at_entry = detect_regime(prices_series, sizes_series)
             
+            try:
+                bias_val = day_bias
+            except NameError:
+                bias_val = None
+            
             buy_row = {
                 "timestamp": datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M:%S"),
                 "symbol": symbol,
                 "action": "BUY",
                 "price": est_price if est_price else 0.0,
                 "reason": "entry",   # or use evaluate_entry reason if available
-                "bias": None,
+                "bias": bias_val,
                 "pnl": None,
                 "ema_fast": ema_fast_val,
                 "ema_slow": ema_slow_val,
