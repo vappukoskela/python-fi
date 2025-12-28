@@ -2070,7 +2070,7 @@ def main():
             )
         
         # Build timeframe (SIM path uses this; LIVE code unchanged)
-        tf = _build_1s_timeframe()
+        tf = TimeFrame(1, TimeFrameUnit.SECOND)
 
         # Prefer datetime objects for start/end to avoid SDK differences 
         try: 
