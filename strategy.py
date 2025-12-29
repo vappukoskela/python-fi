@@ -455,6 +455,14 @@ def ema_slope(series, period=20):
     ema = series.ewm(span=period, adjust=False).mean()
     return float(ema.iloc[-1] - ema.iloc[-2])
 
+def _safe_last(series_like):
+    try:
+        # If it's a pandas Series or similar, return last value as float
+        return float(series_like.iloc[-1])
+    except Exception:
+        # Any problem -> return NaN so downstream code can handle it
+        return float("nan")
+
 # === PATCH 2: Multi-tick confirmation ===
 ENTRY_CONFIRM_ENABLED = True
 ENTRY_CONFIRM_TICKS = 3  # consecutive ticks to validate pattern
@@ -725,7 +733,7 @@ def _status_is(status, target):
     except Exception:
         return False
 
-def safe_market_buy(trade_client_local, symbol, cash_for_buy, order_lock, price_deques, size_deques):
+def safe_market_buy(trade_client_local, symbol, cash_for_buy, order_lock, price_deques, size_deques, bias=None):
     with order_lock:
         try:
 
@@ -759,10 +767,9 @@ def safe_market_buy(trade_client_local, symbol, cash_for_buy, order_lock, price_
             vwap_val = compute_vwap_from_ticks(prices_series, sizes_series).iloc[-1]
             regime_at_entry = detect_regime(prices_series, sizes_series)
             
-            try:
-                bias_val = day_bias
-            except NameError:
-                bias_val = None
+            
+            bias_val = bias if bias is not None else globals().get("day_bias", "unknown")
+                      
             
             buy_row = {
                 "timestamp": datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M:%S"),
@@ -861,10 +868,10 @@ def safe_market_sell(trade_client_local, symbol, intended_qty, order_lock, price
                 # Compute indicators for parity with BUY rows
                 prices_series = pd.Series(price_deques[symbol])
                 sizes_series = pd.Series(size_deques[symbol])
-                ema_fast_val = compute_ema_from_series(prices_series, EMA_FAST).iloc[-1]
-                ema_slow_val = compute_ema_from_series(prices_series, EMA_SLOW).iloc[-1]
-                rsi_val = compute_rsi_from_series(prices_series, RSI_PERIOD).iloc[-1]
-                vwap_val = compute_vwap_from_ticks(prices_series, sizes_series).iloc[-1]
+                ema_fast_val = _safe_last(compute_ema_from_series(prices_series, EMA_FAST))
+                ema_slow_val = _safe_last(compute_ema_from_series(prices_series, EMA_SLOW))
+                rsi_val = _safe_last(compute_rsi_from_series(prices_series, RSI_PERIOD))
+                vwap_val = _safe_last(compute_vwap_from_ticks(prices_series, sizes_series))
                 regime_at_sell = detect_regime(prices_series, sizes_series)
 
 
