@@ -733,7 +733,7 @@ def _status_is(status, target):
     except Exception:
         return False
 
-def safe_market_buy(trade_client_local, symbol, cash_for_buy, order_lock, price_deques, size_deques, bias=None):
+def safe_market_buy(trade_client_local, symbol, cash_for_buy, order_lock, price_deques, size_deques, bias=day_bias):
     with order_lock:
         try:
 
@@ -758,13 +758,22 @@ def safe_market_buy(trade_client_local, symbol, cash_for_buy, order_lock, price_
             )
             submitted = trade_client_local.submit_order(order)
 
-            # Compute indicators for parity with SELL
-            prices_series = pd.Series(price_deques[symbol])
-            sizes_series = pd.Series(size_deques[symbol])
-            ema_fast_val = compute_ema_from_series(prices_series, EMA_FAST).iloc[-1]
-            ema_slow_val = compute_ema_from_series(prices_series, EMA_SLOW).iloc[-1]
-            rsi_val = compute_rsi_from_series(prices_series, RSI_PERIOD).iloc[-1]
-            vwap_val = compute_vwap_from_ticks(prices_series, sizes_series).iloc[-1]
+            # Defensive guard: ensure deques exist and are non-empty
+            if symbol not in price_deques or symbol not in size_deques:
+                logging.debug("Missing deque data for %s; using empty series for indicators", symbol)
+                prices_series = pd.Series(dtype=float)
+                sizes_series = pd.Series(dtype=float)
+            else:
+                prices_series = pd.Series(price_deques[symbol])
+                sizes_series = pd.Series(size_deques[symbol])
+            # Debug short-series early so we can correlate with buy attempts
+            if prices_series.empty:
+                logging.debug("Short price series for %s at %s", symbol, datetime.now(timezone.utc))
+                
+            ema_fast_val = _safe_last(compute_ema_from_series(prices_series, EMA_FAST))
+            ema_slow_val = _safe_last(compute_ema_from_series(prices_series, EMA_SLOW))
+            rsi_val = _safe_last(compute_rsi_from_series(prices_series, RSI_PERIOD))
+            vwap_val = _safe_last(compute_vwap_from_ticks(prices_series, sizes_series))
             regime_at_entry = detect_regime(prices_series, sizes_series)
             
             
