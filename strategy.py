@@ -733,7 +733,7 @@ def _status_is(status, target):
     except Exception:
         return False
 
-def safe_market_buy(trade_client_local, symbol, cash_for_buy, order_lock, price_deques, size_deques, bias=day_bias):
+def safe_market_buy(trade_client_local, symbol, cash_for_buy, order_lock, price_deques, size_deques, bias=None):
     with order_lock:
         try:
 
