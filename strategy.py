@@ -805,160 +805,160 @@ def safe_market_buy(trade_client_local, symbol, cash_for_buy, order_lock, price_
                           symbol, now_ts.isoformat(), START_TS.isoformat())
             return None
         
-            # Defensive guard: ensure deques exist and are non-empty
-            if symbol not in price_deques or symbol not in size_deques:
-                logging.debug("%s - safe_market_buy: missing price/size deques; skipping buy attempt", symbol)
-                return None
+    # Defensive guard: ensure deques exist and are non-empty
+    if symbol not in price_deques or symbol not in size_deques:
+        logging.debug("%s - safe_market_buy: missing price/size deques; skipping buy attempt", symbol)
+        return None
                 
                 
-            try:
-                prices_series = pd.Series(price_deques[symbol])
-                sizes_series = pd.Series(size_deques[symbol])
-            except Exception as e:
-                logging.debug("%s - safe_market_buy: failed to build series: %s", symbol, e)
-                return None
+    try:
+        prices_series = pd.Series(price_deques[symbol])
+        sizes_series = pd.Series(size_deques[symbol])
+    except Exception as e:
+        logging.debug("%s - safe_market_buy: failed to build series: %s", symbol, e)
+        return None
 
-            MIN_TICKS_REQUIRED = 5
-            if len(prices_series) < MIN_TICKS_REQUIRED or len(sizes_series) < MIN_TICKS_REQUIRED:
-                logging.debug("%s - safe_market_buy: insufficient ticks (%d/%d) ; skipping", symbol, len(prices_series), len(sizes_series))
-                return None
+    MIN_TICKS_REQUIRED = 5
+    if len(prices_series) < MIN_TICKS_REQUIRED or len(sizes_series) < MIN_TICKS_REQUIRED:
+        logging.debug("%s - safe_market_buy: insufficient ticks (%d/%d) ; skipping", symbol, len(prices_series), len(sizes_series))
+        return None
 
-            # Quick RSI gate: avoid buying if RSI is below configured minimum
-            try:
-                rsi_val = _safe_last(compute_rsi_from_series(prices_series, RSI_PERIOD))
-            except Exception:
-                rsi_val = float("nan")
+    # Quick RSI gate: avoid buying if RSI is below configured minimum
+    try:
+        rsi_val = _safe_last(compute_rsi_from_series(prices_series, RSI_PERIOD))
+    except Exception:
+        rsi_val = float("nan")
                 
-            if not pd.isna(rsi_val) and rsi_val < MIN_RSI_FOR_ENTRY:
-                logging.info("%s - BUY blocked by RSI gate (rsi=%.2f < MIN_RSI_FOR_ENTRY=%d)", symbol, rsi_val, MIN_RSI_FOR_ENTRY)
-                return None
+    if not pd.isna(rsi_val) and rsi_val < MIN_RSI_FOR_ENTRY:
+        logging.info("%s - BUY blocked by RSI gate (rsi=%.2f < MIN_RSI_FOR_ENTRY=%d)", symbol, rsi_val, MIN_RSI_FOR_ENTRY)
+        return None
 
-            # Optional lightweight ATR guard to avoid buying into extreme moves (tune threshold per instrument)
-            try:
-                atr_val = compute_atr_from_series(prices_series, ATR_PERIOD)
-            except Exception:
-                rsi_val = float("nan")
-                try:
-                    atr_val = compute_atr_from_series(prices_series, ATR_PERIOD)
-                except Exception:
-                    atr_val = float("nan")
+    # Optional lightweight ATR guard to avoid buying into extreme moves (tune threshold per instrument)
+    try:
+        atr_val = compute_atr_from_series(prices_series, ATR_PERIOD)
+    except Exception:
+        rsi_val = float("nan")
+        try:
+            atr_val = compute_atr_from_series(prices_series, ATR_PERIOD)
+        except Exception:
+            atr_val = float("nan")
 
-                logging.info("%s - rsi=%.2f atr=%.4f (MIN_RSI_FOR_ENTRY=%d ATR_FLOOR=%.4f)", symbol, rsi_val, atr_val, MIN_RSI_FOR_ENTRY, ATR_FLOOR)
+        logging.info("%s - rsi=%.2f atr=%.4f (MIN_RSI_FOR_ENTRY=%d ATR_FLOOR=%.4f)", symbol, rsi_val, atr_val, MIN_RSI_FOR_ENTRY, ATR_FLOOR)
         
                 
-                if not pd.isna(rsi_val) and rsi_val < MIN_RSI_FOR_ENTRY:
-                    logging.info("%s - BUY blocked by RSI gate (rsi=%.2f < MIN_RSI_FOR_ENTRY=%d)",
-                                 symbol, rsi_val, MIN_RSI_FOR_ENTRY)
-                    return None
+        if not pd.isna(rsi_val) and rsi_val < MIN_RSI_FOR_ENTRY:
+            logging.info("%s - BUY blocked by RSI gate (rsi=%.2f < MIN_RSI_FOR_ENTRY=%d)",
+                            symbol, rsi_val, MIN_RSI_FOR_ENTRY)
+            return None
                 
-                if not pd.isna(atr_val) and atr_val > max(ATR_FLOOR, 0.02):
-                    logging.info("%s - BUY blocked by ATR guard (atr=%.4f)", symbol, atr_val)
-                    return None
+        if not pd.isna(atr_val) and atr_val > max(ATR_FLOOR, 0.02):
+            logging.info("%s - BUY blocked by ATR guard (atr=%.4f)", symbol, atr_val)
+            return None
+    except Exception:
+        logging.debug("%s - ATR guard computation failed; continuing", symbol)
+                
+
+
+    with order_lock:
+        try:
+                            
+            try:
+                resp = stock_data_client.get_stock_latest_trade(
+                    StockLatestTradeRequest(symbol_or_symbols=symbol)
+                )
+                est_price = float(resp[symbol].price)
             except Exception:
-                logging.debug("%s - ATR guard computation failed; continuing", symbol)
-                
+                est_price = None
+            if est_price and est_price > 0:
+                qty = int((cash_for_buy * BUY_CASH_BUFFER) // est_price)
+            else:
+                qty = 1
+            logging.info("%s - est_price=%s qty=%s BUY_POWER_LIMIT=%.4f BUY_CASH_BUFFER=%.4f", symbol, est_price, qty, BUY_POWER_LIMIT, BUY_CASH_BUFFER)
+            if qty <= 0 or (est_price and qty * est_price < MIN_TRADE_USD):
+                logging.debug("Computed buy qty too small for %s (qty=%s est_price=%s cash=%.2f)",
+                                symbol, qty, est_price, cash_for_buy)
+                return None
+
+            logging.info("%s - inflight_orders.get=%s pending_entries=%s", symbol, inflight_orders.get(symbol), pending_entries)
 
 
-            with order_lock:
-                try:
-                            
-                    try:
-                        resp = stock_data_client.get_stock_latest_trade(
-                            StockLatestTradeRequest(symbol_or_symbols=symbol)
-                        )
-                        est_price = float(resp[symbol].price)
-                    except Exception:
-                        est_price = None
-                    if est_price and est_price > 0:
-                        qty = int((cash_for_buy * BUY_CASH_BUFFER) // est_price)
-                    else:
-                        qty = 1
-                        logging.info("%s - est_price=%s qty=%s BUY_POWER_LIMIT=%.4f BUY_CASH_BUFFER=%.4f", symbol, est_price, qty, BUY_POWER_LIMIT, BUY_CASH_BUFFER)
-                    if qty <= 0 or (est_price and qty * est_price < MIN_TRADE_USD):
-                        logging.debug("Computed buy qty too small for %s (qty=%s est_price=%s cash=%.2f)",
-                                      symbol, qty, est_price, cash_for_buy)
-                        return None
-
-                    logging.info("%s - inflight_orders.get=%s pending_entries=%s", symbol, inflight_orders.get(symbol), pending_entries)
-
-
-                    # Prevent duplicate inflight orders for same symbol
-                    if inflight_orders.get(symbol):
-                        logging.debug("%s - buy skipped: inflight order exists", symbol)
-                        return None
+            # Prevent duplicate inflight orders for same symbol
+            if inflight_orders.get(symbol):
+                logging.debug("%s - buy skipped: inflight order exists", symbol)
+                return None
 
                     
-                    order = MarketOrderRequest(
-                        symbol=symbol, qty=qty, side=OrderSide.BUY,
-                        type=OrderType.MARKET, time_in_force=TimeInForce.DAY
-                    )
-                    submitted = trade_client_local.submit_order(order)
-                    order_id = getattr(submitted, "id", None)
+            order = MarketOrderRequest(
+                symbol=symbol, qty=qty, side=OrderSide.BUY,
+                type=OrderType.MARKET, time_in_force=TimeInForce.DAY
+            )
+            submitted = trade_client_local.submit_order(order)
+            order_id = getattr(submitted, "id", None)
 
-                    filled = _order_status_wait(trade_client_local, order_id, symbol)
-                    logging.info("%s - order_status_wait result filled=%s", symbol, filled)
+            filled = _order_status_wait(trade_client_local, order_id, symbol)
+            logging.info("%s - order_status_wait result filled=%s", symbol, filled)
                     
                             
-                    # Build series again for audit/indicators (we already validated above)
+            # Build series again for audit/indicators (we already validated above)
                   
-                    prices_series = pd.Series(price_deques.get(symbol, []))
-                    sizes_series = pd.Series(size_deques.get(symbol, []))
+            prices_series = pd.Series(price_deques.get(symbol, []))
+            sizes_series = pd.Series(size_deques.get(symbol, []))
                                
                 
-                    # Debug short-series early so we can correlate with buy attempts
-                    if prices_series.empty:
-                        logging.debug("Short price series for %s at %s", symbol, datetime.now(timezone.utc))
+            # Debug short-series early so we can correlate with buy attempts
+            if prices_series.empty:
+                logging.debug("Short price series for %s at %s", symbol, datetime.now(timezone.utc))
                         
-                    ema_fast_val = _safe_last(compute_ema_from_series(prices_series, EMA_FAST))
-                    ema_slow_val = _safe_last(compute_ema_from_series(prices_series, EMA_SLOW))
-                    rsi_val = _safe_last(compute_rsi_from_series(prices_series, RSI_PERIOD))
-                    vwap_val = _safe_last(compute_vwap_from_ticks(prices_series, sizes_series))
-                    regime_at_entry = detect_regime(prices_series, sizes_series)
+            ema_fast_val = _safe_last(compute_ema_from_series(prices_series, EMA_FAST))
+            ema_slow_val = _safe_last(compute_ema_from_series(prices_series, EMA_SLOW))
+            rsi_val = _safe_last(compute_rsi_from_series(prices_series, RSI_PERIOD))
+            vwap_val = _safe_last(compute_vwap_from_ticks(prices_series, sizes_series))
+            regime_at_entry = detect_regime(prices_series, sizes_series)
                     
                     
-                    bias_val = bias if bias is not None else globals().get("day_bias", "unknown")
+            bias_val = bias if bias is not None else globals().get("day_bias", "unknown")
                               
                     
-                    buy_row = {
-                        "timestamp": datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M:%S"),
-                        "symbol": symbol,
-                        "action": "BUY",
-                        "price": est_price if est_price else 0.0,
-                        "reason": "entry",   # or use evaluate_entry reason if available
-                        "bias": bias_val,
-                        "pnl": None,
-                        "ema_fast": ema_fast_val,
-                        "ema_slow": ema_slow_val,
-                        "rsi": rsi_val,
-                        "vwap": vwap_val,
-                        "regime": regime_at_entry,
-                        "code_version": CODE_VERSION
-                    }
-                    exec_rows.append(buy_row)
-                    write_exec_row_immediate(exec_rows[-1], symbol, RUN_MODE)
-                    logging.info(
-                        f"[TRADE] {symbol} [{RUN_MODE}] BUY qty={qty} @ {(est_price if est_price else 0.0):.4f} "
-                        f"| Time={datetime.now(timezone.utc).strftime('%H:%M:%S')} | Regime={regime_at_entry} | Bias={bias_val}"
-                    )
+            buy_row = {
+                "timestamp": datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M:%S"),
+                "symbol": symbol,
+                "action": "BUY",
+                "price": est_price if est_price else 0.0,
+                "reason": "entry",   # or use evaluate_entry reason if available
+                "bias": bias_val,
+                "pnl": None,
+                "ema_fast": ema_fast_val,
+                "ema_slow": ema_slow_val,
+                "rsi": rsi_val,
+                "vwap": vwap_val,
+                "regime": regime_at_entry,
+                "code_version": CODE_VERSION
+            }
+            exec_rows.append(buy_row)
+            write_exec_row_immediate(exec_rows[-1], symbol, RUN_MODE)
+            logging.info(
+                f"[TRADE] {symbol} [{RUN_MODE}] BUY qty={qty} @ {(est_price if est_price else 0.0):.4f} "
+                f"| Time={datetime.now(timezone.utc).strftime('%H:%M:%S')} | Regime={regime_at_entry} | Bias={bias_val}"
+            )
         
-                    # Optional lightweight execution audit
-                    if EXEC_AUDIT_ENABLED:
-                        try:
-                            import csv
-                            fieldnames = ["timestamp","symbol","action","price","reason","bias","pnl",
-                                          "ema_fast","ema_slow","rsi","vwap","regime","code_version"]
-                            with open(EXEC_AUDIT_FILE, "a", newline="") as f:
-                                writer = csv.DictWriter(f, fieldnames=fieldnames)
-                                if f.tell() == 0:
-                                    writer.writeheader()
-                                writer.writerow(buy_row)
-                        except Exception as e:
-                            logging.warning("Failed to write BUY to audit file: %s", e)
-                            
-                    return submitted
+            # Optional lightweight execution audit
+            if EXEC_AUDIT_ENABLED:
+                try:
+                    import csv
+                    fieldnames = ["timestamp","symbol","action","price","reason","bias","pnl",
+                                    "ema_fast","ema_slow","rsi","vwap","regime","code_version"]
+                    with open(EXEC_AUDIT_FILE, "a", newline="") as f:
+                        writer = csv.DictWriter(f, fieldnames=fieldnames)
+                        if f.tell() == 0:
+                            writer.writeheader()
+                        writer.writerow(buy_row)
                 except Exception as e:
-                    logging.exception("safe_market_buy error for %s: %s", symbol, e)
-                    return None
+                    logging.warning("Failed to write BUY to audit file: %s", e)
+                            
+            return submitted
+        except Exception as e:
+            logging.exception("safe_market_buy error for %s: %s", symbol, e)
+            return None
 
 def _order_status_wait(trade_client_local, order_id, sym, max_retries=RECON_POLL_RETRIES, sleep_s=RECON_POLL_SLEEP):
     status = None
