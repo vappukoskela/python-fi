@@ -785,38 +785,59 @@ def _status_is(status, target):
         return False
 
 def safe_market_buy(trade_client_local, symbol, cash_for_buy, order_lock, price_deques, size_deques, bias=None):
-    with order_lock:
+    
+    # --- Session gating: allow SIM/AGG_SIM to behave normally for backtests ---
+    now_ts = datetime.now(timezone.utc)
+    if RUN_MODE not in ["SIM", "AGG_SIM"]:
         try:
-
-            try:
-                resp = stock_data_client.get_stock_latest_trade(
-                    StockLatestTradeRequest(symbol_or_symbols=symbol)
-                )
-                est_price = float(resp[symbol].price)
-            except Exception:
-                est_price = None
-            if est_price and est_price > 0:
-                qty = int((cash_for_buy * BUY_CASH_BUFFER) // est_price)
-            else:
-                qty = 1
-            if qty <= 0 or (est_price and qty * est_price < MIN_TRADE_USD):
-                logging.debug("Computed buy qty too small for %s (qty=%s est_price=%s cash=%.2f)",
-                              symbol, qty, est_price, cash_for_buy)
+            if not market_entry_allowed(now_ts):
+                logging.info("%s - BUY blocked by session gating at %s (START_TS=%s)", symbol, now_ts.isoformat(), START_TS.isoformat())
                 return None
-            order = MarketOrderRequest(
-                symbol=symbol, qty=qty, side=OrderSide.BUY,
-                type=OrderType.MARKET, time_in_force=TimeInForce.DAY
-            )
-            submitted = trade_client_local.submit_order(order)
+        except Exception as e:
+            # Defensive: if session helper fails, block the buy to avoid trading in unknown state
+            logging.debug("%s - safe_market_buy: missing price/size deques; skipping buy attempt", symbol)
+            return None
 
             # Defensive guard: ensure deques exist and are non-empty
             if symbol not in price_deques or symbol not in size_deques:
                 logging.debug("Missing deque data for %s; using empty series for indicators", symbol)
                 prices_series = pd.Series(dtype=float)
                 sizes_series = pd.Series(dtype=float)
-            else:
+                
+            try:
                 prices_series = pd.Series(price_deques[symbol])
                 sizes_series = pd.Series(size_deques[symbol])
+            except Exception as e:
+                logging.debug("%s - safe_market_buy: failed to build series: %s", symbol, e)
+                return None
+
+            MIN_TICKS_REQUIRED = 5
+            if len(prices_series) < MIN_TICKS_REQUIRED or len(sizes_series) < MIN_TICKS_REQUIRED:
+                logging.debug("%s - safe_market_buy: insufficient ticks (%d/%d) ; skipping", symbol, len(prices_series), len(sizes_series))
+                return None
+
+            # Quick RSI gate: avoid buying if RSI is below configured minimum
+            try:
+                rsi_val = _safe_last(compute_rsi_from_series(prices_series, RSI_PERIOD))
+            except Exception:
+                rsi_val = float("nan")
+                
+            if not pd.isna(rsi_val) and rsi_val < MIN_RSI_FOR_ENTRY:
+                logging.info("%s - BUY blocked by RSI gate (rsi=%.2f < MIN_RSI_FOR_ENTRY=%d)", symbol, rsi_val, MIN_RSI_FOR_ENTRY)
+                return None
+
+            # Optional lightweight ATR guard to avoid buying into extreme moves (tune threshold per instrument)
+            try:
+                atr_val = compute_atr_from_series(prices_series, ATR_PERIOD)
+                if not pd.isna(atr_val) and atr_val > max(ATR_FLOOR, 0.02):
+                    logging.info("%s - BUY blocked by ATR guard (atr=%.4f)", symbol, atr_val)
+                    return None
+            except Exception:
+                logging.debug("%s - ATR guard computation failed; continuing", symbol)
+
+            
+            
+                
             # Debug short-series early so we can correlate with buy attempts
             if prices_series.empty:
                 logging.debug("Short price series for %s at %s", symbol, datetime.now(timezone.utc))
