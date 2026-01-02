@@ -790,19 +790,20 @@ def safe_market_buy(trade_client_local, symbol, cash_for_buy, order_lock, price_
     now_ts = datetime.now(timezone.utc)
     if RUN_MODE not in ["SIM", "AGG_SIM"]:
         try:
-            if not market_entry_allowed(now_ts):
-                logging.info("%s - BUY blocked by session gating at %s (START_TS=%s)", symbol, now_ts.isoformat(), START_TS.isoformat())
-                return None
+            allowed = market_entry_allowed(now_ts)
         except Exception as e:
-            # Defensive: if session helper fails, block the buy to avoid trading in unknown state
-            logging.debug("%s - safe_market_buy: missing price/size deques; skipping buy attempt", symbol)
+            logging.info("%s - safe_market_buy: market_entry_allowed check failed: %s", symbol, e)
             return None
-
+        if not allowed:
+            logging.info("%s - BUY blocked by session gating at %s (START_TS=%s)",
+                          symbol, now_ts.isoformat(), START_TS.isoformat())
+            return None
+        
             # Defensive guard: ensure deques exist and are non-empty
             if symbol not in price_deques or symbol not in size_deques:
-                logging.debug("Missing deque data for %s; using empty series for indicators", symbol)
-                prices_series = pd.Series(dtype=float)
-                sizes_series = pd.Series(dtype=float)
+                logging.debug("%s - safe_market_buy: missing price/size deques; skipping buy attempt", symbol)
+                return None
+                
                 
             try:
                 prices_series = pd.Series(price_deques[symbol])
@@ -835,8 +836,42 @@ def safe_market_buy(trade_client_local, symbol, cash_for_buy, order_lock, price_
             except Exception:
                 logging.debug("%s - ATR guard computation failed; continuing", symbol)
 
+            with order_lock:
+                try:
+                            
+                    try:
+                        resp = stock_data_client.get_stock_latest_trade(
+                            StockLatestTradeRequest(symbol_or_symbols=symbol)
+                        )
+                        est_price = float(resp[symbol].price)
+                    except Exception:
+                        est_price = None
+                    if est_price and est_price > 0:
+                        qty = int((cash_for_buy * BUY_CASH_BUFFER) // est_price)
+                    else:
+                        qty = 1
+                    if qty <= 0 or (est_price and qty * est_price < MIN_TRADE_USD):
+                        logging.debug("Computed buy qty too small for %s (qty=%s est_price=%s cash=%.2f)",
+                                      symbol, qty, est_price, cash_for_buy)
+                        return None
+
+                    # Prevent duplicate inflight orders for same symbol
+                    if inflight_orders.get(symbol):
+                        logging.debug("%s - buy skipped: inflight order exists", symbol)
+                        return None
+
             
-            
+            order = MarketOrderRequest(
+                symbol=symbol, qty=qty, side=OrderSide.BUY,
+                type=OrderType.MARKET, time_in_force=TimeInForce.DAY
+            )
+            submitted = trade_client_local.submit_order(order)
+
+            # Build series again for audit/indicators (we already validated above)
+          
+            prices_series = pd.Series(price_deques.get(symbol, []))
+            sizes_series = pd.Series(size_deques.get(symbol, []))
+                       
                 
             # Debug short-series early so we can correlate with buy attempts
             if prices_series.empty:
