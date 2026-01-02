@@ -1084,7 +1084,50 @@ def reconcile_positions(trade_client_local,
         return
 
     now_ts = datetime.now(timezone.utc)
+    # Helper: determine whether new entries / reconciliation should run given session gating
+    def _market_session_allows_recon(now_dt, open_utc_hour=13, open_utc_minute=30, pre_open_buffer_min=0, close_utc_hour=20, close_utc_minute=0, guard_minutes=30):                        
+        """
+        Returns True when reconciliation / new-entry logic is allowed at now_dt.    
+        - If now_dt is after market open + guard_minutes, allow.
+        - If now_dt is before market close - guard_minutes, allow.
+        - If program started after open, allow immediately (we detect that by now_dt > open + guard_minutes).
+        - If now_dt is within guard_minutes after open, block new entries (but still allow reconciliation cleanup of orphaned local state).
+        - If now_dt is within guard_minutes before close, block new entries and force sells elsewhere (closing logic).
+        """
+        # Build open and close datetimes for the same date as now_dt
+        open_dt = now_dt.replace(hour=open_utc_hour, minute=open_utc_minute, second=0, microsecond=0)                    
+        close_dt = now_dt.replace(hour=close_utc_hour, minute=close_utc_minute, second=0, microsecond=0) 
 
+        # If close_dt <= open_dt (shouldn't happen for normal US session), shift close to next day
+        if close_dt <= open_dt:
+            close_dt = close_dt + timedelta(days=1)
+
+        after_open_guard = open_dt + timedelta(minutes=guard_minutes)
+        before_close_guard = close_dt - timedelta(minutes=guard_minutes)
+
+        # If now is before market open, do not allow new entries/recon that depends on live market context
+        if now_dt < open_dt:
+            return False, open_dt, close_dt, after_open_guard, before_close_guard
+
+        # If program started after the open+guard window, allow immediately
+        if program_start_dt is not None and program_start_dt >= after_open_guard:
+            return True, open_dt, close_dt, after_open_guard, before_close_guard
+
+        # If now is within the first guard_minutes after open, block new entries but allow cleanup actions
+        if open_dt <= now_dt < after_open_guard:
+            return False, open_dt, close_dt, after_open_guard, before_close_guard
+
+        # If now is within the last guard_minutes before close, block new entries (closing logic should run elsewhere)
+        if before_close_guard <= now_dt < close_dt:
+            return False, open_dt, close_dt, after_open_guard, before_close_guard
+
+        # Otherwise allow
+        return True, open_dt, close_dt, after_open_guard, before_close_guard
+
+    allow_recon, market_open_dt, market_close_dt, after_open_guard_dt, before_close_guard_dt = _market_session_allows_recon(now_ts)
+    # Note: allow_recon controls whether we should perform reconciliation actions that assume stable market conditions.
+    # We still perform minimal cleanup of orphaned local state even when allow_recon is False (so we don't leak state).
+            
     for sym in symbols:
         qty_open, avg_entry = positions_map.get(sym, (0, 0.0))
         if qty_open <= 0:
@@ -1100,7 +1143,16 @@ def reconcile_positions(trade_client_local,
             continue
 
         # There is an open position on Alpaca
+        # If we are in a guarded window (e.g., first 30 minutes after open or last 30 minutes before close),
+        # skip reconciliation logic that assumes stable market conditions (but keep minimal checks).
+        if not allow_recon:
+            logging.debug("%s - RECON: guarded session window (now=%s). Skipping heavy reconciliation for open position.", sym, now_ts.isoformat())
+            # Optionally: mark that we deferred reconciliation for this symbol (no state mutation)
+            continue
+
+        # Full reconciliation path continues here
         has_context = (sym in entry_prices) and (sym in entry_configs) and (sym in entry_times)
+       
 
         # Reattach orphan position context if missing
         if not has_context:
