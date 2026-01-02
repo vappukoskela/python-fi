@@ -5,6 +5,7 @@ import csv
 import threading
 from collections import deque
 from datetime import datetime, timezone, timedelta
+START_TS = datetime.now(timezone.utc)
 from collections import deque, defaultdict
 
 # === CODE VERSION TAG (for audit comparison) ===
@@ -462,6 +463,56 @@ def _safe_last(series_like):
     except Exception:
         # Any problem -> return NaN so downstream code can handle it
         return float("nan")
+
+# Add near session helpers
+def market_entry_allowed(ts):
+    """
+    Return True if new entries are allowed at timestamp ts (UTC-aware datetime).
+    Allow entries only if:
+      - session minutes >= 30 (30 minutes after open), OR
+      - program started after open (we detect by comparing now to open)
+    Block entries in final 30 minutes before close.
+    """
+    minutes = _session_minutes(ts)
+    # market open window: allow only after 30 minutes from open
+    if minutes < 30:
+        # If program started later than open by >30 minutes, allow immediate trading.
+        # We assume program start time is stored in global START_TS (set at program start).
+        try:
+            start_delta_min = int((ts - START_TS).total_seconds() // 60)
+        except Exception:
+            start_delta_min = 9999
+        if start_delta_min < 30:
+            return False
+    # block last 30 minutes before close (US equities close at 20:00 UTC in your helper assumption)
+    # compute session length in minutes (example: 390 minutes regular session)
+    SESSION_LENGTH_MIN = 390
+    if minutes >= SESSION_LENGTH_MIN - 30:
+        return False
+    return True
+
+def sell_all_before_close(trade_client_local):
+    """
+    Force close all open positions before market close.
+    Sells market all positions regardless of pnl.
+    """
+    try:
+        positions = trade_client_local.get_all_positions()
+        for pos in positions:
+            symbol = pos.symbol
+            qty = int(float(pos.qty))
+            if qty == 0:
+                continue
+            order = MarketOrderRequest(symbol=symbol, qty=qty, side=OrderSide.SELL,
+                                      type=OrderType.MARKET, time_in_force=TimeInForce.DAY)
+            try:
+                trade_client_local.submit_order(order)
+                logging.info("[CLOSE] Forced sell %s qty=%s before close", symbol, qty)
+            except Exception as e:
+                logging.debug("[CLOSE] Failed forced sell for %s: %s", symbol, e)
+    except Exception as e:
+        logging.debug("[CLOSE] sell_all_before_close failed: %s", e)
+
 
 # === PATCH 2: Multi-tick confirmation ===
 ENTRY_CONFIRM_ENABLED = True
