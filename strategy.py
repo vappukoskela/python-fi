@@ -860,18 +860,18 @@ def safe_market_buy(trade_client_local, symbol, cash_for_buy, order_lock, price_
                         logging.debug("%s - buy skipped: inflight order exists", symbol)
                         return None
 
-            
-            order = MarketOrderRequest(
-                symbol=symbol, qty=qty, side=OrderSide.BUY,
-                type=OrderType.MARKET, time_in_force=TimeInForce.DAY
-            )
-            submitted = trade_client_local.submit_order(order)
-
-            # Build series again for audit/indicators (we already validated above)
-          
-            prices_series = pd.Series(price_deques.get(symbol, []))
-            sizes_series = pd.Series(size_deques.get(symbol, []))
-                       
+                    
+                    order = MarketOrderRequest(
+                        symbol=symbol, qty=qty, side=OrderSide.BUY,
+                        type=OrderType.MARKET, time_in_force=TimeInForce.DAY
+                    )
+                    submitted = trade_client_local.submit_order(order)
+        
+                    # Build series again for audit/indicators (we already validated above)
+                  
+                    prices_series = pd.Series(price_deques.get(symbol, []))
+                    sizes_series = pd.Series(size_deques.get(symbol, []))
+                               
                 
             # Debug short-series early so we can correlate with buy attempts
             if prices_series.empty:
