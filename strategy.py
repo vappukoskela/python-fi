@@ -836,11 +836,28 @@ def safe_market_buy(trade_client_local, symbol, cash_for_buy, order_lock, price_
             # Optional lightweight ATR guard to avoid buying into extreme moves (tune threshold per instrument)
             try:
                 atr_val = compute_atr_from_series(prices_series, ATR_PERIOD)
+                except Exception:
+                    rsi_val = float("nan")
+                try:
+                    atr_val = compute_atr_from_series(prices_series, ATR_PERIOD)
+                    except Exception:
+                        atr_val = float("nan")
+
+                    logging.info("%s - rsi=%.2f atr=%.4f (MIN_RSI_FOR_ENTRY=%d ATR_FLOOR=%.4f)", symbol, rsi_val, atr_val, MIN_RSI_FOR_ENTRY, ATR_FLOOR)
+        
+                
+                if not pd.isna(rsi_val) and rsi_val < MIN_RSI_FOR_ENTRY:
+                    logging.info("%s - BUY blocked by RSI gate (rsi=%.2f < MIN_RSI_FOR_ENTRY=%d)",
+                                 symbol, rsi_val, MIN_RSI_FOR_ENTRY)
+                    return None
+                
                 if not pd.isna(atr_val) and atr_val > max(ATR_FLOOR, 0.02):
                     logging.info("%s - BUY blocked by ATR guard (atr=%.4f)", symbol, atr_val)
                     return None
             except Exception:
                 logging.debug("%s - ATR guard computation failed; continuing", symbol)
+                
+
 
             with order_lock:
                 try:
@@ -856,10 +873,14 @@ def safe_market_buy(trade_client_local, symbol, cash_for_buy, order_lock, price_
                         qty = int((cash_for_buy * BUY_CASH_BUFFER) // est_price)
                     else:
                         qty = 1
+                        logging.info("%s - est_price=%s qty=%s BUY_POWER_LIMIT=%.4f BUY_CASH_BUFFER=%.4f", symbol, est_price, qty, BUY_POWER_LIMIT, BUY_CASH_BUFFER)
                     if qty <= 0 or (est_price and qty * est_price < MIN_TRADE_USD):
                         logging.debug("Computed buy qty too small for %s (qty=%s est_price=%s cash=%.2f)",
                                       symbol, qty, est_price, cash_for_buy)
                         return None
+
+                    logging.info("%s - inflight_orders.get=%s pending_entries=%s", symbol, inflight_orders.get(symbol), pending_entries)
+
 
                     # Prevent duplicate inflight orders for same symbol
                     if inflight_orders.get(symbol):
