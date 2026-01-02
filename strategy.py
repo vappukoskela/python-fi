@@ -873,60 +873,60 @@ def safe_market_buy(trade_client_local, symbol, cash_for_buy, order_lock, price_
                     sizes_series = pd.Series(size_deques.get(symbol, []))
                                
                 
-            # Debug short-series early so we can correlate with buy attempts
-            if prices_series.empty:
-                logging.debug("Short price series for %s at %s", symbol, datetime.now(timezone.utc))
-                
-            ema_fast_val = _safe_last(compute_ema_from_series(prices_series, EMA_FAST))
-            ema_slow_val = _safe_last(compute_ema_from_series(prices_series, EMA_SLOW))
-            rsi_val = _safe_last(compute_rsi_from_series(prices_series, RSI_PERIOD))
-            vwap_val = _safe_last(compute_vwap_from_ticks(prices_series, sizes_series))
-            regime_at_entry = detect_regime(prices_series, sizes_series)
-            
-            
-            bias_val = bias if bias is not None else globals().get("day_bias", "unknown")
-                      
-            
-            buy_row = {
-                "timestamp": datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M:%S"),
-                "symbol": symbol,
-                "action": "BUY",
-                "price": est_price if est_price else 0.0,
-                "reason": "entry",   # or use evaluate_entry reason if available
-                "bias": bias_val,
-                "pnl": None,
-                "ema_fast": ema_fast_val,
-                "ema_slow": ema_slow_val,
-                "rsi": rsi_val,
-                "vwap": vwap_val,
-                "regime": regime_at_entry,
-                "code_version": CODE_VERSION
-            }
-            exec_rows.append(buy_row)
-            write_exec_row_immediate(exec_rows[-1], symbol, RUN_MODE)
-            logging.info(
-                f"[TRADE] {symbol} [{RUN_MODE}] BUY qty={qty} @ {(est_price if est_price else 0.0):.4f} "
-                f"| Time={datetime.now(timezone.utc).strftime('%H:%M:%S')} | Regime={regime_at_entry} | Bias={bias_val}"
-            )
-
-            # Optional lightweight execution audit
-            if EXEC_AUDIT_ENABLED:
-                try:
-                    import csv
-                    fieldnames = ["timestamp","symbol","action","price","reason","bias","pnl",
-                                  "ema_fast","ema_slow","rsi","vwap","regime","code_version"]
-                    with open(EXEC_AUDIT_FILE, "a", newline="") as f:
-                        writer = csv.DictWriter(f, fieldnames=fieldnames)
-                        if f.tell() == 0:
-                            writer.writeheader()
-                        writer.writerow(buy_row)
-                except Exception as e:
-                    logging.warning("Failed to write BUY to audit file: %s", e)
+                    # Debug short-series early so we can correlate with buy attempts
+                    if prices_series.empty:
+                        logging.debug("Short price series for %s at %s", symbol, datetime.now(timezone.utc))
+                        
+                    ema_fast_val = _safe_last(compute_ema_from_series(prices_series, EMA_FAST))
+                    ema_slow_val = _safe_last(compute_ema_from_series(prices_series, EMA_SLOW))
+                    rsi_val = _safe_last(compute_rsi_from_series(prices_series, RSI_PERIOD))
+                    vwap_val = _safe_last(compute_vwap_from_ticks(prices_series, sizes_series))
+                    regime_at_entry = detect_regime(prices_series, sizes_series)
                     
-            return submitted
-        except Exception as e:
-            logging.exception("safe_market_buy error for %s: %s", symbol, e)
-            return None
+                    
+                    bias_val = bias if bias is not None else globals().get("day_bias", "unknown")
+                              
+                    
+                    buy_row = {
+                        "timestamp": datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M:%S"),
+                        "symbol": symbol,
+                        "action": "BUY",
+                        "price": est_price if est_price else 0.0,
+                        "reason": "entry",   # or use evaluate_entry reason if available
+                        "bias": bias_val,
+                        "pnl": None,
+                        "ema_fast": ema_fast_val,
+                        "ema_slow": ema_slow_val,
+                        "rsi": rsi_val,
+                        "vwap": vwap_val,
+                        "regime": regime_at_entry,
+                        "code_version": CODE_VERSION
+                    }
+                    exec_rows.append(buy_row)
+                    write_exec_row_immediate(exec_rows[-1], symbol, RUN_MODE)
+                    logging.info(
+                        f"[TRADE] {symbol} [{RUN_MODE}] BUY qty={qty} @ {(est_price if est_price else 0.0):.4f} "
+                        f"| Time={datetime.now(timezone.utc).strftime('%H:%M:%S')} | Regime={regime_at_entry} | Bias={bias_val}"
+                    )
+        
+                    # Optional lightweight execution audit
+                    if EXEC_AUDIT_ENABLED:
+                        try:
+                            import csv
+                            fieldnames = ["timestamp","symbol","action","price","reason","bias","pnl",
+                                          "ema_fast","ema_slow","rsi","vwap","regime","code_version"]
+                            with open(EXEC_AUDIT_FILE, "a", newline="") as f:
+                                writer = csv.DictWriter(f, fieldnames=fieldnames)
+                                if f.tell() == 0:
+                                    writer.writeheader()
+                                writer.writerow(buy_row)
+                        except Exception as e:
+                            logging.warning("Failed to write BUY to audit file: %s", e)
+                            
+                    return submitted
+                except Exception as e:
+                    logging.exception("safe_market_buy error for %s: %s", symbol, e)
+                    return None
 
 def _order_status_wait(trade_client_local, order_id, sym, max_retries=RECON_POLL_RETRIES, sleep_s=RECON_POLL_SLEEP):
     status = None
