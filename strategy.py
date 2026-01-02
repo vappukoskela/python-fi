@@ -785,6 +785,12 @@ def _status_is(status, target):
         return False
 
 def safe_market_buy(trade_client_local, symbol, cash_for_buy, order_lock, price_deques, size_deques, bias=None):
+
+    logging.info("%s - safe_market_buy called | now=%s UTC | START_TS=%s | RUN_MODE=%s",
+             symbol, datetime.now(timezone.utc).isoformat(), START_TS.isoformat(), RUN_MODE)
+    logging.info("%s - session minutes=%d", symbol, _session_minutes(datetime.now(timezone.utc)))
+    logging.info("%s - market_entry_allowed=%s", symbol, market_entry_allowed(datetime.now(timezone.utc)))
+
     
     # --- Session gating: allow SIM/AGG_SIM to behave normally for backtests ---
     now_ts = datetime.now(timezone.utc)
