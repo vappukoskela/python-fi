@@ -840,10 +840,10 @@ def safe_market_buy(trade_client_local, symbol, cash_for_buy, order_lock, price_
                 rsi_val = float("nan")
                 try:
                     atr_val = compute_atr_from_series(prices_series, ATR_PERIOD)
-                    except Exception:
-                        atr_val = float("nan")
+                except Exception:
+                    atr_val = float("nan")
 
-                    logging.info("%s - rsi=%.2f atr=%.4f (MIN_RSI_FOR_ENTRY=%d ATR_FLOOR=%.4f)", symbol, rsi_val, atr_val, MIN_RSI_FOR_ENTRY, ATR_FLOOR)
+                logging.info("%s - rsi=%.2f atr=%.4f (MIN_RSI_FOR_ENTRY=%d ATR_FLOOR=%.4f)", symbol, rsi_val, atr_val, MIN_RSI_FOR_ENTRY, ATR_FLOOR)
         
                 
                 if not pd.isna(rsi_val) and rsi_val < MIN_RSI_FOR_ENTRY:
