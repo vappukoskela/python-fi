@@ -836,8 +836,8 @@ def safe_market_buy(trade_client_local, symbol, cash_for_buy, order_lock, price_
             # Optional lightweight ATR guard to avoid buying into extreme moves (tune threshold per instrument)
             try:
                 atr_val = compute_atr_from_series(prices_series, ATR_PERIOD)
-                except Exception:
-                    rsi_val = float("nan")
+            except Exception:
+                rsi_val = float("nan")
                 try:
                     atr_val = compute_atr_from_series(prices_series, ATR_PERIOD)
                     except Exception:
