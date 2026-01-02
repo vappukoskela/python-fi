@@ -893,7 +893,12 @@ def safe_market_buy(trade_client_local, symbol, cash_for_buy, order_lock, price_
                         type=OrderType.MARKET, time_in_force=TimeInForce.DAY
                     )
                     submitted = trade_client_local.submit_order(order)
-        
+                    order_id = getattr(submitted, "id", None)
+
+                    filled = _order_status_wait(trade_client_local, order_id, symbol)
+                    logging.info("%s - order_status_wait result filled=%s", symbol, filled)
+                    
+                            
                     # Build series again for audit/indicators (we already validated above)
                   
                     prices_series = pd.Series(price_deques.get(symbol, []))
