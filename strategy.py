@@ -740,6 +740,16 @@ def _status_is(status, target):
         return False
 
 def safe_market_buy(trade_client_local, symbol, cash_for_buy, order_lock, price_deques, size_deques, bias=None):
+    # --- SESSION GATE: block entries in first 30 minutes ---
+    now_ts = datetime.now(timezone.utc)
+    minutes = _session_minutes(now_ts)
+    
+    if minutes < 30:
+        logging.info("%s - BUY blocked: session minutes=%d < 30", symbol, minutes)
+        return None
+
+    
+    
     with order_lock:
         try:
 
