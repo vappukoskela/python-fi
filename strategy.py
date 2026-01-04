@@ -373,6 +373,12 @@ def write_exec_row_immediate(exec_row, symbol, run_mode):
         logging.debug("[IO] write_exec_row_immediate failed for %s: %s", filename, e)
 
 # === helpers: indicators ===
+def _session_minutes(ts):
+    # assumes U.S. equities open 13:30 UTC
+    open_utc = ts.replace(hour=13, minute=30, second=0, microsecond=0)
+    return max(0, int((ts - open_utc).total_seconds() // 60))
+
+
 def compute_ema_from_series(series, period):
     if len(series) < 2:
         if len(series):
