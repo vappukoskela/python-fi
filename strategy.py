@@ -374,9 +374,13 @@ def write_exec_row_immediate(exec_row, symbol, run_mode):
 
 # === helpers: indicators ===
 def _session_minutes(ts):
-    # assumes U.S. equities open 14:30 UTC
-    open_utc = ts.replace(hour=14, minute=30, second=0, microsecond=0)
-    return max(0, int((ts - open_utc).total_seconds() // 60))
+    # get real UTC time from Alpaca server
+    server_time = datetime.now(timezone.utc)
+
+    # US market open 14:30 UTC (winter)
+    open_utc = server_time.replace(hour=14, minute=30, second=0, microsecond=0)
+
+    return max(0, int((server_time - open_utc).total_seconds() // 60))
 
 
 def compute_ema_from_series(series, period):
