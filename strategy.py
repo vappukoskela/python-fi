@@ -524,11 +524,6 @@ SESSION_SLICES = [
     ("MID", 30, 330),  # rest of session (example: 30 min to 5.5 hours)
 ]
 
-def _session_minutes(ts):
-    # assumes U.S. equities open 13:30 UTC; adjust if needed
-    open_utc = ts.replace(hour=13, minute=30, second=0, microsecond=0)
-    return max(0, int((ts - open_utc).total_seconds() // 60))
-
 def overlay_by_session(CONFIG, ts, regime):
     if not SESSION_OVERLAYS_ENABLED:
         return CONFIG
