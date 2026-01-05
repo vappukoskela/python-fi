@@ -375,7 +375,7 @@ def write_exec_row_immediate(exec_row, symbol, run_mode):
 # === helpers: indicators ===
 def _session_minutes(ts):
     # assumes U.S. equities open 14:30 UTC
-    open_utc = ts.replace(hour=13, minute=30, second=0, microsecond=0)
+    open_utc = ts.replace(hour=14, minute=30, second=0, microsecond=0)
     return max(0, int((ts - open_utc).total_seconds() // 60))
 
 
