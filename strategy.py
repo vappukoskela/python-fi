@@ -2626,6 +2626,15 @@ def main():
             spent_this_loop = 0.0
             max_loop_budget = calculate_buying_power_limit(trade_client, BUY_POWER_LIMIT)
 
+            # --- EOD LIQUIDATION: force close all positions near session end ---
+            now_ts = datetime.now(timezone.utc)
+            minutes = _session_minutes(now_ts)
+            SESSION_LENGTH_MIN = 390 # 6.5h US cash session
+
+            if minutes >= SESSION_LENGTH_MIN - 30:
+                logging.info("Session in final 30 minutes (minutes=%d); forcing liquidation of all positions.", minutes)
+                sell_all_positions(trade_client, order_lock)
+
             for i in range(0, len(symbols), MARKET_DATA_CHUNK):
                 chunk = symbols[i:i+MARKET_DATA_CHUNK]
                 trades = fetch_latest_trade_price_and_size_batch(stock_data_client, chunk)
