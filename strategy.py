@@ -2601,7 +2601,7 @@ def main():
 
     def sell_all_positions(trade_client_local, order_lock_local):
         try:
-            positions = trade_client_local.get_open_positions()
+            positions = trade_client_local.get_all_positions()
             for p in positions:
                 s = p.symbol
                 q = int(float(p.qty))
