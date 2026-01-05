@@ -746,7 +746,13 @@ def safe_market_buy(trade_client_local, symbol, cash_for_buy, order_lock, price_
     
     # Block first X minutes after open
     if minutes < 30:
-        logging.info("%s - BUY blocked: session minutes=%d < 30", symbol, minutes) return None # Block last 30 minutes before close if minutes >= SESSION_LENGTH_MIN - 30: logging.info("%s - BUY blocked: session minutes=%d >= %d (final 30 min)", symbol, minutes, SESSION_LENGTH_MIN - 30)
+        logging.info("%s - BUY blocked: session minutes=%d < 30", symbol, minutes)       
+        return None
+
+    # Block last 30 minutes before close
+    if minutes >= SESSION_LENGTH_MIN - 30:
+        logging.info("%s - BUY blocked: session minutes=%d >= %d (final 30 min)",
+                     symbol, minutes, SESSION_LENGTH_MIN - 30)
         return None
 
     
