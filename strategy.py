@@ -743,7 +743,7 @@ def safe_market_buy(trade_client_local, symbol, cash_for_buy, order_lock, price_
     now_ts = datetime.now(timezone.utc)
     minutes = _session_minutes(now_ts)
     
-    if minutes < 30:
+    if minutes < 155:
         logging.info("%s - BUY blocked: session minutes=%d < 30", symbol, minutes)
         return None
 
