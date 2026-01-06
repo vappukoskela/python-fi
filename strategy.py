@@ -1404,6 +1404,13 @@ def evaluate_entry(sym, price, size, prices_series, sizes_series, ts_val,
         logging.debug(f"[BLOCK] {sym} rejected | Reason=Missing core indicators")
         return (False, "Missing core indicators", 0.0, {})
 
+    # --- Bias-aware safety filter (global) ---
+    # For bearish bias, avoid buying into deeply oversold tape that can keep falling.
+    if bias == "bearish":
+        if rsi_val < 35:
+            logging.debug(f"[BLOCK] {sym} rejected | Reason=Bearish bias RSI<35 (rsi={rsi_val:.2f})")
+            return (False, "Bearish bias RSI<35 block", 0.0, {})
+
     signal_stack = {}
     score = 0.0
 
@@ -1510,18 +1517,29 @@ def evaluate_entry(sym, price, size, prices_series, sizes_series, ts_val,
 
     else:  # LOW_VOL
         w = LOW_VOL_CONFIG["WEIGHTS"]
+
+        # Require short-term momentum not aggressively against you:
+        ema_momentum_ok = (not pd.isna(ema_fast) and not pd.isna(ema_slow) and ema_fast >= ema_slow)
+        
         vwap_below_ok = vwap_below
         rsi_mr_ok = (rsi_val < 35 and rsi_uptick)
         envelope_touch_ok = envelope_touch
         chop_ok = chop_high
         vol_ok = vol_ok_low
 
+        # Hard block: in LOW_VOL regime, do not take entries if EMA_fast << EMA_slow
+        if not ema_momentum_ok:
+            logging.debug(f"[BLOCK] {sym} rejected | Reason=LOW_VOL ema_momentum_ok=False (ema_fast={ema_fast:.4f} ema_slow={ema_slow:.4f})")
+            return (False, "LOW_VOL EMA momentum block", 0.0, {})
+            
+
         signal_stack.update({
             "vwap_below": vwap_below_ok,
             "rsi_uptick": rsi_mr_ok,
             "envelope_touch": envelope_touch_ok,
             "chop_high": chop_ok,
-            "vol_ok": vol_ok
+            "vol_ok": vol_ok,
+            "ema_momentum_ok": ema_momentum_ok
         })
         score += w["vwap_below"] if vwap_below_ok else 0.0
         score += w["rsi_uptick"] if rsi_mr_ok else 0.0
@@ -1530,7 +1548,7 @@ def evaluate_entry(sym, price, size, prices_series, sizes_series, ts_val,
         score += w["vol_ok"] if vol_ok else 0.0
 
         # INSERT CHOPPINESS SCORING
-        chop_ok = (not pd.isna(chop_val) and chop_val >= 1.2)
+        chop_proxy_ok = (not pd.isna(chop_val) and chop_val >= 1.2)
         signal_stack["chop_proxy_ok"] = chop_ok
         score += 0.3 if chop_ok else 0.0
         
@@ -1544,6 +1562,15 @@ def evaluate_entry(sym, price, size, prices_series, sizes_series, ts_val,
         else: # bullish
             if not obv_ok:
                 score -= 0.5 # penalize but allow if other signals are strong
+
+        # --- VWAP proximity safety filter ---
+        # Avoid buying when price is very far from VWAP in either direction, to reduce chasing extremes.
+        vwap_dist = abs(price - vwap_val) / vwap_val if not pd.isna(vwap_val) and vwap_val > 0 else 0.0
+        VWAP_DIST_MAX = 0.015 # 1.5% from VWAP; tune as needed
+
+        if vwap_dist > VWAP_DIST_MAX:
+            logging.debug(f"[BLOCK] {sym} rejected | Reason=VWAP distance {vwap_dist:.4f} > {VWAP_DIST_MAX:.4f}")
+            return (False, "VWAP distance block", 0.0, {})
                        
     # Inside evaluate_entry, before computing 'accept'
     confirm_ok = True
