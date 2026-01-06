@@ -114,15 +114,15 @@ BULLISH_CONFIG = {
 }
 
 BEARISH_CONFIG = {
-    "TP_PCT": 0.0025,
+    "TP_PCT": 0.0020,
     "SL_MULTIPLIER": 0.6,
-    "TS_ACTIVATION_BUFFER": 0.004,
-    "TRAILING_STOP_PCT": 0.006,
+    "TS_ACTIVATION_BUFFER": 0.0035,
+    "TRAILING_STOP_PCT": 0.0055,
     "MAX_TRADES": 3,
-    "MAX_LOSS_DAY": 0.9,
-    "VWAP_DELTA": 0.002,
+    "MAX_LOSS_DAY": 0.8,
+    "VWAP_DELTA": 0.0022,
     "EMA_DELTA": 0.0003,
-    "RSI_FAIL_TICKS": 5
+    "RSI_FAIL_TICKS": 4
 }
 
 # === RANGE FILTER TOGGLES ===
@@ -280,14 +280,14 @@ LOW_VOL_CONFIG_BULL.update({
 
 LOW_VOL_CONFIG_BEAR = dict(LOW_VOL_CONFIG)
 LOW_VOL_CONFIG_BEAR.update({
-    "ENTRY_SCORE_THRESHOLD": 2.2, # stricter gating
-    "TP_PCT": 0.0010, # faster exits
-    "VWAP_DELTA": 0.0025,
-    "EMA_DELTA": 0.0003,
+    "ENTRY_SCORE_THRESHOLD": 2.5, # stricter gating
+    "TP_PCT": 0.0009, # faster exits
+    "VWAP_DELTA": 0.0030,
+    "EMA_DELTA": 0.00035,
     "OBV_REQUIRED": True, # hard requirement
     "ENTRY_CONFIRM_TICKS": 4,
     "TIME_STOP_SECONDS": 90, # shorter time-stop
-    "VWAP_PROGRESS_MIN": 0.30 # require progress shrink
+    "VWAP_PROGRESS_MIN": 0.35 # require progress shrink
 })    
     
 EXEC_AUDIT_ENABLED = True
