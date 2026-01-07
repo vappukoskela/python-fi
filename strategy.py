@@ -1265,6 +1265,11 @@ def detect_regime(prices_series, sizes_series):
     atr_val = compute_atr_from_series(prices_series, ATR_PERIOD)
     upper, ma, lower, bandwidth = compute_bollinger(prices_series, period=20, std=2.0)
 
+    minutes = _session_minutes(datetime.now(timezone.utc))
+    if minutes < 40:
+        return "TREND" if slope > 0 else "RANGE"
+
+
     # ATR percentile proxy
     N = 50
     if len(prices_series) >= N + ATR_PERIOD:
