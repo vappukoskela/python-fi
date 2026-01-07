@@ -214,7 +214,7 @@ RANGE_CONFIG = {
     },
     "BOLL_PERIOD": 20,
     "BOLL_STD": 2.0,
-    "BANDWIDTH_MAX": 0.008,  # max relative bandwidth to still count as range
+    "BANDWIDTH_MAX": 0.012,  # max relative bandwidth to still count as range
     "BANDWIDTH_MIN": 0.002  # avoid ultra-tight no-move
 }
 
