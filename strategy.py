@@ -1389,7 +1389,7 @@ def evaluate_entry(sym, price, size, prices_series, sizes_series, ts_val,
     atr_pct = (atr_hist < atr_val).mean() if len(atr_hist) > 10 and not pd.isna(atr_val) else 0.5
     bb_expanding = (not pd.isna(bandwidth) and bandwidth > RANGE_CONFIG["BANDWIDTH_MAX"])
     vol_roc_val = volume_roc(sizes_series, HIGH_VOL_CONFIG["VOL_ROC_WINDOW"]) if len(sizes_series) else float('nan')
-    vol_roc_ok = (not pd.isna(vol_roc_val) and vol_roc_val > 0.2)
+    vol_roc_ok = (not pd.isna(vol_roc_val) and vol_roc_val > 0.35)
     breakout_bar = (price > recent_high(prices_series, HIGH_VOL_CONFIG["BREAKOUT_LOOKBACK"]))
 
     # Low-vol checks
