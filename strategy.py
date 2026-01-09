@@ -178,7 +178,7 @@ TREND_CONFIG = {
     "EMA_DELTA": 0.0003,
     "RSI_FAIL_TICKS": 5,
     # Entry scoring thresholds
-    "ENTRY_SCORE_THRESHOLD": 2.8,
+    "ENTRY_SCORE_THRESHOLD":     1.8,
     # Indicator gate weights
     "WEIGHTS": {
         "ema_trend": 1.0,      # EMA_fast > EMA_slow + slope positive
@@ -267,7 +267,7 @@ LOW_VOL_CONFIG = {
     "ENVELOPE_PCT": 0.0022,        # +/- around EMA_slow
     "BOLL_PERIOD": 20,
     "BOLL_STD": 2.0,
-    "BANDWIDTH_CAP": 0.003,       # low-vol consolidation cap
+    "BANDWIDTH_CAP": 0.0045,       # low-vol consolidation cap
     "EMERGENCY_SL_PCT": 0.0045
 }
 
