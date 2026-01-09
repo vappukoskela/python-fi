@@ -1325,6 +1325,12 @@ def evaluate_entry(sym, price, size, prices_series, sizes_series, ts_val,
     if regime == "TREND" and trend_paused[sym]:
         return (False, "TREND paused", 0.0, {})
 
+    # --- HARD GATE: disable HIGH_VOL entries entirely ---
+    if regime == "HIGH_VOL":
+        logging.debug(f"[BLOCK] {sym} rejected | Reason=HIGH_VOL regime blocked for entries")
+        return (False, "HIGH_VOL blocked", 0.0, {})
+
+
     # FitScore gate: auto-pause regime if underperforming
     if regime_trades[regime] >= 5:
         sls = exit_reason_count[regime].get("Stop-loss", 0)
@@ -1461,19 +1467,13 @@ def evaluate_entry(sym, price, size, prices_series, sizes_series, ts_val,
         adx_ok = (not pd.isna(adx_val) and adx_val >= 20)
         signal_stack["adx_ok"] = adx_ok
         score += 0.4 if adx_ok else 0.0
-                       
-    elif regime == "RANGE":
-        w = RANGE_CONFIG["WEIGHTS"]
-        lb_touch = lower_touch
-        rsi_mean_rev = (rsi_val < 35 and rsi_uptick)
-        vwap_rev_ok = vwap_reversion_room
-        bandwidth_ok = (not pd.isna(bandwidth) and RANGE_CONFIG["BANDWIDTH_MIN"] <= bandwidth <= RANGE_CONFIG["BANDWIDTH_MAX"])
-        vol_ok = (not pd.isna(median_vol) and median_vol > 0)
 
-        # === PATCH: Strict lower-band touch ===
-        if RANGE_STRICT_TOUCH_ENABLED:
-            lb_touch = (price <= lower * (1 + RANGE_TOUCH_EPSILON))
-    
+    elif regime == "RANGE":
+        # --- HARD GATE: temporarily disable RANGE entries ---
+        logging.debug(f"[BLOCK] {sym} rejected | Reason=RANGE regime blocked for entries")
+        return (False, "RANGE blocked", 0.0, {})
+                      
+               
         # === PATCH: VWAP reversion minimum room ===
         if RANGE_VWAP_ROOM_MIN is not None:
             vwap_rev_ok = (not pd.isna(vwap_val) and (vwap_val - price) / vwap_val >= RANGE_VWAP_ROOM_MIN)
