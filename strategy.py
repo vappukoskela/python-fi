@@ -1289,6 +1289,8 @@ def detect_regime(prices_series, sizes_series):
     slope = ema_slope(prices_series, EMA_SLOW)
     atr_val = compute_atr_from_series(prices_series, ATR_PERIOD)
     upper, ma, lower, bandwidth = compute_bollinger(prices_series, period=20, std=2.0)
+    macd_line, macd_signal, macd_hist = compute_macd(prices_series)
+
 
     minutes = _session_minutes(datetime.now(timezone.utc))
     if minutes < 40:
