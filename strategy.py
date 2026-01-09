@@ -1565,9 +1565,16 @@ def evaluate_entry(sym, price, size, prices_series, sizes_series, ts_val,
             w["rsi_ok"] * (1 if rsi_ok else 0) +
             w["bandwidth_ok"] * (1 if bandwidth_ok else 0)
         )
-    
+
         threshold = DRIFT_CONFIG["ENTRY_SCORE_THRESHOLD"]
-    
+        
+        logging.debug(
+            "[DRIFT_ENTRY][%s] score=%.2f threshold=%.2f ema_ok=%s slope_ok=%s macd_ok=%s vwap_ok=%s rsi_ok=%s bw_ok=%s",
+            sym, score, threshold,
+            ema_ok, slope_ok, macd_ok, vwap_ok, rsi_ok, bandwidth_ok
+        )
+       
+           
         if score < threshold:
             return (False, "DRIFT score block", score, signal_stack)
     
@@ -1830,6 +1837,13 @@ def evaluate_sell(sym, last_price, ref_entry, price_deque, size_deque, entry_tim
         regime = detect_regime(prices_series, sizes_series)
         CONFIG_E = overlay_exit_params_by_regime(CONFIG, regime)
 
+        # --- DRIFT exit debug logging ---
+        if regime == "DRIFT":
+            logging.debug(
+                "[DRIFT_SELL][%s] regime=%s last=%.4f ref=%.4f elapsed=%.1fs",
+                sym, regime, last_price, ref_entry, elapsed
+            )
+
         # --- LOW_VOL time-stop exit ---
         LOW_VOL_TIME_STOP_ENABLED = True
         LOW_VOL_TIME_STOP_SECONDS = 120
@@ -2005,7 +2019,8 @@ def _audit_write_row(row_dict):
                     "timestamp","symbol","reason","price",
                     "ema_fast","ema_slow","rsi","vwap","size",
                     "median_vol","bias","config_profile",
-                    "tp_pct","sl_multiplier","outcome","window_min"
+                    "tp_pct","sl_multiplier","outcome","window_min",
+                    "regime"
                 ]
                 writer = csv.DictWriter(f, fieldnames=fieldnames)
                 if not file_exists:
@@ -2091,7 +2106,8 @@ def _audit_watchdog_deque(sym, ts_val, ref_entry_price, reason,
             "tp_pct": tp_pct,
             "sl_multiplier": sl_mult,
             "outcome": outcome,
-            "window_min": AUDIT_OUTCOME_WINDOW_MIN
+            "window_min": AUDIT_OUTCOME_WINDOW_MIN,
+            "regime": None
         })
         logging.debug("[AUDIT][%s] outcome=%s reason=%s ref=%.4f window=%dm",
                      sym, outcome, reason, ref_entry_price, AUDIT_OUTCOME_WINDOW_MIN)
