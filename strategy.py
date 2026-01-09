@@ -1573,7 +1573,7 @@ def evaluate_entry(sym, price, size, prices_series, sizes_series, ts_val,
         # --- VWAP proximity safety filter ---
         # Avoid buying when price is very far from VWAP in either direction, to reduce chasing extremes.
         vwap_dist = abs(price - vwap_val) / vwap_val if not pd.isna(vwap_val) and vwap_val > 0 else 0.0
-        VWAP_DIST_MAX = 0.015 # 1.5% from VWAP; tune as needed
+        VWAP_DIST_MAX = 0.025 # 1.5% from VWAP; tune as needed
 
         if vwap_dist > VWAP_DIST_MAX:
             logging.debug(f"[BLOCK] {sym} rejected | Reason=VWAP distance {vwap_dist:.4f} > {VWAP_DIST_MAX:.4f}")
