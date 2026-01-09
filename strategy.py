@@ -672,6 +672,27 @@ def _risk_governor_update():
     except Exception as e:
         logging.debug("[RISK] governor update failed: %s", e)
 
+def log_block_event(sym, regime, reason, score):
+    """
+    Append a block event to audit_blocks_live.csv
+    """
+    try:
+        file_exists = os.path.exists(AUDIT_CSV_FILE) and os.path.getsize(AUDIT_CSV_FILE) > 0
+        with open(AUDIT_CSV_FILE, "a", newline="") as f:
+            writer = csv.DictWriter(f, fieldnames=["timestamp","symbol","regime","reason","score"])
+            if not file_exists:
+                writer.writeheader()
+            writer.writerow({
+                "timestamp": datetime.now(timezone.utc).isoformat(),
+                "symbol": sym,
+                "regime": regime,
+                "reason": reason,
+                "score": round(score, 4)
+            })
+    except Exception as e:
+        logging.debug("[AUDIT] Failed to write block event: %s", e)
+
+
 # === PATCH OBV: OBV slope proxy ===
 def _obv_slope_proxy(prices_series, sizes_series, window=20):
     """
