@@ -1332,6 +1332,11 @@ def evaluate_entry(sym, price, size, prices_series, sizes_series, ts_val,
         logging.debug(f"[BLOCK] {sym} rejected | Reason=HIGH_VOL regime blocked for entries")
         return (False, "HIGH_VOL blocked", 0.0, {})
 
+    # --- HARD GATE: disable HIGH_VOL entries entirely ---
+    if regime == "HIGH_VOL":
+        logging.debug(f"[BLOCK] {sym} rejected | Reason=HIGH_VOL regime blocked for entries")
+        return (False, "HIGH_VOL blocked", 0.0, {})
+
 
     # FitScore gate: auto-pause regime if underperforming
     if regime_trades[regime] >= 5:
@@ -1340,14 +1345,16 @@ def evaluate_entry(sym, price, size, prices_series, sizes_series, ts_val,
         if (sls / regime_trades[regime] >= 0.6) and (net < 0):
             return (False, f"{regime} paused by FitScore", 0.0, {})
 
-    # Position/order checks
-    no_position = positions_map.get(sym, (0, 0.0))[0] == 0
-    inflight_none = inflight_orders.get(sym) is None
-    not_pending = sym not in pending_entries
-    if not (no_position and inflight_none and not_pending):
-        logging.debug(f"[BLOCK] {sym} rejected | Reason=Position/order block | "
-                     f"no_position={no_position} inflight_none={inflight_none} not_pending={not_pending}")
-        return (False, "Position/order block", 0.0, {})
+    # --- RE-ENTRY COOLDOWN instead of hard block ---
+    last_exit = last_exit_time.get(sym)
+    if last_exit:
+        if (datetime.now(timezone.utc) - last_exit).total_seconds() < 10:
+            return (False, "Cooldown block", 0.0, {})
+    
+    # Still block if inflight or pending
+    if inflight_orders.get(sym) is not None or sym in pending_entries:
+        return (False, "Order flow block", 0.0, {})
+
 
     # Base features
     ema_fast = compute_ema_from_series(prices_series, EMA_FAST).iloc[-1] if len(prices_series) >= 2 else float('nan')
