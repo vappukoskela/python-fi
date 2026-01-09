@@ -189,7 +189,8 @@ TREND_CONFIG = {
         "rsi_ok": 0.7   # new weight
     },
     # pullback tolerances (distance normalized by price)
-    "PULLBACK_TOL": 0.0010
+    "PULLBACK_TOL": 0.0010,
+    "EMERGENCY_SL_PCT": 0.0045 # ~0.45% hard stop
 }
 
 RANGE_CONFIG = {
@@ -266,7 +267,8 @@ LOW_VOL_CONFIG = {
     "ENVELOPE_PCT": 0.0022,        # +/- around EMA_slow
     "BOLL_PERIOD": 20,
     "BOLL_STD": 2.0,
-    "BANDWIDTH_CAP": 0.003       # low-vol consolidation cap
+    "BANDWIDTH_CAP": 0.003,       # low-vol consolidation cap
+    "EMERGENCY_SL_PCT": 0.0045
 }
 
 # === Bias-specific overlays (defined AFTER the base dict) ===
