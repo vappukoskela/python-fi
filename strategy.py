@@ -1525,6 +1525,16 @@ def evaluate_entry(sym, price, size, prices_series, sizes_series, ts_val,
         vwap_ok = (price >= vwap_val)
         rsi_ok = (45 <= rsi_val <= 65)
         bandwidth_ok = (0.0045 <= bandwidth <= 0.012)
+
+        signal_stack.update({
+            "ema_ok": ema_ok,
+            "slope_ok": slope_ok,
+            "macd_ok": macd_ok,
+            "vwap_ok": vwap_ok,
+            "rsi_ok": rsi_ok,
+            "bandwidth_ok": bandwidth_ok
+        })
+
     
         score = (
             w["ema_trend"] * (1 if ema_ok else 0) +
@@ -1538,13 +1548,13 @@ def evaluate_entry(sym, price, size, prices_series, sizes_series, ts_val,
         threshold = DRIFT_CONFIG["ENTRY_SCORE_THRESHOLD"]
     
         if score < threshold:
-            return (False, "DRIFT score block", score, {})
+            return (False, "DRIFT score block", score, signal_stack)
     
         # Confirmation: last 3 ticks higher
         if not _confirm_trend(prices_series, vwap_val, ema_slow):
-            return (False, "DRIFT confirm block", score, {})
+            return (False, "DRIFT confirm block", score, signal_stack)
     
-        return (True, "entry", score, {})
+        return (True, "entry", score, signal_stack)
 
 
     elif regime == "RANGE":
