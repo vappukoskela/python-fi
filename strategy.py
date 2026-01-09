@@ -167,6 +167,29 @@ MAX_INFLIGHT_PER_SYMBOL = 1
 # === REGIME CONFIGS ===
 # Tailored overlays per regime (you can calibrate further with audit feedback)
 
+DRIFT_CONFIG = {
+    "TP_PCT": 0.0016,
+    "SL_MULTIPLIER": 0.8,
+    "TS_ACTIVATION_BUFFER": 0.003,
+    "TRAILING_STOP_PCT": 0.004,
+    "MAX_TRADES": 4,
+    "MAX_LOSS_DAY": 1.0,
+    "VWAP_DELTA": 0.002,
+    "EMA_DELTA": 0.00025,
+    "RSI_FAIL_TICKS": 4,
+    "ENTRY_SCORE_THRESHOLD": 1.6,
+    "WEIGHTS": {
+        "ema_trend": 1.0,
+        "slope_ok": 1.0,
+        "macd_ok": 0.7,
+        "vwap_ok": 1.0,
+        "rsi_ok": 0.5,
+        "bandwidth_ok": 0.5
+    },
+    "EMERGENCY_SL_PCT": 0.0045
+}
+
+
 TREND_CONFIG = {
     "TP_PCT": 0.0020,
     "SL_MULTIPLIER": 1.0,
@@ -1290,6 +1313,19 @@ def detect_regime(prices_series, sizes_series):
         not pd.isna(vwap_val) and (prices_series.iloc[-1] >= vwap_val)
     ):
         raw = "TREND"
+
+    # --- DRIFT regime detection ---
+    if (
+        not pd.isna(ema_fast) and not pd.isna(ema_slow) and ema_fast > ema_slow and
+        not pd.isna(slope) and 0 < slope < 0.0008 and
+        not pd.isna(macd_hist) and macd_hist > 0 and
+        not pd.isna(bandwidth) and 0.0045 <= bandwidth <= 0.012 and
+        not pd.isna(rsi_val) and 45 <= rsi_val <= 65 and
+        not pd.isna(vwap_val) and price >= vwap_val
+    ):
+        return "DRIFT"
+
+        
     elif not pd.isna(bandwidth) and (bandwidth <= LOW_VOL_CONFIG["BANDWIDTH_CAP"]):
         raw = "LOW_VOL"
     elif not pd.isna(bandwidth) and (RANGE_CONFIG["BANDWIDTH_MIN"] <= bandwidth <= RANGE_CONFIG["BANDWIDTH_MAX"]):
@@ -1476,6 +1512,37 @@ def evaluate_entry(sym, price, size, prices_series, sizes_series, ts_val,
         adx_ok = (not pd.isna(adx_val) and adx_val >= 20)
         signal_stack["adx_ok"] = adx_ok
         score += 0.4 if adx_ok else 0.0
+
+    elif regime == "DRIFT":
+        w = DRIFT_CONFIG["WEIGHTS"]
+    
+        ema_ok = (ema_fast > ema_slow)
+        slope_ok = (0 < slope < 0.0008)
+        macd_ok = (macd_hist > 0)
+        vwap_ok = (price >= vwap_val)
+        rsi_ok = (45 <= rsi_val <= 65)
+        bandwidth_ok = (0.0045 <= bandwidth <= 0.012)
+    
+        score = (
+            w["ema_trend"] * (1 if ema_ok else 0) +
+            w["slope_ok"] * (1 if slope_ok else 0) +
+            w["macd_ok"] * (1 if macd_ok else 0) +
+            w["vwap_ok"] * (1 if vwap_ok else 0) +
+            w["rsi_ok"] * (1 if rsi_ok else 0) +
+            w["bandwidth_ok"] * (1 if bandwidth_ok else 0)
+        )
+    
+        threshold = DRIFT_CONFIG["ENTRY_SCORE_THRESHOLD"]
+    
+        if score < threshold:
+            return (False, "DRIFT score block", score, {})
+    
+        # Confirmation: last 3 ticks higher
+        if not _confirm_trend(prices_series, vwap_val, ema_slow):
+            return (False, "DRIFT confirm block", score, {})
+    
+        return (True, "entry", score, {})
+
 
     elif regime == "RANGE":
         # --- HARD GATE: temporarily disable RANGE entries ---
