@@ -1584,38 +1584,86 @@ def evaluate_entry(sym, price, size, prices_series, sizes_series, ts_val,
     
         return (True, "entry", score, signal_stack)
 
-
     elif regime == "RANGE":
-        # --- HARD GATE: temporarily disable RANGE entries ---
-        logging.debug(f"[BLOCK] {sym} rejected | Reason=RANGE regime blocked for entries")
-        return (False, "RANGE blocked", 0.0, {})
-                      
-               
-        # === PATCH: VWAP reversion minimum room ===
-        if RANGE_VWAP_ROOM_MIN is not None:
-            vwap_rev_ok = (not pd.isna(vwap_val) and (vwap_val - price) / vwap_val >= RANGE_VWAP_ROOM_MIN)
-    
-        # === PATCH: Bandwidth ROC filter ===
-        bb_roc = (bandwidth - prices_series.rolling(RANGE_CONFIG["BOLL_PERIOD"]).apply(lambda x: (x.max()-x.min())/x.mean()).iloc[-2]) if not pd.isna(bandwidth) else 0
+        # RANGE_BULL: bullish-only, mean-reversion long inside RANGE regime
+        # Bearish RANGE entries remain disabled.
+        if bias != "bullish":
+            logging.debug(f"[BLOCK] {sym} rejected | Reason=RANGE bearish blocked")
+            return (False, "RANGE bearish blocked", 0.0, {})
+
+        w = RANGE_CONFIG["WEIGHTS"]
+
+        # --- Core RANGE_BULL conditions ---
+
+        # 1) RSI oversold band + uptick (mean-reversion long)
+        rsi_band_ok = (rsi_val >= 18) and (rsi_val <= 38)
+        rsi_uptick_ok = rsi_uptick
+
+        # 2) Price at or below lower Bollinger band
+        if RANGE_STRICT_TOUCH_ENABLED:
+            lower_band_touch = (not pd.isna(lower) and price <= lower)
+        else:
+            lower_band_touch = (not pd.isna(lower) and price <= lower * (1 + RANGE_TOUCH_EPSILON))
+
+        # 3) Bandwidth in range-friendly zone
+        bandwidth_ok = (
+            not pd.isna(bandwidth)
+            and RANGE_CONFIG["BANDWIDTH_MIN"] <= bandwidth <= min(RANGE_CONFIG["BANDWIDTH_MAX"], 0.010)
+        )
+
+        # 4) VWAP reversion room
+        vwap_rev_ok = (
+            not pd.isna(vwap_val)
+            and (vwap_val - price) / vwap_val >= RANGE_VWAP_ROOM_MIN
+        )
+
+        # 5) Volume not ultra-dry
+        vol_not_dry = (not pd.isna(median_vol) and median_vol > 0)
+
+        # 6) OBV slope as tape health proxy (optional but helpful)
+        obv_ok = (not pd.isna(obv_slope) and obv_slope >= 0)
+
+        # --- Optional: Bollinger bandwidth ROC filter (block expanding volatility) ---
+        bb_roc = 0
+        if not pd.isna(bandwidth):
+            try:
+                bw_hist = prices_series.rolling(RANGE_CONFIG["BOLL_PERIOD"]).apply(
+                    lambda x: (x.max() - x.min()) / x.mean()
+                )
+                if len(bw_hist) >= 2:
+                    bb_roc = bandwidth - bw_hist.iloc[-2]
+            except Exception:
+                bb_roc = 0
+
         if RANGE_BB_ROC_MAX is not None and bb_roc > RANGE_BB_ROC_MAX:
+            logging.debug(f"[BLOCK] {sym} rejected | Reason=Range blocked by BB ROC (bb_roc={bb_roc:.6f})")
             return (False, "Range blocked by BB ROC", 0.0, {})
 
+        # --- Update signal_stack and score for RANGE_BULL ---
         signal_stack.update({
-            "lower_band_touch": lb_touch,
-            "rsi_uptick": rsi_mean_rev,
+            "lower_band_touch": lower_band_touch,
+            "rsi_band_ok": rsi_band_ok,
+            "rsi_uptick": rsi_uptick_ok,
             "vwap_reversion": vwap_rev_ok,
             "bandwidth_ok": bandwidth_ok,
-            "vol_not_dry": vol_ok,
-            "rsi_ok": (MIN_RSI_FOR_ENTRY <= rsi_val <= MAX_RSI_FOR_ENTRY)
-         
+            "vol_not_dry": vol_not_dry,
+            "obv_slope_ok": obv_ok,
         })
-        score += w["lower_band_touch"] if lb_touch else 0.0
-        score += w["rsi_uptick"] if rsi_mean_rev else 0.0
+
+        # Use existing RANGE_CONFIG weights; map them to our conditions
+        score += w["lower_band_touch"] if lower_band_touch else 0.0
+        score += w["rsi_uptick"] if (rsi_band_ok and rsi_uptick_ok) else 0.0
         score += w["vwap_reversion"] if vwap_rev_ok else 0.0
         score += w["bandwidth_ok"] if bandwidth_ok else 0.0
-        score += w["vol_not_dry"] if vol_ok else 0.0
-        score += w["rsi_ok"] if (MIN_RSI_FOR_ENTRY <= rsi_val <= MAX_RSI_FOR_ENTRY) else 0.0
+        score += w["vol_not_dry"] if vol_not_dry else 0.0
+        # Treat "rsi_ok" as generic RSI band condition
+        score += w["rsi_ok"] if rsi_band_ok else 0.0
 
+        # Small bonus for healthy OBV slope (doesn't have a dedicated weight in RANGE_CONFIG)
+        if obv_ok:
+            score += 0.3
+
+    
     elif regime == "HIGH_VOL":
         w = HIGH_VOL_CONFIG["WEIGHTS"]
         atr_high_ok = (atr_pct >= HIGH_VOL_CONFIG["ATR_TOP_PCT"])
