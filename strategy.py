@@ -345,6 +345,8 @@ def adaptive_entry_threshold(CONFIG, sym, regime):
             base = LOW_VOL_CONFIG_BULL["ENTRY_SCORE_THRESHOLD"] if bias == "bullish" else LOW_VOL_CONFIG_BEAR["ENTRY_SCORE_THRESHOLD"]
         else:    
             base = LOW_VOL_CONFIG.get("ENTRY_SCORE_THRESHOLD", 1.8)
+    elif regime == "DRIFT":
+        base = DRIFT_CONFIG.get("ENTRY_SCORE_THRESHOLD", 1.6)
     else:
         base = HIGH_VOL_CONFIG.get("ENTRY_SCORE_THRESHOLD", 3.6)
     shift = _adaptive_entry_shift[sym][regime]
