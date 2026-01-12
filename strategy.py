@@ -1314,6 +1314,8 @@ def detect_regime(prices_series, sizes_series):
     upper, ma, lower, bandwidth = compute_bollinger(prices_series, period=20, std=2.0)
     macd_line, macd_signal, macd_hist = compute_macd(prices_series)
     rsi_val = compute_rsi_from_series(prices_series, RSI_PERIOD).iloc[-1]
+    price = float(prices_series.iloc[-1]) if len(prices_series) else float("nan")
+
 
 
     minutes = _session_minutes(datetime.now(timezone.utc))
