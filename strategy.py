@@ -1690,6 +1690,9 @@ def evaluate_entry(sym, price, size, prices_series, sizes_series, ts_val,
         score += w["breakout_bar"] if breakout_ok else 0.0
 
     else:  # LOW_VOL
+        # STEP 1: hard-block LOW_VOL entries (exit-only regime for now)
+        logging.debug(f"[BLOCK] {sym} rejected | Reason=LOW_VOL regime blocked for entries")
+        return (False, "LOW_VOL blocked", 0.0, {})
         w = LOW_VOL_CONFIG["WEIGHTS"]
 
         # Require short-term momentum not aggressively against you:
