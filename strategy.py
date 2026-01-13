@@ -1589,9 +1589,9 @@ def evaluate_entry(sym, price, size, prices_series, sizes_series, ts_val,
         return (True, "entry", score, signal_stack)
 
     elif regime == "RANGE":
-        # RANGE_BULL: bullish-only, mean-reversion long inside RANGE regime
-        # Bearish RANGE entries remain disabled.
-        if bias != "bullish":
+        # RANGE_BULL no longer depends on global bias.
+        # We only block RANGE_BEAR if bias is explicitly bearish AND RSI is not oversold.
+        if bias == "bearish" and not (18 <= rsi_val <= 38):
             logging.debug(f"[BLOCK] {sym} rejected | Reason=RANGE bearish blocked")
             return (False, "RANGE bearish blocked", 0.0, {})
 
