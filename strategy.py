@@ -1354,7 +1354,7 @@ def detect_regime(prices_series, sizes_series):
         return "DRIFT"
 
         
-    elif not pd.isna(bandwidth) and (bandwidth <= LOW_VOL_CONFIG["BANDWIDTH_CAP"]):
+    elif not pd.isna(bandwidth) and (bandwidth <= min(LOW_VOL_CONFIG["BANDWIDTH_CAP"], 0.003)) and abs(slope) < 0.0003:
         raw = "LOW_VOL"
     elif not pd.isna(bandwidth) and (RANGE_CONFIG["BANDWIDTH_MIN"] <= bandwidth <= RANGE_CONFIG["BANDWIDTH_MAX"]):
         raw = "RANGE"
