@@ -1305,6 +1305,7 @@ def _smooth_regime(sym, raw_regime):
     _last_regime[sym] = chosen
     return chosen
 
+
 def detect_regime(prices_series, sizes_series):
     ema_fast = compute_ema_from_series(prices_series, EMA_FAST).iloc[-1] if len(prices_series) >= 2 else float('nan')
     ema_slow = compute_ema_from_series(prices_series, EMA_SLOW).iloc[-1] if len(prices_series) >= 2 else float('nan')
@@ -1316,14 +1317,12 @@ def detect_regime(prices_series, sizes_series):
     rsi_val = compute_rsi_from_series(prices_series, RSI_PERIOD).iloc[-1]
     price = float(prices_series.iloc[-1]) if len(prices_series) else float("nan")
 
-
-
+    # Session-based early bias (unchanged)
     minutes = _session_minutes(datetime.now(timezone.utc))
     if minutes < 40:
         return "TREND" if slope > 0 else "RANGE"
 
-
-    # ATR percentile proxy
+    # ATR percentile proxy (unchanged logic)
     N = 50
     if len(prices_series) >= N + ATR_PERIOD:
         atr_series = prices_series.diff().abs().rolling(ATR_PERIOD).mean()
@@ -1332,37 +1331,56 @@ def detect_regime(prices_series, sizes_series):
     else:
         pct = 0.5
 
-    # Decision order: HIGH_VOL -> TREND -> LOW_VOL -> RANGE
-    if (pct >= HIGH_VOL_CONFIG["ATR_TOP_PCT"]) or (not pd.isna(bandwidth) and bandwidth > RANGE_CONFIG["BANDWIDTH_MAX"]):
+    # === Decision order: HIGH_VOL -> TREND -> DRIFT -> LOW_VOL -> RANGE ===
+
+    # 1) HIGH_VOL: strong range expansion / high ATR percentile
+    if (
+        (pct >= HIGH_VOL_CONFIG.get("ATR_TOP_PCT", 0.90) and not pd.isna(bandwidth) and bandwidth >= 0.006)
+        or (not pd.isna(bandwidth) and bandwidth > RANGE_CONFIG["BANDWIDTH_MAX"])
+    ):
         raw = "HIGH_VOL"
+
+    # 2) TREND: classic bullish trend (slightly relaxed on slope)
     elif (
         not pd.isna(ema_fast) and not pd.isna(ema_slow) and (ema_fast > ema_slow) and
-        not pd.isna(slope) and (slope > 0) and
-        not pd.isna(vwap_val) and (prices_series.iloc[-1] >= vwap_val)
+        not pd.isna(slope) and (slope > 0.0015) and
+        not pd.isna(vwap_val) and (price >= vwap_val)
     ):
         raw = "TREND"
 
-    # --- DRIFT regime detection ---
-    if (
-        not pd.isna(ema_fast) and not pd.isna(ema_slow) and ema_fast > ema_slow and
-        not pd.isna(slope) and 0 < slope < 0.0008 and
-        not pd.isna(macd_hist) and macd_hist > 0 and
-        not pd.isna(bandwidth) and 0.0045 <= bandwidth <= 0.012 and
-        not pd.isna(rsi_val) and 45 <= rsi_val <= 65 and
-        not pd.isna(vwap_val) and price >= vwap_val
+    # 3) DRIFT: directional grind, moderate volatility (bullish or bearish)
+    elif (
+        not pd.isna(slope) and
+        not pd.isna(bandwidth) and
+        0.003 <= bandwidth <= 0.007 and
+        0.015 <= abs(slope) <= 0.06 and
+        0.30 <= pct <= 0.95 and
+        not pd.isna(rsi_val) and 20 <= rsi_val <= 80
     ):
         return "DRIFT"
 
-        
-    elif not pd.isna(bandwidth) and (bandwidth <= min(LOW_VOL_CONFIG["BANDWIDTH_CAP"], 0.003)) and abs(slope) < 0.0003:
+    # 4) LOW_VOL: very tight consolidation, small slope
+    elif (
+        not pd.isna(bandwidth) and
+        bandwidth <= min(LOW_VOL_CONFIG["BANDWIDTH_CAP"], 0.0035) and
+        not pd.isna(slope) and abs(slope) < 0.005
+    ):
         raw = "LOW_VOL"
-    elif not pd.isna(bandwidth) and (RANGE_CONFIG["BANDWIDTH_MIN"] <= bandwidth <= RANGE_CONFIG["BANDWIDTH_MAX"]):
-        raw = "RANGE"
-    else:
+
+    # 5) RANGE: mid-bandwidth, limited slope (avoid large-slope mislabels)
+    elif (
+        not pd.isna(bandwidth) and
+        RANGE_CONFIG["BANDWIDTH_MIN"] <= bandwidth <= RANGE_CONFIG["BANDWIDTH_MAX"] and
+        not pd.isna(slope) and abs(slope) <= 0.02
+    ):
         raw = "RANGE"
 
-    # Note: smoothing needs 'sym'; adapt call sites to pass symbol for smoothing
-    return raw  # keep raw here; smoothing applied at call sites
+    else:
+        # fallback: treat unknown as RANGE for now
+        raw = "RANGE"
+
+    # Note: smoothing needs 'sym'; applied at call sites via _smooth_regime
+    return raw
 
 
 
