@@ -2942,6 +2942,45 @@ def main():
                     if USE_REGIME_ENTRY:
                         regime_raw = detect_regime(prices, sizes_series)
                         regime = _smooth_regime(sym, regime_raw)
+
+                        # === REGIME AUDIT LOGGING (Step 5) ===
+                        try:
+                            _price = float(prices.iloc[-1]) if len(prices) else ""
+                            _ema_fast = ema_fast
+                            _ema_slow = ema_slow
+                            _vwap = vwap_val
+                            # reuse Bollinger + slope & ATR pct logic locally
+                            upper_a, ma_a, lower_a, bandwidth_a = compute_bollinger(prices, period=20, std=2.0)
+                            slope_a = ema_slope(prices, EMA_SLOW)
+                            # ATR percentile proxy (same structure as detect_regime)
+                            N_a = 50
+                            atr_val_a = compute_atr_from_series(prices, ATR_PERIOD)
+                            if len(prices) >= N_a + ATR_PERIOD:
+                                atr_series_a = prices.diff().abs().rolling(ATR_PERIOD).mean()
+                                hist_a = atr_series_a.iloc[-N_a:].dropna()
+                                pct_a = (hist_a < atr_val_a).mean() if len(hist_a) > 10 and not pd.isna(atr_val_a) else 0.5
+                            else:
+                                pct_a = 0.5
+                            rsi_a = rsi_val
+        
+                            with open("audit_regime_live.csv", "a") as f:
+                                f.write(
+                                    f"{datetime.now(timezone.utc).isoformat()},"
+                                    f"{sym},"
+                                    f"{regime},"
+                                    f"{_price},"
+                                    f"{_ema_fast},"
+                                    f"{_ema_slow},"
+                                    f"{_vwap},"
+                                    f"{slope_a},"
+                                    f"{bandwidth_a},"
+                                    f"{pct_a},"
+                                    f"{rsi_a}\n"
+                                )
+                        except Exception as e:
+                            logging.error(f"[ERROR] Failed to write regime audit: {e}")
+        
+                                               
                         CONFIG_SESSION = overlay_by_session(CONFIG, ts_val, regime)
                         accept, reason, score, stack = evaluate_entry(
                             sym, price, size, prices, sizes_series, ts_val,
