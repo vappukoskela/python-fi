@@ -611,7 +611,7 @@ HIGH_VOL_CONFIG.update({
     "MAX_TRADES": 2,
     "MAX_LOSS_DAY": 0.6,
     "ENTRY_SCORE_THRESHOLD": max(HIGH_VOL_CONFIG.get("ENTRY_SCORE_THRESHOLD", 3.2), 3.6),
-    "ATR_TOP_PCT": 0.98,
+    "ATR_TOP_PCT": 0.90,
 })
 
 AUDIT_CSV_FILE = "audit_blocks_live.csv"
