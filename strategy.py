@@ -1549,7 +1549,7 @@ def detect_regime(prices_series, sizes_series):
 # === REGIME-AWARE ENTRY SCORING (replacement gate) ===
 def evaluate_entry(sym, price, size, prices_series, sizes_series, ts_val,
                    positions_map, inflight_orders, pending_entries,
-                   last_exit, last_buy_time, CONFIG, regime,
+                   last_exit, last_buy_time, CONFIG, regime, price_deques,
                    bias=None, log_stack=False):
     """
     Returns (accept: bool, reason: str, score: float, signal_stack: dict)
