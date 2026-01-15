@@ -1619,6 +1619,23 @@ def evaluate_entry(sym, price, size, prices_series, sizes_series, ts_val,
         logging.debug(f"[BLOCK] {sym} rejected | Reason=Missing core indicators")
         return (False, "Missing core indicators", 0.0, {})
 
+    # === MACRO CONTEXT ===
+    macro_label, macro_ret, macro_vol = compute_macro_trend_label(prices_series)
+    macro_bias = macro_bias_from_label(macro_label)
+
+    logging.info(
+        "[MACRO][%s] label=%s ret=%.4f vol=%.5f",
+        sym, macro_label, macro_ret, macro_vol
+    )
+
+    # Apply macro overlay to CONFIG
+    CONFIG = apply_macro_drift_overlay(regime, CONFIG, macro_label, 0)
+
+    # Add macro scoring bonus
+    score = 0.0
+    score += macro_filter_bonus(regime, macro_label)
+
+
     # --- Bias-aware safety filter (global) ---
     # For bearish bias, avoid buying into deeply oversold tape that can keep falling.
     if bias == "bearish":
@@ -1627,8 +1644,7 @@ def evaluate_entry(sym, price, size, prices_series, sizes_series, ts_val,
             return (False, "Bearish bias RSI<35 block", 0.0, {})
 
     signal_stack = {}
-    score = 0.0
-
+    
     obv_slope = _obv_slope_proxy(prices_series, sizes_series, window=20)                   
     if regime == "TREND":
         w = TREND_CONFIG["WEIGHTS"]
