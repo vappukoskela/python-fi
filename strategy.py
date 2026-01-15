@@ -1670,7 +1670,7 @@ def evaluate_entry(sym, price, size, prices_series, sizes_series, ts_val,
 
     # === MACRO CONTEXT ===
     qqq_prices = pd.Series(price_deques["QQQ"])
-    macro_label, macro_ret, macro_vol = compute_macro_trend_label(prices_series)
+    macro_label, macro_ret, macro_vol = compute_macro_trend_label(qqq_series)
     macro_bias = macro_bias_from_label(macro_label)
 
     logging.info(
