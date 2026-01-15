@@ -3184,7 +3184,7 @@ def main():
                             sym, price, size, prices, sizes_series, ts_val,
                             positions_map, inflight_orders, pending_entries,
                             last_exit_time[sym], last_buy_time,
-                            CONFIG_SESSION, regime, log_stack=False
+                            CONFIG_SESSION, regime, price_deques, log_stack=False
                         )
                         buy = accept
                     else:
