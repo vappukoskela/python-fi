@@ -2849,7 +2849,7 @@ def main():
                     symbol, price, size, prices, sizes_series, ts_val,
                     positions_map, inflight_orders, pending_entries,
                     last_exit_time[symbol], last_buy_time,
-                    CONFIG_SESSION, regime, log_stack=False
+                    CONFIG_SESSION, regime, pricce_deques, log_stack=False
                 )
                 buy = accept
 
