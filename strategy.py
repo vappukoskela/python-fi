@@ -921,7 +921,8 @@ def safe_market_buy(trade_client_local, symbol, cash_for_buy, order_lock, price_
     try:
         prices_series = pd.Series(price_deques.get(symbol, []))
         sizes_series = pd.Series(size_deques.get(symbol, []))
-        macro_label, _, _ = compute_macro_trend_label(prices_series)
+        qqq_prices = pd.Series(price_deques.get("QQQ", []))
+        macro_label, _, _ = compute_macro_trend_label(qqq_series)
     except Exception:
         macro_label = "MACRO_FLAT"
 
@@ -1103,7 +1104,8 @@ def safe_market_sell(trade_client_local, symbol, intended_qty, order_lock, price
                 
 
                 # === MACRO CONTEXT FIELDS ===
-                macro_label, macro_ret, macro_vol = compute_macro_trend_label(prices_series)
+                qqq_prices = pd.Series(price_deques.get("QQQ", []))
+                macro_label, macro_ret, macro_vol = compute_macro_trend_label(qqq_series)
                 sell_row["macro_label"] = macro_label
                 sell_row["macro_ret"] = round(macro_ret, 6)
                 sell_row["macro_vol"] = round(macro_vol, 6)
@@ -1666,6 +1668,7 @@ def evaluate_entry(sym, price, size, prices_series, sizes_series, ts_val,
         return (False, "Missing core indicators", 0.0, {})
 
     # === MACRO CONTEXT ===
+    qqq_prices = pd.Series(price_deques["QQQ"])
     macro_label, macro_ret, macro_vol = compute_macro_trend_label(prices_series)
     macro_bias = macro_bias_from_label(macro_label)
 
@@ -2424,7 +2427,8 @@ def main():
         os.getenv("ALPACA_PAPER_SECRET_KEY"),
         paper=True
     )
-    symbols = ["AAPL", "MSFT", "MU", "QCOM", "NVDA", "V", "AMD", "GOOG", "C", "EBAY", "OKTA", "TSLA", "AMZN", "ADSK", "DELL"]
+    
+    symbols = ["QQQ", "AAPL", "MSFT", "MU", "QCOM", "NVDA", "V", "AMD", "GOOG", "C", "EBAY", "OKTA", "TSLA", "AMZN", "ADSK", "DELL"]
     price_deques = {s: deque(maxlen=TICKS_WINDOW) for s in symbols}
     size_deques = {s: deque(maxlen=TICKS_WINDOW) for s in symbols}
     time_deques = {s: deque(maxlen=TICKS_WINDOW) for s in symbols}
