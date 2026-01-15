@@ -314,7 +314,19 @@ LOW_VOL_CONFIG_BEAR.update({
     "TIME_STOP_SECONDS": 90, # shorter time-stop
     "VWAP_PROGRESS_MIN": 0.35 # require progress shrink
 })    
-    
+
+# === MACRO CONTEXT CONFIG ===
+MACRO_WINDOW_BARS = 180          # ~90 minutes on 30s bars, tune as needed
+MACRO_DRIFT_RET_MIN = 0.015      # +1.5% over window = slow drift
+MACRO_TREND_RET_MIN = 0.035      # +3.5% over window = stronger macro trend
+MACRO_VOL_MAX_DRIFT = 0.010      # dailyized-ish std cap for "quiet" drift
+MACRO_VOL_MIN_TREND = 0.008      # require some vol for real trend
+
+MACRO_DRIFT_ENTRY_RELAX = 0.15   # how much to ease ENTRY_SCORE_THRESHOLD in macro drift
+MACRO_TREND_ENTRY_RELAX = 0.10   # how much to ease ENTRY_SCORE_THRESHOLD in macro trend
+MACRO_MAX_EXTRA_TRADES = 2       # cap extra trades allowed by macro drift
+
+
 EXEC_AUDIT_ENABLED = True
 EXEC_AUDIT_FILE = "audit_trades_live.csv"
 
