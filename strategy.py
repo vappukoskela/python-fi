@@ -916,6 +916,20 @@ def safe_market_buy(trade_client_local, symbol, cash_for_buy, order_lock, price_
                      symbol, minutes, SESSION_LENGTH_MIN - 30)
         return None
 
+        # === MACRO DRIFT ENTRY LIMIT ===
+    # Compute macro context BEFORE entering order_lock
+    try:
+        prices_series = pd.Series(price_deques.get(symbol, []))
+        sizes_series = pd.Series(size_deques.get(symbol, []))
+        macro_label, _, _ = compute_macro_trend_label(prices_series)
+    except Exception:
+        macro_label = "MACRO_FLAT"
+
+    if macro_label == "MACRO_DRIFT_UP":
+        if macro_drift_positions[symbol] >= MACRO_MAX_EXTRA_TRADES:
+            logging.info("%s - BUY blocked: macro drift limit reached (%d)",
+                         symbol, macro_drift_positions[symbol])
+            return None
     
     
     with order_lock:
