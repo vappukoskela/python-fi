@@ -1100,8 +1100,24 @@ def safe_market_sell(trade_client_local, symbol, intended_qty, order_lock, price
                     "regime": regime_at_sell,
                     "code_version": CODE_VERSION
                 }                
+                
+
+                # === MACRO CONTEXT FIELDS ===
+                macro_label, macro_ret, macro_vol = compute_macro_trend_label(prices_series)
+                sell_row["macro_label"] = macro_label
+                sell_row["macro_ret"] = round(macro_ret, 6)
+                sell_row["macro_vol"] = round(macro_vol, 6)
+
+                # === MACRO DRIFT COUNTER RELEASE ===
+                if macro_drift_positions[symbol] > 0:
+                    macro_drift_positions[symbol] -= 1
+                    logging.info("%s - MACRO_DRIFT position count decreased to %d",
+                                 symbol, macro_drift_positions[symbol])
+
                 exec_rows.append(sell_row)
-                logging.info(f"[TRADE] {symbol} [{RUN_MODE}] SELL @ {last_price:.4f} | PnL={pnl:.4f} | Regime={regime_at_sell}")               
+                logging.info(f"[TRADE] {symbol} [{RUN_MODE}] SELL @ {last_price:.4f} | PnL={pnl:.4f} | Regime={regime_at_sell}")
+
+                
 
                 if EXEC_AUDIT_ENABLED:
                     try:
@@ -1161,15 +1177,31 @@ def safe_market_sell(trade_client_local, symbol, intended_qty, order_lock, price
                                 "vwap": vwap_val,
                                 "regime": regime_at_sell
                             }
+                            
+
+                            # === MACRO CONTEXT FIELDS ===
+                            macro_label, macro_ret, macro_vol = compute_macro_trend_label(prices_series)
+                            sell_row["macro_label"] = macro_label
+                            sell_row["macro_ret"] = round(macro_ret, 6)
+                            sell_row["macro_vol"] = round(macro_vol, 6)
+
+                            # === MACRO DRIFT COUNTER RELEASE ===
+                            if macro_drift_positions[symbol] > 0:
+                                macro_drift_positions[symbol] -= 1
+                                logging.info("%s - MACRO_DRIFT position count decreased to %d",
+                                             symbol, macro_drift_positions[symbol])
+
                             exec_rows.append(sell_row)
                             logging.info(f"[TRADE] {symbol} [{RUN_MODE}] SELL @ {last_price:.4f} | PnL={pnl:.4f} | Regime={regime_at_sell}")
+
+
 
                             # audit write must be here, inside the same block
                             if EXEC_AUDIT_ENABLED:
                                 try:
                                     import csv
                                     fieldnames = ["timestamp","symbol","action","price","reason","bias","pnl",
-                                                  "ema_fast","ema_slow","rsi","vwap","regime"]
+                                                  "ema_fast","ema_slow","rsi","vwap","regime","macro_label","macro_ret","macro_vol"]
                                     with open(EXEC_AUDIT_FILE, "a", newline="") as f:
                                         writer = csv.DictWriter(f, fieldnames=fieldnames)
                                         if f.tell() == 0:
