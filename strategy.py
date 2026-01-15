@@ -612,6 +612,107 @@ def _choppiness_proxy(series, period=14):
     # higher value => choppier (consolidation)
     return float(returns_abs / hi_lo_range)
 
+# === MACRO CONTEXT: trend / drift detector ===
+
+def compute_macro_trend_label(prices_series, window=MACRO_WINDOW_BARS):
+    """
+    Classify macro context from a longer window of prices.
+    Returns (label, ret, vol) where label in:
+      - 'MACRO_DRIFT_UP', 'MACRO_TREND_UP'
+      - 'MACRO_DRIFT_DOWN', 'MACRO_TREND_DOWN'
+      - 'MACRO_FLAT'
+    """
+    if len(prices_series) < window + 1:
+        return ("MACRO_FLAT", 0.0, float("nan"))
+
+    sub = prices_series.iloc[-window:]
+    p0 = float(sub.iloc[0])
+    p1 = float(sub.iloc[-1])
+    if p0 <= 0:
+        return ("MACRO_FLAT", 0.0, float("nan"))
+
+    ret = (p1 - p0) / p0
+    vol = float(sub.pct_change().dropna().std()) if sub.size > 2 else float("nan")
+
+    label = "MACRO_FLAT"
+
+    # Upside contexts
+    if ret >= MACRO_TREND_RET_MIN and (pd.isna(vol) or vol >= MACRO_VOL_MIN_TREND):
+        label = "MACRO_TREND_UP"
+    elif ret >= MACRO_DRIFT_RET_MIN and (pd.isna(vol) or vol <= MACRO_VOL_MAX_DRIFT):
+        label = "MACRO_DRIFT_UP"
+
+    # Downside contexts
+    elif ret <= -MACRO_TREND_RET_MIN and (pd.isna(vol) or vol >= MACRO_VOL_MIN_TREND):
+        label = "MACRO_TREND_DOWN"
+    elif ret <= -MACRO_DRIFT_RET_MIN and (pd.isna(vol) or vol <= MACRO_VOL_MAX_DRIFT):
+        label = "MACRO_DRIFT_DOWN"
+
+    return (label, ret, vol)
+
+
+def macro_bias_from_label(label: str) -> str:
+    """
+    Map macro label to a simple bias string: 'bullish' / 'bearish' / 'neutral'.
+    """
+    if label.endswith("_UP"):
+        return "bullish"
+    if label.endswith("_DOWN"):
+        return "bearish"
+    return "neutral"
+
+
+def apply_macro_drift_overlay(regime: str, base_config: dict, macro_label: str, open_trades_for_sym: int = 0) -> dict:
+    """
+    Overlay for DRIFT/TREND configs when macro context is a slow drift or trend.
+    This does NOT change any existing config in-place; it returns a shallow copy.
+    You can call this from your entry-scoring path later.
+    """
+    cfg = dict(base_config)
+    bias = macro_bias_from_label(macro_label)
+
+    # Only adjust for long-side contexts for now
+    if bias != "bullish":
+        return cfg
+
+    # Macro drift: slow, quiet grind up
+    if macro_label == "MACRO_DRIFT_UP":
+        # Slightly easier entries, but cap extra trades
+        cfg["ENTRY_SCORE_THRESHOLD"] = max(
+            0.8,
+            cfg.get("ENTRY_SCORE_THRESHOLD", 2.0) - MACRO_DRIFT_ENTRY_RELAX
+        )
+        # Soft cap on extra trades for this regime
+        max_trades = cfg.get("MAX_TRADES", 4)
+        if open_trades_for_sym < MACRO_MAX_EXTRA_TRADES:
+            cfg["MAX_TRADES"] = min(max_trades + 1, max_trades + MACRO_MAX_EXTRA_TRADES)
+
+    # Macro trend: stronger, more volatile up move
+    elif macro_label == "MACRO_TREND_UP":
+        cfg["ENTRY_SCORE_THRESHOLD"] = max(
+            0.8,
+            cfg.get("ENTRY_SCORE_THRESHOLD", 2.0) - MACRO_TREND_ENTRY_RELAX
+        )
+
+    return cfg
+
+
+def macro_filter_bonus(regime: str, macro_label: str) -> float:
+    """
+    Small additive score bonus for TREND/DRIFT when macro context agrees.
+    This is meant to be *added* to your existing entry score, not replace it.
+    """
+    if regime not in ("TREND", "DRIFT"):
+        return 0.0
+
+    if macro_label in ("MACRO_TREND_UP", "MACRO_DRIFT_UP"):
+        return 0.25
+    if macro_label in ("MACRO_TREND_DOWN", "MACRO_DRIFT_DOWN"):
+        # For now, no long entries; if you later add shorts, you can flip sign.
+        return -0.25
+    return 0.0
+
+
 
 # === PATCH 5: High-vol strict but tradable ===
 # Update HIGH_VOL_CONFIG to allow entries with stricter gating
