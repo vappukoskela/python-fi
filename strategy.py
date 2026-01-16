@@ -1105,7 +1105,7 @@ def safe_market_sell(trade_client_local, symbol, intended_qty, order_lock, price
 
                 # === MACRO CONTEXT FIELDS ===
                 qqq_prices = pd.Series(price_deques.get("QQQ", []))
-                macro_label, macro_ret, macro_vol = compute_macro_trend_label(qqq_series)
+                macro_label, macro_ret, macro_vol = compute_macro_trend_label(qqq_prices)
                 sell_row["macro_label"] = macro_label
                 sell_row["macro_ret"] = round(macro_ret, 6)
                 sell_row["macro_vol"] = round(macro_vol, 6)
@@ -1183,7 +1183,7 @@ def safe_market_sell(trade_client_local, symbol, intended_qty, order_lock, price
 
                             # === MACRO CONTEXT FIELDS ===
                             qqq_prices = pd.Series(price_deques.get("QQQ", []))
-                            macro_label, macro_ret, macro_vol = compute_macro_trend_label(qqq_series)
+                            macro_label, macro_ret, macro_vol = compute_macro_trend_label(qqq_prices)
                             sell_row["macro_label"] = macro_label
                             sell_row["macro_ret"] = round(macro_ret, 6)
                             sell_row["macro_vol"] = round(macro_vol, 6)
