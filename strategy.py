@@ -2250,7 +2250,8 @@ def main():
         paper=True
     )
     symbols = ["AAPL", "MSFT", "MU", "QCOM", "NVDA", "V", "AMD", "GOOG", "C", "EBAY", "OKTA", "TSLA", "AMZN", "ADSK", "DELL",
-               "SPY","QQQ","IWM","XLK","NFLX","COST","CRM","ORCL"]
+               "SPY", "QQQ", "IWM", "XLK", "NFLX", "COST", "CRM", "ORCL", "DIA", "XLF", "XLE", "XLV", "AVGO", "INTC", "PEP",
+               "KO", "CSCO", "PLTR", "SMCI", "SHOP", "UBER", "SQ", "XOM", "JPM"]
     price_deques = {s: deque(maxlen=TICKS_WINDOW) for s in symbols}
     size_deques = {s: deque(maxlen=TICKS_WINDOW) for s in symbols}
     time_deques = {s: deque(maxlen=TICKS_WINDOW) for s in symbols}
