@@ -3030,7 +3030,10 @@ def main():
             # --- Refresh positions ---
             positions_map = get_positions_map(trade_client)
             spent_this_loop = 0.0
-            max_loop_budget = calculate_buying_power_limit()
+            max_loop_budget = calculate_buying_power_limit(
+                trade_client_local=trade_client,
+                limit_fraction=BUY_POWER_LIMIT
+            )
 
             # --- Fetch latest trades for all symbols ---
             for symbol in symbols:
