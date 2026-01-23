@@ -922,20 +922,15 @@ def safe_market_buy(trade_client_local, symbol, cash_for_buy, order_lock, price_
                 logging.debug("Computed buy qty too small for %s (qty=%s est_price=%s cash=%.2f)",
                               symbol, qty, est_price, cash_for_buy)
                 return None
-            order = MarketOrderRequest(
-                symbol=symbol, qty=qty, side=OrderSide.BUY,
-                type=OrderType.MARKET, time_in_force=TimeInForce.DAY
-            )
-            submitted = trade_client_local.submit_order(order)
-
+            
             # Defensive guard: ensure deques exist and are non-empty
             if symbol not in price_deques or symbol not in size_deques:
                 logging.debug("Missing deque data for %s; using empty series for indicators", symbol)
-                prices_series = pd.Series(dtype=float)
-                sizes_series = pd.Series(dtype=float)
-            else:
-                prices_series = pd.Series(price_deques[symbol])
-                sizes_series = pd.Series(size_deques[symbol])
+                return None
+            
+            prices_series = pd.Series(price_deques[symbol])
+            sizes_series = pd.Series(size_deques[symbol])
+                
             # Debug short-series early so we can correlate with buy attempts
             if prices_series.empty:
                 logging.debug("Short price series for %s at %s", symbol, datetime.now(timezone.utc))
@@ -977,6 +972,21 @@ def safe_market_buy(trade_client_local, symbol, cash_for_buy, order_lock, price_
                 except Exception:
                     pass
                 return None
+
+            # --- ONLY NOW submit the order ---
+            try:
+                resp = stock_data_client.get_stock_latest_trade(
+                    StockLatestTradeRequest(symbol_or_symbols=symbol)
+                )
+                est_price = float(resp[symbol].price)
+            except Exception:
+                est_price = None
+                
+            order = MarketOrderRequest(
+                symbol=symbol, qty=qty, side=OrderSide.BUY,
+                type=OrderType.MARKET, time_in_force=TimeInForce.DAY
+            )
+            submitted = trade_client_local.submit_order(order)
                 
             # === Continue with BUY logging ===
             buy_row = {
