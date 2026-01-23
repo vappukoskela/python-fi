@@ -3175,6 +3175,8 @@ def main():
                     bias=day_bias,
                     log_stack=True
                 )
+                # === STEP 3: Confirm evaluate_entry is being reached ===
+                logging.info(f"[ENTRY] {symbol} accept={accept} reason={reason} score={score}")
 
                 if accept:
                     # --- Run gating logic ---
