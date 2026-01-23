@@ -3016,278 +3016,200 @@ def main():
     logging.info("Starting main loop with symbols: %s", symbols)
 
     last_bias = None
-    
+
+    # === LIVE LOOP (fully aligned with SIM logic) ===
+    logging.info("LIVE mode: starting unified loop with full indicator + gating pipeline")
+
     while not stop_event.is_set():
         try:
-            _risk_governor_update()  # apply drawdown TP cuts & pos sizing
+            loop_start = datetime.now(timezone.utc)
+
+            # --- Risk governor update ---
+            _risk_governor_update()
+
+            # --- Refresh positions ---
             positions_map = get_positions_map(trade_client)
             spent_this_loop = 0.0
-            max_loop_budget = calculate_buying_power_limit(trade_client, BUY_POWER_LIMIT)
+            max_loop_budget = calculate_buying_power_limit()
 
-            # --- EOD LIQUIDATION: force close all positions near session end ---
-            now_ts = datetime.now(timezone.utc)
-            minutes = _session_minutes(now_ts)
-            SESSION_LENGTH_MIN = 390 # 6.5h US cash session
-
-            if minutes >= SESSION_LENGTH_MIN - 30:
-                logging.info("Session in final 30 minutes (minutes=%d); forcing liquidation of all positions.", minutes)
-                sell_all_positions(trade_client, order_lock)
-
-            for i in range(0, len(symbols), MARKET_DATA_CHUNK):
-                chunk = symbols[i:i+MARKET_DATA_CHUNK]
-                trades = fetch_latest_trade_price_and_size_batch(stock_data_client, chunk)
-
-                for sym in chunk:
-                    price, size = trades.get(sym, (None, None))
-                    if price is None or size is None or price <= 0:
-                        continue
-
-                    # --- NEW: Tick-aggregointi 1s ---
-                    bucket_ts = datetime.now(timezone.utc).replace(microsecond=0)
-                    if len(time_deques[sym]) > 0 and time_deques[sym][-1] == bucket_ts:
-                        price_deques[sym][-1] = (price_deques[sym][-1] + price) / 2.0
-                        size_deques[sym][-1] += size
-                    else:
-                        price_deques[sym].append(price)
-                        size_deques[sym].append(size)
-                        time_deques[sym].append(bucket_ts)
-
-                    prices = pd.Series(price_deques[sym])
-                    sizes = pd.Series(size_deques[sym])
-                    ema_fast = compute_ema_from_series(prices, EMA_FAST).iloc[-1]
-                    ema_slow = compute_ema_from_series(prices, EMA_SLOW).iloc[-1]
-                    rsi_val = compute_rsi_from_series(prices, RSI_PERIOD).iloc[-1]
-                    vwap_val = compute_vwap_from_ticks(prices, sizes).iloc[-1]
-                    
-                    if pd.isna(ema_fast) or pd.isna(ema_slow) or pd.isna(rsi_val) or pd.isna(vwap_val):
-                        continue
-
-                    # Build helper series like in SIM
-                    sizes_series = pd.Series(size_deques[sym])
-                    
-                    # Current timestamp for cooldown logic
+            # --- Fetch latest trades for all symbols ---
+            for symbol in symbols:
+                try:
+                    req = StockLatestTradeRequest(symbol_or_symbols=symbol)
+                    resp = stock_data_client.get_stock_latest_trade(req)
+                    trade = resp[symbol]
+                    price = float(trade.price)
+                    size = float(trade.size) if hasattr(trade, "size") else 1.0
                     ts_val = datetime.now(timezone.utc)
-                    
-                    # === Bias detection ===
-                    day_bias = detect_day_bias(
-                        prices,
-                        compute_ema_from_series(prices, EMA_FAST),
-                        compute_ema_from_series(prices, EMA_SLOW),
-                        compute_vwap_from_ticks(prices, sizes)
+                except Exception as e:
+                    logging.debug(f"[LIVE] Failed to fetch trade for {symbol}: {e}")
+                    continue
+
+                # --- Update deques (1-second aggregation) ---
+                bucket_ts = ts_val.replace(microsecond=0)
+
+                if len(time_deques[symbol]) > 0 and time_deques[symbol][-1] == bucket_ts:
+                    price_deques[symbol][-1] = (price_deques[symbol][-1] + price) / 2.0
+                    size_deques[symbol][-1] += size
+                else:
+                    price_deques[symbol].append(price)
+                    size_deques[symbol].append(size)
+                    time_deques[symbol].append(bucket_ts)
+
+                # --- Build series ---
+                prices_series = pd.Series(price_deques[symbol])
+                sizes_series = pd.Series(size_deques[symbol])
+
+                if len(prices_series) < 5:
+                    continue
+
+                # --- Compute indicators ---
+                ema_fast_val = _safe_last(compute_ema_from_series(prices_series, EMA_FAST))
+                ema_slow_val = _safe_last(compute_ema_from_series(prices_series, EMA_SLOW))
+                rsi_series = compute_rsi_from_series(prices_series, RSI_PERIOD)
+                rsi_val = _safe_last(rsi_series)
+                vwap_val = _safe_last(compute_vwap_from_ticks(prices_series, sizes_series))
+
+                if any(pd.isna(x) for x in [ema_fast_val, ema_slow_val, rsi_val, vwap_val]):
+                    continue
+
+                # --- Update market trend when SPY ticks ---
+                if symbol == "SPY":
+                    try:
+                        market_series = pd.Series(price_deques["SPY"])
+                        market_trend_state = market_trend_filter(market_series)
+                        globals()["market_trend_state"] = market_trend_state
+                        logging.debug(f"[MARKET] trend_state={market_trend_state}")
+                    except Exception as e:
+                        logging.debug(f"[MARKET] trend update failed: {e}")
+
+                # --- Detect regime ---
+                regime_raw = detect_regime(prices_series, sizes_series)
+                regime = _smooth_regime(symbol, regime_raw)
+
+                # --- Detect day bias ---
+                day_bias = detect_day_bias(
+                    prices_series,
+                    compute_ema_from_series(prices_series, EMA_FAST),
+                    compute_ema_from_series(prices_series, EMA_SLOW),
+                    compute_vwap_from_ticks(prices_series, sizes_series)
+                )
+
+                CONFIG = BULLISH_CONFIG if day_bias == "bullish" else BEARISH_CONFIG
+                CONFIG_SESSION = overlay_by_session(CONFIG, ts_val, regime)
+
+                # --- SELL evaluation ---
+                has_entry = (symbol in entry_times) and (symbol in entry_prices) and (symbol in entry_configs)
+                if has_entry:
+                    accept_exit, reason_exit = evaluate_sell(
+                        symbol,
+                        price,
+                        entry_prices.get(symbol),
+                        price_deques[symbol],
+                        size_deques[symbol],
+                        entry_times,
+                        entry_configs[symbol],
+                        current_time=ts_val,
+                        regime=regime,
+                        log_stack=True
                     )
 
-                                        
-                    if day_bias == "bullish":
-                        CONFIG = BULLISH_CONFIG
-                    else:
-                        CONFIG = BEARISH_CONFIG
-                    
-                    qty_open, avg_entry = positions_map.get(sym, (0, 0.0))
-                    last_exit = last_exit_time.get(sym, datetime.min.replace(tzinfo=timezone.utc))
-                    
-                    # clear pending once position is visible
-                    if qty_open > 0 and sym in pending_entries:
-                        pending_entries.discard(sym)
+                    if accept_exit:
+                        qty = entry_qty.get(symbol, 0)
+                        pnl = (price - entry_prices.get(symbol, price)) * qty
 
-                    # === BUY LOGIC ===
-                    since_last_buy = (
-                        (datetime.now(timezone.utc) - last_buy_time[sym]).total_seconds()
-                        if last_buy_time[sym] is not None else float("inf")
-                    )
-                    since_last_exit = (
-                        (datetime.now(timezone.utc) - last_exit_time[sym]).total_seconds()
-                        if last_exit_time[sym] is not None else float("inf")
-                    )
-                    logging.debug(f"{sym} cooldown check: buy={since_last_buy:.2f}s exit={since_last_exit:.2f}s")
-                    if since_last_buy < COOLDOWN_SECONDS or since_last_exit < COOLDOWN_SECONDS:
-                        logging.debug(f"{sym} - Cooldown active: buy={since_last_buy:.1f}s exit={since_last_exit:.1f}s")
+                        logging.info(
+                            f"[TRADE] {symbol} [LIVE] SELL qty={qty} @ {price:.4f} | "
+                            f"Time={ts_val.strftime('%H:%M:%S')} | Reason={reason_exit} | "
+                            f"Bias={day_bias} | PnL={pnl:.4f} | Regime={regime}"
+                        )
+
+                        exec_rows.append({
+                            "timestamp": ts_val.strftime("%Y-%m-%d %H:%M:%S"),
+                            "symbol": symbol,
+                            "action": "SELL",
+                            "price": price,
+                            "reason": reason_exit,
+                            "bias": day_bias,
+                            "pnl": round(pnl, 4),
+                            "ema_fast": round(ema_fast_val, 4),
+                            "ema_slow": round(ema_slow_val, 4),
+                            "rsi": round(rsi_val, 2),
+                            "vwap": round(vwap_val, 4),
+                            "regime": regime
+                        })
+                        write_exec_row_immediate(exec_rows[-1], symbol, RUN_MODE)
+
+                        # Cleanup
+                        entry_times.pop(symbol, None)
+                        entry_prices.pop(symbol, None)
+                        entry_qty.pop(symbol, None)
+                        entry_configs.pop(symbol, None)
+                        last_exit_time[symbol] = ts_val
+                        highest_price_since_entry.pop(symbol, None)
+                        trailing_active[symbol] = False
                         continue
 
-                    # --- Always initialize outputs to safe defaults ---
-                    reason = None
-                    score = None
-                    buy = False
+                # --- BUY evaluation ---
+                accept, reason, score, stack = evaluate_entry(
+                    symbol,
+                    price,
+                    size,
+                    prices_series,
+                    sizes_series,
+                    ts_val,
+                    positions_map,
+                    inflight_orders,
+                    pending_entries,
+                    last_exit_time[symbol],
+                    last_trade_attempt,
+                    CONFIG_SESSION,
+                    regime,
+                    bias=day_bias,
+                    log_stack=True
+                )
 
-                    if USE_REGIME_ENTRY:
-                        regime_raw = detect_regime(prices, sizes_series)
-                        regime = _smooth_regime(sym, regime_raw)
+                if accept:
+                    # --- Run gating logic ---
+                    allowed, gate_reason = gate_entry(
+                        symbol=symbol,
+                        regime=regime,
+                        prices_series=prices_series,
+                        sizes_series=sizes_series,
+                        vwap_val=vwap_val,
+                        rsi_series=rsi_series,
+                        market_trend_state=globals().get("market_trend_state", "unknown")
+                    )
 
-                        # === REGIME AUDIT LOGGING (Step 5) ===
-                        try:
-                            _price = float(prices.iloc[-1]) if len(prices) else ""
-                            _ema_fast = ema_fast
-                            _ema_slow = ema_slow
-                            _vwap = vwap_val
-                            # reuse Bollinger + slope & ATR pct logic locally
-                            upper_a, ma_a, lower_a, bandwidth_a = compute_bollinger(prices, period=20, std=2.0)
-                            slope_a = ema_slope(prices, EMA_SLOW)
-                            # ATR percentile proxy (same structure as detect_regime)
-                            N_a = 50
-                            atr_val_a = compute_atr_from_series(prices, ATR_PERIOD)
-                            if len(prices) >= N_a + ATR_PERIOD:
-                                atr_series_a = prices.diff().abs().rolling(ATR_PERIOD).mean()
-                                hist_a = atr_series_a.iloc[-N_a:].dropna()
-                                pct_a = (hist_a < atr_val_a).mean() if len(hist_a) > 10 and not pd.isna(atr_val_a) else 0.5
-                            else:
-                                pct_a = 0.5
-                            rsi_a = rsi_val
-        
-                            with open("audit_regime_live.csv", "a") as f:
-                                f.write(
-                                    f"{datetime.now(timezone.utc).isoformat()},"
-                                    f"{sym},"
-                                    f"{regime},"
-                                    f"{_price},"
-                                    f"{_ema_fast},"
-                                    f"{_ema_slow},"
-                                    f"{_vwap},"
-                                    f"{slope_a},"
-                                    f"{bandwidth_a},"
-                                    f"{pct_a},"
-                                    f"{rsi_a}\n"
-                                )
-                        except Exception as e:
-                            logging.error(f"[ERROR] Failed to write regime audit: {e}")
-        
-                                               
-                        CONFIG_SESSION = overlay_by_session(CONFIG, ts_val, regime)
-                        accept, reason, score, stack = evaluate_entry(
-                            sym, price, size, prices, sizes_series, ts_val,
-                            positions_map, inflight_orders, pending_entries,
-                            last_exit_time[sym], last_buy_time,
-                            CONFIG_SESSION, regime, log_stack=False
-                        )
-                        buy = accept
-                    else:
-                        regime = "UNKNOWN"
-                        # reason and score stay None
-                   
-                    
-                    # AUDIT: jos BUY hylättiin, käynnistä watchdog dequen datalla
-                    if AUDIT_TRAIL_ENABLED and not buy:
-                        audit_rejection_live(
-                            sym, ts_val, price, size, ema_fast, ema_slow,
-                            rsi_val, vwap_val, sizes_series, day_bias, CONFIG, reason,
-                            price_deques, size_deques
-                        ) 
+                    if not allowed:
+                        log_block_event(symbol, regime, gate_reason, score)
+                        continue
 
-                    
-                    if buy:    
-                        if last_trade_attempt[sym] is not None and \
-                           (datetime.now(timezone.utc) - last_trade_attempt[sym]).total_seconds() < 1.0:
-                            continue
-                        last_trade_attempt[sym] = datetime.now(timezone.utc)
+                    # --- Execute BUY ---
+                    safe_market_buy(
+                        trade_client,
+                        symbol,
+                        max_loop_budget,
+                        order_lock,
+                        price_deques,
+                        size_deques,
+                        bias=day_bias
+                    )
 
-                        est_trade_cost = price * int((max_loop_budget * BUY_CASH_BUFFER) // price)
-                        if spent_this_loop + est_trade_cost > max_loop_budget:
-                            logging.info(f"{sym} - Skipping buy: budget exceeded. est_cost={est_trade_cost:.2f} spent={spent_this_loop:.2f}")
-                            continue
+            # --- Loop pacing ---
+            elapsed = (datetime.now(timezone.utc) - loop_start).total_seconds()
+            if elapsed < LOOP_SLEEP:
+                time.sleep(LOOP_SLEEP - elapsed)
 
-                        pending_entries.add(sym)
-                        try:
-                            # --- Regime-specific cash adjustment ---
-                            cash_for_buy = max_loop_budget * BUY_CASH_BUFFER
-                            if regime == "HIGH_VOL":
-                                cash_for_buy *= 0.5   # halve position size in high volatility
-                    
-                            spent_this_loop += est_trade_cost  # reserve budget immediately
-                            submitted = safe_market_buy(trade_client, sym, cash_for_buy, order_lock, price_deques, size_deques, bias=day_bias)
-                            logging.debug(f"[TRACE] Buy submitted: {submitted}")
-                            
-                            if submitted:
-                                inflight_orders[sym] = getattr(submitted, "id", None) or True
-                                # 🔍 Retry loop for post-buy verification
-                                actual_qty = 0
-                                max_verify_attempts = 6
-                                for attempt in range(max_verify_attempts):
-                                    actual_qty = get_position_qty(trade_client, sym)
-                                    logging.debug(f"[TRACE] Post-buy verification attempt {attempt+1}/{max_verify_attempts} for {sym}: actual_qty={actual_qty}")
-                                    if actual_qty > 0:
-                                        break
-                                    time.sleep(1.0)
-                              
-                                if actual_qty > 0:
-                                    entry_qty[sym] = actual_qty
-                                    entry_prices[sym] = price
-                                    entry_times[sym] = datetime.now(timezone.utc)
-                                    last_buy_time[sym] = datetime.now(timezone.utc)
-                                    entry_configs[sym] = CONFIG_SESSION
-                                    pending_entries.discard(sym)
-                                    logging.info(f"{sym} - ENTRY recorded qty={entry_qty[sym]} price={price:.2f} rsi={rsi_val:.2f} Bias={day_bias} Config={CONFIG_SESSION}")
-                                    
-                                else:
-                                    pending_entries.discard(sym)
-                                    logging.warning(f"[BUY-VERIFY] No position found for {sym} after {max_verify_attempts}s; entry not recorded.")
-      
-                        except Exception as e:
-                            logging.exception("%s - BUY error: %s", sym, str(e))
-                        finally:
-                            inflight_orders.pop(sym, None)
-                    
-
-
-                    # === SELL LOGIC (evaluate_sell) ===
-                    if qty_open > 0:
-                        try:
-                            last_price = float(price)
-                            sell = False
-                            reason = "no-eval"
-                            ref_entry = entry_prices.get(sym, avg_entry)
-                            config = entry_configs.get(sym)
-                            if ref_entry is None or config is None:
-                                logging.debug("[%s] Sell skipped: missing entry context", sym)
-                                continue
-                            
-                            sell, reason = evaluate_sell(
-                                sym,
-                                last_price,
-                                ref_entry,
-                                price_deques[sym],
-                                size_deques[sym],
-                                entry_times,
-                                entry_configs[sym],
-                                current_time=datetime.now(timezone.utc)
-                            )
-                            
-                            if sell:
-                                submitted = safe_market_sell(trade_client, sym, qty_open, order_lock, price_deques, size_deques)
-                                if submitted:
-                                    entry_times.pop(sym, None)
-                                    entry_prices.pop(sym, None)
-                                    entry_qty.pop(sym, None)
-                                    entry_configs.pop(sym, None)
-                                    last_exit_time[sym] = datetime.now(timezone.utc)
-                                    trailing_active[sym] = False
-                                    logging.debug("%s - EXIT state cleanup completed", symbol)
-                                logging.info(f"[TRADE] {sym} - SCALP SELL qty={qty_open} @ {last_price:.4f} | Reason={reason} | Bias={day_bias} | Config={CONFIG}")
-                                logging.info(
-                                    "%s - SCALP SELL qty=%d @ %.4f | Reason=%s | EntryRef=%.4f",
-                                    sym, qty_open, last_price, reason, ref_entry
-                                )
-                                    # --- Audit trail update (LIVE) ---
-                                regime_at_sell = detect_regime(pd.Series(price_deques[sym]), pd.Series(size_deques[sym]))
-                                pnl_est = (last_price - ref_entry) * qty_open  # rough PnL estimate
-                                regime_pnl[regime_at_sell] += float(pnl_est)
-                                regime_trades[regime_at_sell] += 1
-                                exit_reason_count[regime_at_sell][reason] += 1
-
-                                # --- Regime performance snapshot (logs every N sells) ---
-                                regime_perf_snapshot()
-
-                                in_position = False
-                                entry_price = None
-                                trailing_active[sym] = False
-                                last_exit_time[sym] = datetime.now(timezone.utc)
-                                entry_configs.pop(sym, None)
-                    
-                        except Exception as e:
-                            logging.error("[ERROR][%s] Sell logic failed: %s", sym, e)
-
-
-
-                    
         except Exception as e:
-                logging.exception("Main loop error: %s", e)
-                time.sleep(1.0)
+            logging.exception(f"[LIVE LOOP] error: {e}")
+            time.sleep(1.0)
+  
+
+   
+      
+
+                   
+       
 if __name__ == "__main__":
     main()
