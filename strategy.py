@@ -939,17 +939,46 @@ def safe_market_buy(trade_client_local, symbol, cash_for_buy, order_lock, price_
             # Debug short-series early so we can correlate with buy attempts
             if prices_series.empty:
                 logging.debug("Short price series for %s at %s", symbol, datetime.now(timezone.utc))
+                return None
+
+            # === Compute indicators (correct order) ===
                 
             ema_fast_val = _safe_last(compute_ema_from_series(prices_series, EMA_FAST))
             ema_slow_val = _safe_last(compute_ema_from_series(prices_series, EMA_SLOW))
-            rsi_val = _safe_last(compute_rsi_from_series(prices_series, RSI_PERIOD))
+
+            # FULL RSI SERIES (required by gate_entry)
+            rsi_series = compute_rsi_from_series(prices_series, RSI_PERIOD)
+            rsi_val = _safe_last(rsi_series)
+            
             vwap_val = _safe_last(compute_vwap_from_ticks(prices_series, sizes_series))
             regime_at_entry = detect_regime(prices_series, sizes_series)
             
             
             bias_val = bias if bias is not None else globals().get("day_bias", "unknown")
-                      
-            
+
+            # === NEW: Market-trend gating ===
+            market_trend_state = globals().get("market_trend_state", "unknown")
+        
+            allowed, gate_reason = gate_entry(
+                symbol=symbol,
+                regime=regime_at_entry,
+                prices_series=prices_series,
+                sizes_series=sizes_series,
+                vwap_val=vwap_val,
+                rsi_series=rsi_series, # <-- NOW DEFINED
+                market_trend_state=market_trend_state
+            )
+
+            if not allowed:
+                logging.info("%s - BUY blocked by gate: regime=%s market_trend=%s reason=%s",
+                             symbol, regime_at_entry, market_trend_state, gate_reason)
+                try:
+                    log_block_event(symbol, regime_at_entry, gate_reason, score=0.0)
+                except Exception:
+                    pass
+                return None
+                
+            # === Continue with BUY logging ===
             buy_row = {
                 "timestamp": datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M:%S"),
                 "symbol": symbol,
