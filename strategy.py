@@ -1001,30 +1001,7 @@ def safe_market_buy(trade_client_local, symbol, cash_for_buy, order_lock, price_
                 f"| Time={datetime.now(timezone.utc).strftime('%H:%M:%S')} | Regime={regime_at_entry} | Bias={bias_val}"
             )
 
-            # --- NEW: market-trend + gating logic ---
-            market_trend_state = globals().get("market_trend_state", "unknown")
-            
-            allowed, gate_reason = gate_entry(
-                symbol=symbol,
-                regime=regime_at_entry,
-                prices_series=prices_series,
-                sizes_series=sizes_series,
-                vwap_val=vwap_val,
-                rsi_series=rsi_series,
-                market_trend_state=market_trend_state
-            )
-            
-            if not allowed:
-                logging.info("%s - BUY blocked by gate: regime=%s market_trend=%s reason=%s",
-                             symbol, regime_at_entry, market_trend_state, gate_reason)
-                try:
-                    log_block_event(symbol, regime_at_entry, gate_reason, score=0.0)
-                except Exception:
-                    pass
-                return None
-            # --- END NEW GATE ---
-
-            
+                        
             # Optional lightweight execution audit
             if EXEC_AUDIT_ENABLED:
                 try:
