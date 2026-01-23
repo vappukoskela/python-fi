@@ -3021,6 +3021,7 @@ def main():
     logging.info("LIVE mode: starting unified loop with full indicator + gating pipeline")
 
     while not stop_event.is_set():
+        logging.info(f"[LIVE LOOP] heartbeat {datetime.now(timezone.utc).strftime('%H:%M:%S')}")
         try:
             loop_start = datetime.now(timezone.utc)
 
@@ -3047,6 +3048,9 @@ def main():
                 except Exception as e:
                     logging.debug(f"[LIVE] Failed to fetch trade for {symbol}: {e}")
                     continue
+
+                # === STEP 2: Confirm trades are being fetched ===
+                logging.info(f"[TICK] {symbol} price={price} size={size} time={ts_val.strftime('%H:%M:%S')}")
 
                 # --- Update deques (1-second aggregation) ---
                 bucket_ts = ts_val.replace(microsecond=0)
