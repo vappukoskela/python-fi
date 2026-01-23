@@ -3078,6 +3078,11 @@ def main():
                 vwap_val = _safe_last(compute_vwap_from_ticks(prices_series, sizes_series))
 
                 if any(pd.isna(x) for x in [ema_fast_val, ema_slow_val, rsi_val, vwap_val]):
+                    logging.debug(
+                        f"[SKIP] {symbol} indicators NaN "
+                        f"ema_fast={ema_fast_val} ema_slow={ema_slow_val} rsi={rsi_val} vwap={vwap_val} "
+                        f"len_prices={len(prices_series)}"
+                    )
                     continue
 
                 # --- Update market trend when SPY ticks ---
