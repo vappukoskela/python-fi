@@ -2651,6 +2651,16 @@ def main():
             if pd.isna(ema_fast) or pd.isna(ema_slow) or pd.isna(rsi_val) or pd.isna(vwap_val):
                 continue
 
+            # --- NEW: Update market trend state when SPY ticks ---
+            if symbol == "SPY":
+                try:
+                    market_series = pd.Series(price_deques["SPY"])
+                    market_trend_state = market_trend_filter(market_series)
+                    globals()["market_trend_state"] = market_trend_state
+                    logging.debug(f"[MARKET] trend_state={market_trend_state}")
+                except Exception as e:
+                    logging.debug(f"[MARKET] trend update failed: {e}")
+
             # === Bias detection ===
             day_bias = detect_day_bias(prices,
                                        compute_ema_from_series(prices, EMA_FAST),
