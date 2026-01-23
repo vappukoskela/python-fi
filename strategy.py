@@ -499,6 +499,105 @@ def _safe_last(series_like):
     except Exception:
         # Any problem -> return NaN so downstream code can handle it
         return float("nan")
+        
+# === MARKET / SYMBOL / VOLATILITY FILTERS ===
+
+def _trend_score_from_series(series, ema_fast=EMA_FAST, ema_slow=EMA_SLOW):
+    if len(series) < ema_slow + 2:
+        return 0.0
+    ema_f = series.ewm(span=ema_fast, adjust=False).mean()
+    ema_s = series.ewm(span=ema_slow, adjust=False).mean()
+    slope = ema_s.iloc[-1] - ema_s.iloc[-3]
+    spread = ema_f.iloc[-1] - ema_s.iloc[-1]
+    return float(slope + spread)
+
+def classify_trend(score, up_th=0.05, down_th=-0.05):
+    if score >= up_th:
+        return "bull"
+    if score <= down_th:
+        return "bear"
+    return "flat"
+
+def market_trend_filter(market_price_series):
+    if market_price_series is None or len(market_price_series) < EMA_SLOW + 2:
+        return "unknown"
+    score = _trend_score_from_series(market_price_series)
+    return classify_trend(score)
+
+def symbol_trend_filter(prices_series):
+    if prices_series is None or len(prices_series) < EMA_SLOW + 2:
+        return "unknown"
+    score = _trend_score_from_series(prices_series)
+    return classify_trend(score)
+
+def volatility_filter(prices_series, period=ATR_PERIOD):
+    if prices_series is None or len(prices_series) < period + 5:
+        return "unknown"
+    atr_val = compute_atr_from_series(prices_series, period=period)
+    upper, ma, lower, bandwidth = compute_bollinger(prices_series, period=20, std=2.0)
+    if pd.isna(atr_val) or pd.isna(bandwidth):
+        return "unknown"
+    if bandwidth <= 0.003 and atr_val <= ATR_FLOOR * 1.2:
+        return "low"
+    if bandwidth >= 0.012 or atr_val >= ATR_FLOOR * 3.0:
+        return "high"
+    return "normal"
+
+def range_quality_score(prices_series, vwap_val, rsi_series, boll_period=20, boll_std=2.0):
+    if prices_series is None or len(prices_series) < boll_period + 2:
+        return 0.0
+    upper, ma, lower, bandwidth = compute_bollinger(prices_series, period=boll_period, std=boll_std)
+    last_price = float(prices_series.iloc[-1])
+    if pd.isna(lower) or lower <= 0:
+        band_score = 0.0
+    else:
+        dist = (last_price - lower) / lower
+        band_score = max(0.0, 1.0 - (dist / 0.004))
+    if rsi_series is None or len(rsi_series) < 3:
+        rsi_score = 0.0
+    else:
+        rsi_last = float(rsi_series.iloc[-1])
+        rsi_prev = float(rsi_series.iloc[-3])
+        low_enough = 20 <= rsi_last <= 40
+        uptick = rsi_last > rsi_prev
+        rsi_score = 1.0 if (low_enough and uptick) else 0.0
+    if pd.isna(vwap_val) or vwap_val <= 0:
+        vwap_score = 0.0
+    else:
+        vwap_dist = (vwap_val - last_price) / vwap_val
+        vwap_score = 1.0 if 0.001 <= vwap_dist <= 0.004 else 0.0
+    if pd.isna(bandwidth):
+        vol_score = 0.0
+    else:
+        vol_score = 1.0 if 0.002 <= bandwidth <= 0.012 else 0.0
+    score = (1.0 * band_score +
+             1.0 * rsi_score +
+             1.0 * vwap_score +
+             0.5 * vol_score)
+    return float(score)
+
+def gate_entry(symbol, regime, prices_series, sizes_series, vwap_val, rsi_series,
+               market_trend_state="unknown"):
+    sym_trend = symbol_trend_filter(prices_series)
+    vol_state = volatility_filter(prices_series)
+    if regime == "HIGH_VOL":
+        return False, "high_vol_regime_block"
+    if regime == "RANGE":
+        rq_score = range_quality_score(prices_series, vwap_val, rsi_series)
+        if market_trend_state == "bear" and sym_trend == "bear":
+            if rq_score < 2.0:
+                return False, f"range_block_bear_trend_low_quality(score={rq_score:.2f})"
+        else:
+            if rq_score < 1.0:
+                return False, f"range_block_low_quality(score={rq_score:.2f})"
+    if regime == "LOW_VOL" and vol_state == "high":
+        return False, "low_vol_block_high_volatility"
+    if regime == "TREND":
+        if market_trend_state == "bear" and sym_trend == "bull":
+            return False, "trend_block_symbol_vs_market_mismatch"
+    return True, "ok"
+
+
 
 # === PATCH 2: Multi-tick confirmation ===
 ENTRY_CONFIRM_ENABLED = True
