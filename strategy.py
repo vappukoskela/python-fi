@@ -314,7 +314,11 @@ LOW_VOL_CONFIG_BEAR.update({
     "TIME_STOP_SECONDS": 90, # shorter time-stop
     "VWAP_PROGRESS_MIN": 0.35 # require progress shrink
 })    
-    
+
+ENTRY_AUDIT_FILE = "audit_entry_live.csv"
+GATE_AUDIT_FILE = "audit_gate_live.csv"
+REGIME_AUDIT_FILE = "audit_regime_live.csv"
+
 EXEC_AUDIT_ENABLED = True
 EXEC_AUDIT_FILE = "audit_trades_live.csv"
 
@@ -363,7 +367,7 @@ logging.basicConfig(level=logging.DEBUG,
                     format="%(asctime)s %(levelname)s %(message)s",
                     filename="scalper_safe.log")
 console = logging.StreamHandler()
-console.setLevel(logging.INFO)
+console.setLevel(logging.WARNING)
 logging.getLogger().addHandler(console)
 
 logging.debug("[TRACE] Logging system initialized")
@@ -792,6 +796,62 @@ def log_block_event(sym, regime, reason, score):
             })
     except Exception as e:
         logging.debug("[AUDIT] Failed to write block event: %s", e)
+
+
+def log_entry_attempt(ts, symbol, regime, bias, accept, reason, score,
+                      ema_fast, ema_slow, rsi, vwap, price):
+    try:
+        file_exists = os.path.exists(ENTRY_AUDIT_FILE) and os.path.getsize(ENTRY_AUDIT_FILE) > 0
+        with open(ENTRY_AUDIT_FILE, "a", newline="") as f:
+            writer = csv.writer(f)
+            if not file_exists:
+                writer.writerow([
+                    "timestamp","symbol","regime","bias","accept","reason","score",
+                    "ema_fast","ema_slow","rsi","vwap","price"
+                ])
+            writer.writerow([
+                ts.isoformat(), symbol, regime, bias, accept, reason, round(score,4),
+                round(ema_fast,4), round(ema_slow,4), round(rsi,2),
+                round(vwap,4), round(price,4)
+            ])
+    except Exception as e:
+        logging.debug(f"[IO] entry audit failed for {symbol}: {e}")
+
+
+def log_gate_event(ts, symbol, regime, allowed, gate_reason,
+                   market_trend, symbol_trend, vol_state, rq_score):
+    try:
+        file_exists = os.path.exists(GATE_AUDIT_FILE) and os.path.getsize(GATE_AUDIT_FILE) > 0
+        with open(GATE_AUDIT_FILE, "a", newline="") as f:
+            writer = csv.writer(f)
+            if not file_exists:
+                writer.writerow([
+                    "timestamp","symbol","regime","allowed","gate_reason",
+                    "market_trend","symbol_trend","vol_state","range_quality"
+                ])
+            writer.writerow([
+                ts.isoformat(), symbol, regime, allowed, gate_reason,
+                market_trend, symbol_trend, vol_state, rq_score
+            ])
+    except Exception as e:
+        logging.debug(f"[IO] gate audit failed for {symbol}: {e}")
+
+
+def log_regime_state(ts, symbol, regime, bandwidth, atr, ema_slope_val, vwap_dist):
+    try:
+        file_exists = os.path.exists(REGIME_AUDIT_FILE) and os.path.getsize(REGIME_AUDIT_FILE) > 0
+        with open(REGIME_AUDIT_FILE, "a", newline="") as f:
+            writer = csv.writer(f)
+            if not file_exists:
+                writer.writerow([
+                    "timestamp","symbol","regime","bandwidth","atr","ema_slope","vwap_dist"
+                ])
+            writer.writerow([
+                ts.isoformat(), symbol, regime,
+                bandwidth, atr, ema_slope_val, vwap_dist
+            ])
+    except Exception as e:
+        logging.debug(f"[IO] regime audit failed for {symbol}: {e}")
 
 
 # === PATCH OBV: OBV slope proxy ===
@@ -2727,6 +2787,22 @@ def main():
                     bias=day_bias,
                     log_stack=True                   # optional keyword        
                 )
+
+                log_entry_attempt(
+                    ts_val,
+                    symbol,
+                    regime,
+                    day_bias,
+                    accept,
+                    reason,
+                    score,
+                    ema_fast_val,
+                    ema_slow_val,
+                    rsi_val,
+                    vwap_val,
+                    price
+                )
+                
                 buy = accept
             else:
                 # Fallback regime if entry detection is disabled
@@ -3097,6 +3173,14 @@ def main():
                 regime_raw = detect_regime(prices_series, sizes_series)
                 regime = _smooth_regime(symbol, regime_raw)
 
+                # --- Regime audit ---
+                upper, ma, lower, bandwidth = compute_bollinger(prices_series, period=20, std=2.0)
+                atr_val = compute_atr_from_series(prices_series, period=ATR_PERIOD)
+                ema_slope_val = ema_slope(prices_series, period=EMA_SLOW)
+                vwap_dist = (vwap_val - price) / vwap_val if vwap_val > 0 else float("nan")
+                log_regime_state(ts_val, symbol, regime, bandwidth, atr_val, ema_slope_val, vwap_dist)
+
+
                 # --- Detect day bias ---
                 day_bias = detect_day_bias(
                     prices_series,
@@ -3191,6 +3275,17 @@ def main():
                         market_trend_state=globals().get("market_trend_state", "unknown")
                     )
 
+                    # compute range quality score for logging
+                    rq_score = range_quality_score(prices_series, vwap_val, rsi_series) if regime == "RANGE" else float("nan")
+                    sym_trend = symbol_trend_filter(prices_series)
+                    vol_state = volatility_filter(prices_series)
+                    market_trend = globals().get("market_trend_state", "unknown")
+                    
+                    log_gate_event(
+                        ts_val, symbol, regime, allowed, gate_reason,
+                        market_trend, sym_trend, vol_state, rq_score
+                    )
+                    
                     if not allowed:
                         log_block_event(symbol, regime, gate_reason, score)
                         continue
