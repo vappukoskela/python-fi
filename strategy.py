@@ -3271,6 +3271,21 @@ def main():
                     bias=day_bias,
                     log_stack=True
                 )
+
+                log_entry_attempt(
+                    ts_val,
+                    symbol,
+                    regime,
+                    day_bias,
+                    accept,
+                    reason,
+                    score,
+                    ema_fast_val,
+                    ema_slow_val,
+                    rsi_val,
+                    vwap_val,
+                    price
+                )
                 
                 if accept:
                     # --- Run gating logic ---
