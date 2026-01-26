@@ -1349,24 +1349,24 @@ def reconcile_positions(trade_client_local,
             config = BEARISH_CONFIG
             entry_configs[sym] = config
 
-            if sym in entry_times and sym in entry_configs and sym in entry_prices:      
-                sell, reason = evaluate_sell(
-                    sym,
-                    last_price,
-                    ref_entry,
-                    price_deques[sym],
-                    size_deques[sym],
-                    entry_times,
-                    config,
-                    current_time=now_ts,
-                    regime=detect_regime(prices_series, sizes_series),
-                    log_stack=True
-                )
+                  
+        sell, reason = evaluate_sell(
+            sym,
+            last_price,
+            ref_entry,
+            price_deques[sym],
+            size_deques[sym],
+            entry_times,
+            config,
+            current_time=now_ts,
+            regime=detect_regime(prices_series, sizes_series),
+            log_stack=True
+        )
 
-               logging.debug(
-                   "[RECON_SELL_DECISION][%s] should_exit=%s | reason=%s | last=%.4f | ref=%.4f",
-                   sym, sell, reason, last_price, ref_entry
-               )
+        logging.debug(
+            "[RECON_SELL_DECISION][%s] should_exit=%s | reason=%s | last=%.4f | ref=%.4f",
+            sym, sell, reason, last_price, ref_entry
+        )
  
 
         if sell:
