@@ -1363,6 +1363,12 @@ def reconcile_positions(trade_client_local,
                     log_stack=True
                 )
 
+               logging.debug(
+                   "[RECON_SELL_DECISION][%s] should_exit=%s | reason=%s | last=%.4f | ref=%.4f",
+                   sym, sell, reason, last_price, ref_entry
+               )
+ 
+
         if sell:
             # Submit sell with extended confirmation polling
             try:
