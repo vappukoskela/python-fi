@@ -1901,7 +1901,16 @@ def evaluate_entry(sym, price, size, prices_series, sizes_series, ts_val,
                 vwap_val
             )
     
-        return (True, "entry", score, signal_stack)
+        return (
+            True,
+            "entry",
+            score,
+            signal_stack,
+             ema_fast,
+             ema_slow,
+            rsi_val,
+            vwap_val
+        )
 
     elif regime == "RANGE":
         # RANGE_BULL no longer depends on global bias.
