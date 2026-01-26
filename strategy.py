@@ -3188,7 +3188,20 @@ def main():
                 CONFIG_SESSION = overlay_by_session(CONFIG, ts_val, regime)
 
                 # --- SELL evaluation ---
-                has_entry = (symbol in entry_times) and (symbol in entry_prices) and (symbol in entry_configs)
+                has_entry = (symbol in entry_times) and (symbol in entry_prices)
+                
+                # Fallback CONFIG for safety: if we lost entry_configs, use current session CONFIG
+                active_config = entry_configs.get(symbol, CONFIG_SESSION)
+                
+                # Optional: detect on-chain position without local context
+                onchain_qty, _ = positions_map.get(symbol, (0, 0.0))
+                if onchain_qty > 0 and not has_entry:
+                    logging.warning(
+                        "[RECON][%s] Position open on Alpaca but no local entry context; "
+                        "using CONFIG_SESSION for exit evaluation", symbol
+                    )
+                    has_entry = True  # force evaluation with whatever context we have
+                
                 if has_entry:
                     accept_exit, reason_exit = evaluate_sell(
                         symbol,
@@ -3197,11 +3210,12 @@ def main():
                         price_deques[symbol],
                         size_deques[symbol],
                         entry_times,
-                        entry_configs[symbol],
+                        active_config,
                         current_time=ts_val,
                         regime=regime,
                         log_stack=True
                     )
+
 
                     if accept_exit:
                         qty = entry_qty.get(symbol, 0)
