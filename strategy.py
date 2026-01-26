@@ -3212,12 +3212,7 @@ def main():
                         qty = entry_qty.get(symbol, 0)
                         pnl = (price - entry_prices.get(symbol, price)) * qty
 
-                        logging.info(
-                            f"[TRADE] {symbol} [LIVE] SELL qty={qty} @ {price:.4f} | "
-                            f"Time={ts_val.strftime('%H:%M:%S')} | Reason={reason_exit} | "
-                            f"Bias={day_bias} | PnL={pnl:.4f} | Regime={regime}"
-                        )
-
+                        
                         exec_rows.append({
                             "timestamp": ts_val.strftime("%Y-%m-%d %H:%M:%S"),
                             "symbol": symbol,
