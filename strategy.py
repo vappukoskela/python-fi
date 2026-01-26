@@ -1066,12 +1066,7 @@ def safe_market_buy(trade_client_local, symbol, cash_for_buy, order_lock, price_
             }
             exec_rows.append(buy_row)
             write_exec_row_immediate(exec_rows[-1], symbol, RUN_MODE)
-            logging.info(
-                f"[TRADE] {symbol} [{RUN_MODE}] BUY qty={qty} @ {(est_price if est_price else 0.0):.4f} "
-                f"| Time={datetime.now(timezone.utc).strftime('%H:%M:%S')} | Regime={regime_at_entry} | Bias={bias_val}"
-            )
-
-                        
+                                    
             # Optional lightweight execution audit
             if EXEC_AUDIT_ENABLED:
                 try:
