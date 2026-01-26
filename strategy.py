@@ -2024,19 +2024,15 @@ def overlay_exit_params_by_regime(CONFIG, regime):
 
 
 def evaluate_sell(sym, last_price, ref_entry, price_deque, size_deque, entry_times, 
-                  CONFIG, ema_fast_period=EMA_FAST, ema_slow_period=EMA_SLOW, rsi_period=RSI_PERIOD, current_time=None, regime=None, log_stack=False):
+                  CONFIG, ema_fast_period=EMA_FAST, ema_slow_period=EMA_SLOW,
+                  rsi_period=RSI_PERIOD, current_time=None, regime=None, log_stack=False):
 
-    # Early exit if no entry context
+    logging.debug("[%s] ENTER evaluate_sell | last_price=%.4f | regime=%s", sym, last_price, regime)
+
+    # Early exit if no entry context or CONFIG
     if sym not in entry_times or sym not in entry_prices or CONFIG is None:
         return False, None
-    """
-    # Defensive: CONFIG must be present
-    if CONFIG is None:
-        logging.debug("[%s] Sell skipped: missing CONFIG", sym)
-        return False, None
-        Exit evaluation used by both SIM and LIVE loops.
-        Returns (True, reason) or (False, None).
-    """
+
     try:
         # --- Unpack entry_times ---
         entry_record = entry_times.get(sym)
@@ -2045,18 +2041,14 @@ def evaluate_sell(sym, last_price, ref_entry, price_deque, size_deque, entry_tim
             if not isinstance(entry_time, datetime):
                 logging.error("[%s] entry_time is not datetime: %s", sym, type(entry_time))
                 return False, None
-                
+
             now_ts = current_time or datetime.now(timezone.utc)
             elapsed = (now_ts - entry_time).total_seconds()
             logging.debug("[%s] DEBUG PATCH | entry_time=%s | elapsed=%.2f seconds",
                           sym, entry_time, elapsed)
-        
-
-                                            
         else:
             entry_time = None
-            elapsed = 0
-        # --- End unpack ---
+            elapsed = 0.0
 
         # --- Hold time check for soft exits ---
         soft_exits_allowed = (elapsed >= MIN_HOLD_SECONDS) if entry_time else False
@@ -2064,74 +2056,61 @@ def evaluate_sell(sym, last_price, ref_entry, price_deque, size_deque, entry_tim
         prices_series = pd.Series(price_deque)
         sizes_series = pd.Series(size_deque)
 
-        # --- Optional logging block ---
         if log_stack:
-            logging.debug("[%s] SELL evaluation | regime=%s | elapsed=%.2f", sym, regime, elapsed)
+            logging.debug("[%s] SELL evaluation | regime=%s | elapsed=%.2f",
+                          sym, regime, elapsed)
 
-        # === PATCH: RANGE time-stop exit ===
-        if RANGE_TIME_STOP_ENABLED and regime == "RANGE":
+        # --- Core indicators (needed by multiple paths) ---
+        ema_fast = compute_ema_from_series(prices_series, ema_fast_period).iloc[-1] if len(prices_series) >= 2 else float('nan')
+        ema_slow = compute_ema_from_series(prices_series, ema_slow_period).iloc[-1] if len(prices_series) >= 2 else float('nan')
+        rsi_series = compute_rsi_from_series(prices_series, rsi_period) if len(prices_series) >= 5 else pd.Series([float('nan')])
+        rsi_val = rsi_series.iloc[-1] if len(rsi_series) else float('nan')
+        vwap_series = compute_vwap_from_ticks(prices_series, sizes_series) if len(prices_series) >= 1 else pd.Series([float('nan')])
+        vwap_val = vwap_series.iloc[-1] if len(vwap_series) else float('nan')
+
+        # --- Detect regime locally if not provided ---
+        regime_local = regime or detect_regime(prices_series, sizes_series)
+        CONFIG_E = overlay_exit_params_by_regime(CONFIG, regime_local)
+
+        # --- DRIFT exit debug logging ---
+        if regime_local == "DRIFT":
+            logging.debug(
+                "[DRIFT_SELL][%s] regime=%s last=%.4f ref=%.4f elapsed=%.1fs",
+                sym, regime_local, last_price, ref_entry, elapsed
+            )
+
+        # === RANGE time-stop exit ===
+        if RANGE_TIME_STOP_ENABLED and regime_local == "RANGE":
             if entry_time is not None and elapsed >= RANGE_TIME_STOP_SECONDS:
-                vwap_series = compute_vwap_from_ticks(prices_series, sizes_series)
-                vwap_val = vwap_series.iloc[-1] if len(vwap_series) else float('nan')
                 if not pd.isna(vwap_val):
                     entry_dist = abs(ref_entry - vwap_val)
                     current_dist = abs(last_price - vwap_val)
-                    progress = 1.0 - (current_dist / entry_dist) if entry_dist > 0 else 0
+                    progress = 1.0 - (current_dist / entry_dist) if entry_dist > 0 else 0.0
+
+                    logging.debug(
+                        "[%s] RANGE time-stop check | elapsed=%ds | progress=%.3f | entry_dist=%.5f | current_dist=%.5f",
+                        sym, int(elapsed), progress, entry_dist, current_dist
+                    )
+
                     if progress < RANGE_VWAP_PROGRESS_MIN:
-                        # --- Logging + Audit Trail ---
-                        logging.info("[%s] RANGE time-stop exit triggered | elapsed=%ds | progress=%.2f",
-                                     sym, int(elapsed), progress)
-                        exit_reason_count[regime]["Range time-stop"] += 1
-                        regime_trades[regime] += 1
-                        regime_pnl[regime] += (last_price - ref_entry) * entry_qty.get(sym, 0)
-                        # --- CSV Audit Trail ---
-                        try:
-                            _audit_write_row({
-                                "timestamp": now_ts.strftime("%Y-%m-%d %H:%M:%S"),
-                                "symbol": sym,
-                                "reason": "Range time-stop",
-                                "price": round(last_price, 6),
-                                "ema_fast": (round(float(ema_fast), 6) if pd.notna(ema_fast) else None),
-                                "ema_slow": (round(float(ema_slow), 6) if pd.notna(ema_slow) else None),
-                                "rsi": (round(float(rsi_val), 4) if pd.notna(rsi_val) else None),
-                                "vwap": (round(float(vwap_val), 6) if pd.notna(vwap_val) else None),
-                                "size": int(size) if size is not None else None,
-                                "median_vol": (round(float(median_vol), 4) if median_vol is not None else None),
-                                "bias": bias,
-                                "config_profile": ("BULLISH" if CONFIG is BULLISH_CONFIG else "BEARISH"),
-                                "tp_pct": CONFIG.get("TP_PCT", None),
-                                "sl_multiplier": CONFIG.get("SL_MULTIPLIER", None),
-                                "outcome": "neutral_block",  # or classify later
-                                "window_min": AUDIT_OUTCOME_WINDOW_MIN
-                            })
-                        except Exception as e:
-                            logging.warning("[AUDIT][%s] CSV write failed for Range time-stop: %s", sym, e)
-                        return True, "Range time-stop" 
-
-                # --- Hard exits with regime overlay ---
-        # Detect regime from local series (SIM and LIVE identical)
-        regime = detect_regime(prices_series, sizes_series)
-        CONFIG_E = overlay_exit_params_by_regime(CONFIG, regime)
-
-        # --- DRIFT exit debug logging ---
-        if regime == "DRIFT":
-            logging.debug(
-                "[DRIFT_SELL][%s] regime=%s last=%.4f ref=%.4f elapsed=%.1fs",
-                sym, regime, last_price, ref_entry, elapsed
-            )
+                        logging.info(
+                            "[%s] RANGE time-stop exit triggered | elapsed=%ds | progress=%.2f",
+                            sym, int(elapsed), progress
+                        )
+                        exit_reason_count[regime_local]["Range time-stop"] += 1
+                        regime_trades[regime_local] += 1
+                        regime_pnl[regime_local] += (last_price - ref_entry) * entry_qty.get(sym, 0)
+                        # No CSV here to avoid undefined locals; SELL itself will be audited via exec writer.
+                        return True, "Range time-stop"
 
         # --- LOW_VOL time-stop exit ---
         LOW_VOL_TIME_STOP_ENABLED = True
         LOW_VOL_TIME_STOP_SECONDS = 120
-        
-        low_vol_time_stop_hit = False
-        if LOW_VOL_TIME_STOP_ENABLED and (regime == "LOW_VOL"):
-            if entry_time is not None:
-                low_vol_time_stop_hit = elapsed >= LOW_VOL_TIME_STOP_SECONDS
-        
-        if low_vol_time_stop_hit:
-            return True, "Low-vol time-stop"
+        if LOW_VOL_TIME_STOP_ENABLED and regime_local == "LOW_VOL" and entry_time is not None:
+            if elapsed >= LOW_VOL_TIME_STOP_SECONDS:
+                return True, "Low-vol time-stop"
 
+        # --- TP / SL / emergency SL ---
         tp_price = ref_entry * (1 + CONFIG_E["TP_PCT"])
         tp_hit = last_price >= tp_price
 
@@ -2140,48 +2119,31 @@ def evaluate_sell(sym, last_price, ref_entry, price_deque, size_deque, entry_tim
         dyn_sl_price = ref_entry - (atr_safe * CONFIG_E["SL_MULTIPLIER"])
         sl_hit = last_price <= dyn_sl_price
 
-        # --- SL grace period ---
         allow_sl = (elapsed >= MIN_HOLD_SECONDS)
 
-        # --- Emergency SL (intrabar disaster cut) ---
-        # INSERT: define emergency SL variables exactly where they are used to keep scope local
         try:
-           emergency_sl_pct = float(CONFIG.get("EMERGENCY_SL_PCT", 0.01))  # default 1%
+            emergency_sl_pct = float(CONFIG.get("EMERGENCY_SL_PCT", 0.01))
         except Exception:
             emergency_sl_pct = 0.01
         emergency_sl_hit = (last_price <= ref_entry * (1 - emergency_sl_pct))
-        # NOTE: This mirrors the earlier concept while keeping SIM/LIVE parity and avoids NameError
 
-        # ✅ DEBUG LOG 2: TP/SL‑tarkistus
         logging.debug("[%s] TP check | ref_entry=%.4f | tp_price=%.4f | last=%.4f | TP_hit=%s",
-              sym, ref_entry, tp_price, last_price, tp_hit)
-
+                      sym, ref_entry, tp_price, last_price, tp_hit)
         logging.debug("[%s] SL check | ref_entry=%.4f | atr=%.4f | sl_price=%.4f | last=%.4f | SL_hit=%s",
                       sym, ref_entry, atr_value, dyn_sl_price, last_price, sl_hit)
-
-        # --- Indicators for soft exits ---
-        ema_fast = compute_ema_from_series(prices_series, ema_fast_period).iloc[-1] if len(prices_series) >= 2 else float('nan')
-        ema_slow = compute_ema_from_series(prices_series, ema_slow_period).iloc[-1] if len(prices_series) >= 2 else float('nan')
-        rsi_series = compute_rsi_from_series(prices_series, rsi_period) if len(prices_series) >= 5 else pd.Series([float('nan')])
-        rsi_val = rsi_series.iloc[-1] if len(rsi_series) else float('nan')
-        vwap_series = compute_vwap_from_ticks(prices_series, sizes_series) if len(prices_series) >= 1 else pd.Series([float('nan')])
-        vwap_val = vwap_series.iloc[-1] if len(vwap_series) else float('nan')
 
         # --- Trailing stop activation ---
         if last_price >= ref_entry * (1 + CONFIG["TS_ACTIVATION_BUFFER"]):
             trailing_active[sym] = True
             highest_price_since_entry[sym] = max(highest_price_since_entry.get(sym, ref_entry), last_price)
-
-            # ✅ DEBUG LOG 3: trailing stop aktivointi
             logging.debug("[%s] TS activated | ref_entry=%.4f | last=%.4f | buffer=%.4f",
-                          sym, ref_entry, last_price, CONFIG["TS_ACTIVATION_BUFFER"])        
+                          sym, ref_entry, last_price, CONFIG["TS_ACTIVATION_BUFFER"])
 
-        # --- Trailing stop check (only if activated) ---
         trailing_stop_hit = False
         if trailing_active.get(sym, False):
             try:
                 peak = highest_price_since_entry[sym]
-                drawdown_pct = (peak - last_price) / peak if peak > 0 else 0
+                drawdown_pct = (peak - last_price) / peak if peak > 0 else 0.0
                 trailing_stop_hit = drawdown_pct >= CONFIG["TRAILING_STOP_PCT"]
                 logging.warning(
                     "[DEBUG][%s] Trailing stop check | peak=%.4f | last=%.4f | ref_entry=%.4f | drawdown=%.4f%% | threshold=%.4f%% | Hit=%s",
@@ -2193,9 +2155,7 @@ def evaluate_sell(sym, last_price, ref_entry, price_deque, size_deque, entry_tim
             except Exception as e:
                 logging.error("[ERROR][%s] Trailing stop evaluation failed: %s", sym, e)
                 trailing_stop_hit = False
-
         else:
-            # ✅ DIAGNOSTIIKKA: trailing stop ei vielä aktiivinen
             logging.debug("[%s] TS not active | ref_entry=%.4f | last=%.4f | buffer=%.4f",
                           sym, ref_entry, last_price, CONFIG["TS_ACTIVATION_BUFFER"])
 
@@ -2216,19 +2176,15 @@ def evaluate_sell(sym, last_price, ref_entry, price_deque, size_deque, entry_tim
         # --- RSI fail ---
         rsi_fail = False
         if soft_exits_allowed and not pd.isna(rsi_val):
-            # Tarkista onko RSI rajan ulkopuolella
             if (rsi_val > CONFIG.get("MAX_RSI_FOR_ENTRY", MAX_RSI_FOR_ENTRY)) \
                or (rsi_val < CONFIG.get("MIN_RSI_FOR_ENTRY", MIN_RSI_FOR_ENTRY)):
                 rsi_fail_counter[sym] = rsi_fail_counter.get(sym, 0) + 1
             else:
                 rsi_fail_counter[sym] = 0
-        
-            # Vasta kun esim. 3 peräkkäistä tickiä on ulkopuolella
+
             if rsi_fail_counter[sym] >= CONFIG.get("RSI_FAIL_TICKS", 3):
-                rsi_fail = True    
-            
-            
-        # ✅ DEBUG LOG 4: VWAP, EMA, RSI fail‑tilat
+                rsi_fail = True
+
         logging.debug("[%s] VWAP=%.4f | last=%.4f | vwap_fail=%s", sym, vwap_val, last_price, vwap_fail)
         logging.debug("[%s] EMA fast=%.4f | slow=%.4f | last=%.4f | ema_fail=%s | cond1=%s | cond2=%s",
                       sym, ema_fast, ema_slow, last_price, ema_fail, ema_condition_1, ema_condition_2)
@@ -2237,31 +2193,33 @@ def evaluate_sell(sym, last_price, ref_entry, price_deque, size_deque, entry_tim
         # --- Decision priority ---
         if tp_hit:
             return True, "Take-profit"
+
         if (allow_sl and sl_hit) or emergency_sl_hit:
-            # Trip kill-switch if regime is HIGH_VOL
             try:
-                if regime == "HIGH_VOL":
+                if regime_local == "HIGH_VOL":
                     high_vol_paused[sym] = True
                     logging.warning("[%s] HIGH_VOL paused due to catastrophic SL", sym)
             except Exception:
                 pass
-            return True, "Stop-loss" 
+            return True, "Stop-loss"
+
         if trailing_stop_hit:
             return True, "Trailing stop"
+
         if vwap_fail:
             return True, "VWAP fail"
+
         if ema_fail:
             return True, "EMA fail"
+
         if rsi_fail and (ema_fail or vwap_fail):
             return True, "RSI+EMA/VWAP fail"
 
         # --- Final fallback: Max hold ---
         max_hold_hit = elapsed >= MAX_HOLD_SECONDS if entry_time else False
-
-         # ✅ DEBUG LOG 5: Max hold tarkistus
         logging.debug("[%s] elapsed=%.2f | MAX_HOLD_SECONDS=%d | max_hold_hit=%s",
                       sym, elapsed, MAX_HOLD_SECONDS, max_hold_hit)
-        
+
         if max_hold_hit:
             return True, "Max hold"
 
@@ -2270,6 +2228,7 @@ def evaluate_sell(sym, last_price, ref_entry, price_deque, size_deque, entry_tim
     except Exception as e:
         logging.debug("[%s] Sell evaluation failed: %s", sym, str(e))
         return False, None
+
 
 
 # === AUDIT TRAIL (LIVE) — removable block ===
