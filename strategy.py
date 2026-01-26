@@ -2004,7 +2004,15 @@ def evaluate_entry(sym, price, size, prices_series, sizes_series, ts_val,
     if log_stack and (accept or AUDIT_TRAIL_ENABLED):
         logging.debug(f"[ENTRY_STACK][{sym}] regime={regime} score={score:.2f} threshold={threshold} stack={signal_stack}")
 
-    return (accept, f"Regime={regime} score={score:.2f}", score, signal_stack)
+    return (accept,
+            f"Regime={regime} score={score:.2f}",
+            score,
+            signal_stack,
+            ema_fast,
+            ema_slow,
+            rsi_val,
+            vwap_val
+    )
 
 # === EXIT OVERLAY BY REGIME ===
 def overlay_exit_params_by_regime(CONFIG, regime):
@@ -3237,7 +3245,16 @@ def main():
                         continue
 
                 # --- BUY evaluation ---
-                accept, reason, score, stack = evaluate_entry(
+                (
+                    accept,
+                    reason,
+                    score,
+                    stack,
+                    ema_fast_val,
+                    ema_slow_val,
+                    rsi_val,
+                    vwap_val
+                )= evaluate_entry(
                     symbol,
                     price,
                     size,
@@ -3248,7 +3265,7 @@ def main():
                     inflight_orders,
                     pending_entries,
                     last_exit_time[symbol],
-                    last_trade_attempt,
+                    last_buy_time,
                     CONFIG_SESSION,
                     regime,
                     bias=day_bias,
