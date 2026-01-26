@@ -2101,6 +2101,8 @@ def evaluate_sell(sym, last_price, ref_entry, price_deque, size_deque, entry_tim
                         regime_trades[regime_local] += 1
                         regime_pnl[regime_local] += (last_price - ref_entry) * entry_qty.get(sym, 0)
                         # No CSV here to avoid undefined locals; SELL itself will be audited via exec writer.
+                        logging.debug("[%s] EXIT evaluate_sell | reason=Take-profit | last=%.4f | ref=%.4f | elapsed=%.1f",
+                                      sym, last_price, ref_entry, elapsed)
                         return True, "Range time-stop"
 
         # --- LOW_VOL time-stop exit ---
@@ -2108,6 +2110,8 @@ def evaluate_sell(sym, last_price, ref_entry, price_deque, size_deque, entry_tim
         LOW_VOL_TIME_STOP_SECONDS = 120
         if LOW_VOL_TIME_STOP_ENABLED and regime_local == "LOW_VOL" and entry_time is not None:
             if elapsed >= LOW_VOL_TIME_STOP_SECONDS:
+                logging.debug("[%s] EXIT evaluate_sell | reason=Take-profit | last=%.4f | ref=%.4f | elapsed=%.1f",
+                              sym, last_price, ref_entry, elapsed)
                 return True, "Low-vol time-stop"
 
         # --- TP / SL / emergency SL ---
@@ -2192,6 +2196,8 @@ def evaluate_sell(sym, last_price, ref_entry, price_deque, size_deque, entry_tim
 
         # --- Decision priority ---
         if tp_hit:
+            logging.debug("[%s] EXIT evaluate_sell | reason=Take-profit | last=%.4f | ref=%.4f | elapsed=%.1f",
+                          sym, last_price, ref_entry, elapsed)
             return True, "Take-profit"
 
         if (allow_sl and sl_hit) or emergency_sl_hit:
@@ -2201,18 +2207,28 @@ def evaluate_sell(sym, last_price, ref_entry, price_deque, size_deque, entry_tim
                     logging.warning("[%s] HIGH_VOL paused due to catastrophic SL", sym)
             except Exception:
                 pass
+            logging.debug("[%s] EXIT evaluate_sell | reason=Take-profit | last=%.4f | ref=%.4f | elapsed=%.1f",
+                          sym, last_price, ref_entry, elapsed)
             return True, "Stop-loss"
 
         if trailing_stop_hit:
+            logging.debug("[%s] EXIT evaluate_sell | reason=Take-profit | last=%.4f | ref=%.4f | elapsed=%.1f",
+                          sym, last_price, ref_entry, elapsed)
             return True, "Trailing stop"
 
         if vwap_fail:
+            logging.debug("[%s] EXIT evaluate_sell | reason=Take-profit | last=%.4f | ref=%.4f | elapsed=%.1f",
+                          sym, last_price, ref_entry, elapsed)
             return True, "VWAP fail"
 
         if ema_fail:
+            logging.debug("[%s] EXIT evaluate_sell | reason=Take-profit | last=%.4f | ref=%.4f | elapsed=%.1f",
+                          sym, last_price, ref_entry, elapsed)
             return True, "EMA fail"
 
         if rsi_fail and (ema_fail or vwap_fail):
+            logging.debug("[%s] EXIT evaluate_sell | reason=Take-profit | last=%.4f | ref=%.4f | elapsed=%.1f",
+                          sym, last_price, ref_entry, elapsed)
             return True, "RSI+EMA/VWAP fail"
 
         # --- Final fallback: Max hold ---
@@ -2221,6 +2237,8 @@ def evaluate_sell(sym, last_price, ref_entry, price_deque, size_deque, entry_tim
                       sym, elapsed, MAX_HOLD_SECONDS, max_hold_hit)
 
         if max_hold_hit:
+            logging.debug("[%s] EXIT evaluate_sell | reason=Take-profit | last=%.4f | ref=%.4f | elapsed=%.1f",
+                          sym, last_price, ref_entry, elapsed)
             return True, "Max hold"
 
         return False, None
