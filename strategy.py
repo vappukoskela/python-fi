@@ -2798,6 +2798,11 @@ def main():
             else:
                 accept_exit, reason_exit = (False, None)
 
+            logging.debug(
+                "[SELL_DECISION_SIM][%s] has_entry=%s | accept_exit=%s | reason=%s | regime=%s | last=%.4f | ref=%.4f",
+                symbol, has_entry, accept_exit, reason_exit, regime, price, entry_prices.get(symbol, price)
+            )
+
             # Diagnostic: log evaluate_sell result (SIM only)
             logging.debug("[SIM] evaluate_sell (early) -> accept_exit=%s reason=%s ts=%s",
                           accept_exit, reason_exit, ts_val.strftime("%H:%M:%S"))
