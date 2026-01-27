@@ -1047,6 +1047,27 @@ def safe_market_buy(trade_client_local, symbol, cash_for_buy, order_lock, price_
                 type=OrderType.MARKET, time_in_force=TimeInForce.DAY
             )
             submitted = trade_client_local.submit_order(order)
+
+            # --- CRITICAL: STORE ENTRY CONTEXT ---
+            fill_ts = datetime.now(timezone.utc)
+            entry_times[symbol] = fill_ts
+            entry_prices[symbol] = est_price if est_price else 0.0
+            entry_qty[symbol] = qty
+            
+            highest_price_since_entry[symbol] = entry_prices[symbol]
+            trailing_active[symbol] = False
+            tp1_hit[symbol] = False
+            
+            # Optional but recommended: store regime/bias context
+            entry_configs[symbol] = {
+                "regime": regime_at_entry,
+                "bias": bias_val,
+                "ema_fast": ema_fast_val,
+                "ema_slow": ema_slow_val,
+                "rsi": rsi_val,
+                "vwap": vwap_val,
+            }
+
                 
             # === Continue with BUY logging ===
             buy_row = {
