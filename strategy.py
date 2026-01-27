@@ -201,7 +201,7 @@ TREND_CONFIG = {
     "EMA_DELTA": 0.0003,
     "RSI_FAIL_TICKS": 5,
     # Entry scoring thresholds
-    "ENTRY_SCORE_THRESHOLD":     1.8,
+    "ENTRY_SCORE_THRESHOLD":     1.5,
     # Indicator gate weights
     "WEIGHTS": {
         "ema_trend": 1.0,      # EMA_fast > EMA_slow + slope positive
