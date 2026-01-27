@@ -192,13 +192,13 @@ DRIFT_CONFIG = {
 
 TREND_CONFIG = {
     "TP_PCT": 0.0020,
-    "SL_MULTIPLIER": 1.0,
+    "SL_MULTIPLIER": 0.9,
     "TS_ACTIVATION_BUFFER": 0.003,
     "TRAILING_STOP_PCT": 0.005,
     "MAX_TRADES": 6,
     "MAX_LOSS_DAY": 1.2,
-    "VWAP_DELTA": 0.0025,
-    "EMA_DELTA": 0.0003,
+    "VWAP_DELTA": 0.0018,
+    "EMA_DELTA": 0.00022,
     "RSI_FAIL_TICKS": 5,
     # Entry scoring thresholds
     "ENTRY_SCORE_THRESHOLD":     1.5,
@@ -206,13 +206,13 @@ TREND_CONFIG = {
     "WEIGHTS": {
         "ema_trend": 1.0,      # EMA_fast > EMA_slow + slope positive
         "vwap_above": 1.0,     # location above VWAP
-        "macd_momentum": 1.0,  # MACD > signal, rising histogram
+        "macd_momentum": 0.7,  # MACD > signal, rising histogram
         "vol_confirm": 0.7,    # volume spike vs median
         "pullback_ok": 0.6,     # pullback to EMA_slow/VWAP then re-accel
         "rsi_ok": 0.7   # new weight
     },
     # pullback tolerances (distance normalized by price)
-    "PULLBACK_TOL": 0.0010,
+    "PULLBACK_TOL": 0.0015,
     "EMERGENCY_SL_PCT": 0.0045 # ~0.45% hard stop
 }
 
