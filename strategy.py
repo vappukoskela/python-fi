@@ -2928,6 +2928,9 @@ def main():
                                       
             positions_map = {} if RUN_MODE in ["SIM", "AGG_SIM"] else get_positions_map(trade_client)
 
+            # >>> INSERT THIS LINE HERE <<<
+            logging.info("[LOOP] Calling reconcile_positions for %d symbols", len(symbols))
+
             reconcile_positions(
                 trade_client_local=trade_client,
                 symbols=symbols,
