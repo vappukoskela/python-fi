@@ -1318,6 +1318,12 @@ def reconcile_positions(trade_client_local,
     if not RECONCILIATION_ENABLED:
         return
 
+    # >>> INSERT LOGGING HERE <<<
+    logging.info(
+        "[RECON_START] RUN_MODE=%s | RECONCILIATION_ENABLED=%s | RECON_FORCE_SELL_IF_ORPHAN=%s",
+        RUN_MODE, RECONCILIATION_ENABLED, RECON_FORCE_SELL_IF_ORPHAN
+    )
+
     now_ts = datetime.now(timezone.utc)
 
     for sym in symbols:
@@ -1386,7 +1392,8 @@ def reconcile_positions(trade_client_local,
 
         logging.debug(
             "[RECON_SELL_DECISION][%s] should_exit=%s | reason=%s | last=%.4f | ref=%.4f",
-            sym, sell, reason, last_price, ref_entry
+            sym, sell, reason, last_price, ref_entry,
+            len(prices_series), len(sizes_series), getattr(config, "name", str(config))
         )
  
 
