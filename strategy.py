@@ -945,7 +945,19 @@ def _status_is(status, target):
     except Exception:
         return False
 
-def safe_market_buy(trade_client_local, symbol, cash_for_buy, order_lock, price_deques, size_deques, bias=None):
+def safe_market_buy(
+    trade_client_local,
+    symbol,
+    cash_for_buy,
+    order_lock,
+    price_deques,
+    size_deques,
+    entry_times,
+    entry_prices,
+    entry_qty,
+    entry_configs,
+    bias=None
+):
     # --- SESSION GATE: block early and late entries ---
     now_ts = datetime.now(timezone.utc)
     minutes = _session_minutes(now_ts)
