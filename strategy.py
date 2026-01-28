@@ -3520,15 +3520,20 @@ def main():
 
                     # --- Execute BUY ---
                     safe_market_buy(
-                        trade_client,
-                        symbol,
-                        max_loop_budget,
-                        order_lock,
-                        price_deques,
-                        size_deques,
+                        trade_client_local=trade_client,
+                        symbol=symbol,
+                        cash_for_buy=max_loop_budget,
+                        order_lock=order_lock,
+                        price_deques=price_deques,
+                        size_deques=size_deques,
+                        entry_times=entry_times,
+                        entry_prices=entry_prices,
+                        entry_qty=entry_qty,
+                        entry_configs=entry_configs,
                         bias=day_bias
                     )
-
+                  
+                   
             # --- Loop pacing ---
             elapsed = (datetime.now(timezone.utc) - loop_start).total_seconds()
             if elapsed < LOOP_SLEEP:
