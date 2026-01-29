@@ -1169,10 +1169,10 @@ def safe_market_buy(
                     except Exception as e:
                         logging.warning("Failed to write BUY to audit file: %s", e)
                         
-                return submitted
-            except Exception as e:
-                logging.exception("safe_market_buy error for %s: %s", symbol, e)
-                return None
+        return submitted
+    except Exception as e:
+        logging.exception("safe_market_buy error for %s: %s", symbol, e)
+        return None
 
 def _order_status_wait(trade_client_local, order_id, sym, max_retries=RECON_POLL_RETRIES, sleep_s=RECON_POLL_SLEEP):
     status = None
