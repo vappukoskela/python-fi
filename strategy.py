@@ -3535,6 +3535,7 @@ def main():
                     # --- Execute BUY ---
                     logging.info("[LOOP_BUY_CALL] calling safe_market_buy for %s", symbol)
                     logging.debug("[DICT_ID_CALLSITE] entry_times id=%s entry_prices id=%s entry_qty id=%s entry_configs id=%s",
+                                  id(entry_times), id(entry_prices), id(entry_qty), id(entry_configs))
                     
                     safe_market_buy(
                         trade_client_local=trade_client,
