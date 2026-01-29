@@ -1313,15 +1313,22 @@ def force_liquidation_at_cutoff(trade_client_local, symbols, cutoff_hour_eet=22,
                     logging.exception("%s - EOD forced sell error: %s", s, e)
 
 
-def reconcile_positions(trade_client_local,
-                        symbols,
-                        positions_map,
-                        price_deques,
-                        size_deques,
-                        entry_times,
-                        entry_prices,
-                        entry_qty,
-                        entry_configs):
+def reconcile_positions(
+    trade_client_local,                    
+    symbols,
+    positions_map,
+    price_deques,
+    size_deques,
+    entry_times,
+    entry_prices,
+    entry_qty,
+    entry_configs
+):
+    logging.info("[RECON_START] reconcile_positions start; symbols=%d", len(symbols))
+    logging.info("[RECON_DEBUG] entry_times keys: %s", list(entry_times.keys()))
+    logging.info("[RECON_DEBUG] entry_prices keys: %s", list(entry_prices.keys()))
+    logging.debug("[DICT_ID_RECON] entry_times id=%s entry_prices id=%s entry_qty id=%s entry_configs id=%s",
+                  id(entry_times), id(entry_prices), id(entry_qty), id(entry_configs))
     """
     Ensures local state and Alpaca positions are consistent, and forces sell if exit logic says so.
     - Reattaches orphan positions (no local context).
