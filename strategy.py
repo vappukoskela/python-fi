@@ -3544,12 +3544,6 @@ def main():
         except Exception as e:
             logging.exception(f"[LIVE LOOP] error: {e}")
             time.sleep(1.0)
-  
-
-   
-      
-
-                   
-       
+         
 if __name__ == "__main__":
     main()
