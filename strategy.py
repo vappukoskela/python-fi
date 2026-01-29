@@ -958,6 +958,11 @@ def safe_market_buy(
     entry_configs,
     bias=None
 ):
+    logging.info("[BUY_START] safe_market_buy start for %s", symbol)
+    logging.debug("[DICT_ID_BUY] entry_times id=%s entry_prices id=%s entry_qty id=%s entry_configs id=%s",
+                  id(entry_times), id(entry_prices), id(entry_qty), id(entry_configs))
+
+    
     # --- SESSION GATE: block early and late entries ---
     now_ts = datetime.now(timezone.utc)
     minutes = _session_minutes(now_ts)
