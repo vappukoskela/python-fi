@@ -979,201 +979,200 @@ def safe_market_buy(
             logging.info("%s - BUY blocked: session minutes=%d >= %d (final 30 min)",
                          symbol, minutes, SESSION_LENGTH_MIN - 30)
             return None
-
-    
-    
-    with order_lock:
-        try:
-
+   
+  
+        with order_lock:
             try:
-                resp = stock_data_client.get_stock_latest_trade(
-                    StockLatestTradeRequest(symbol_or_symbols=symbol)
-                )
-                est_price = float(resp[symbol].price)
-            except Exception:
-                est_price = None
-            if est_price and est_price > 0:
-                qty = int((cash_for_buy * BUY_CASH_BUFFER) // est_price)
-            else:
-                qty = 1
-            if qty <= 0 or (est_price and qty * est_price < MIN_TRADE_USD):
-                logging.debug("Computed buy qty too small for %s (qty=%s est_price=%s cash=%.2f)",
-                              symbol, qty, est_price, cash_for_buy)
-                return None
-            
-            # Defensive guard: ensure deques exist and are non-empty
-            if symbol not in price_deques or symbol not in size_deques:
-                logging.debug("Missing deque data for %s; using empty series for indicators", symbol)
-                return None
-            
-            prices_series = pd.Series(price_deques[symbol])
-            sizes_series = pd.Series(size_deques[symbol])
-                
-            # Debug short-series early so we can correlate with buy attempts
-            if prices_series.empty:
-                logging.debug("Short price series for %s at %s", symbol, datetime.now(timezone.utc))
-                return None
 
-            # === Compute indicators (correct order) ===
-                
-            ema_fast_val = _safe_last(compute_ema_from_series(prices_series, EMA_FAST))
-            ema_slow_val = _safe_last(compute_ema_from_series(prices_series, EMA_SLOW))
-
-            # FULL RSI SERIES (required by gate_entry)
-            rsi_series = compute_rsi_from_series(prices_series, RSI_PERIOD)
-            rsi_val = _safe_last(rsi_series)
-            
-            vwap_val = _safe_last(compute_vwap_from_ticks(prices_series, sizes_series))
-            regime_at_entry = detect_regime(prices_series, sizes_series)
-            
-            
-            bias_val = bias if bias is not None else globals().get("day_bias", "unknown")
-
-            # === NEW: Market-trend gating ===
-            market_trend_state = globals().get("market_trend_state", "unknown")
-        
-            allowed, gate_reason = gate_entry(
-                symbol=symbol,
-                regime=regime_at_entry,
-                prices_series=prices_series,
-                sizes_series=sizes_series,
-                vwap_val=vwap_val,
-                rsi_series=rsi_series, # <-- NOW DEFINED
-                market_trend_state=market_trend_state
-            )
-
-            if not allowed:
-                logging.info("%s - BUY blocked by gate: regime=%s market_trend=%s reason=%s",
-                             symbol, regime_at_entry, market_trend_state, gate_reason)
                 try:
-                    log_block_event(symbol, regime_at_entry, gate_reason, score=0.0)
+                    resp = stock_data_client.get_stock_latest_trade(
+                        StockLatestTradeRequest(symbol_or_symbols=symbol)
+                    )
+                    est_price = float(resp[symbol].price)
                 except Exception:
-                    pass
-                return None
-
-            # --- ONLY NOW submit the order ---
-            try:
-                resp = stock_data_client.get_stock_latest_trade(
-                    StockLatestTradeRequest(symbol_or_symbols=symbol)
-                )
-                est_price = float(resp[symbol].price)
-            except Exception:
-                est_price = None
-
-
-            
-            # submit market order
-            order = MarketOrderRequest(
-                symbol=symbol, qty=qty, side=OrderSide.BUY,
-                type=OrderType.MARKET, time_in_force=TimeInForce.DAY
-            )
-            submitted = trade_client_local.submit_order(order)
-            order_id = getattr(submitted, "id", None)
-            logging.info("[BUY_ORDER_SUBMITTED] %s order_id=%s response=%s", symbol, order_id, submitted)
-            
-            # --- poll/wait for fill (short timeout) ---
-            filled_qty = 0
-            filled_price = None
-            poll_start = datetime.now(timezone.utc)
-            POLL_TIMEOUT = 30  # seconds, adjust if you want longer
-            while (datetime.now(timezone.utc) - poll_start).total_seconds() < POLL_TIMEOUT:
-                try:
-                    current = trade_client_local.get_order(order_id)
-                    # Alpaca SDK fields may be strings; coerce safely
-                    filled_qty = float(getattr(current, "filled_qty", 0) or 0)
-                    # prefer filled_avg_price if available
-                    filled_price = getattr(current, "filled_avg_price", None)
-                    if filled_price is not None:
-                        try:
-                            filled_price = float(filled_price)
-                        except Exception:
-                            pass
-                except Exception:
-                    # transient API error — keep polling
-                    pass
-            
-                if filled_qty and filled_qty > 0:
-                    break
-                time.sleep(0.5)
-            
-            if not filled_qty or filled_qty == 0:
-                logging.warning("[BUY_NOT_FILLED] %s order not filled within %ds; order_id=%s", symbol, POLL_TIMEOUT, order_id)
-                # Optionally cancel order here:
-                # try: trade_client_local.cancel_order(order_id) except: pass
-                return submitted
-            
-            # Use a consistent timestamp type for entry_times (choose datetime or int)
-            fill_ts = datetime.now(timezone.utc)
-            logging.info("[BUY_FILLED] %s filled_qty=%s filled_price=%s order_id=%s", symbol, filled_qty, filled_price, order_id)
-            
-            # --- write local entry context (inside lock) ---
-            entry_config_dict = {
-                "regime": regime_at_entry,
-                "bias": bias_val,
-                "ema_fast": ema_fast_val,
-                "ema_slow": ema_slow_val,
-                "rsi": rsi_val,
-                "vwap": vwap_val,
-                "order_id": order_id,
-                "est_price": est_price
-            }
-            
-            entry_times[symbol] = fill_ts
-            entry_prices[symbol] = filled_price if filled_price is not None else (est_price if est_price else 0.0)
-            entry_qty[symbol] = filled_qty
-            entry_configs[symbol] = entry_config_dict
-            
-            # maintain your trailing/TP state
-            highest_price_since_entry[symbol] = entry_prices[symbol]
-            trailing_active[symbol] = False
-            tp1_hit[symbol] = False
-            
-            logging.info(
-                "[BUY_CONTEXT_WRITTEN] %s entry_times=%s entry_prices=%s entry_qty=%s entry_configs=%s",
-                symbol,
-                entry_times.get(symbol),
-                entry_prices.get(symbol),
-                entry_qty.get(symbol),
-                entry_configs.get(symbol)
-            )
-                              
-            # === Continue with BUY logging ===
-            buy_row = {
-                "timestamp": datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M:%S"),
-                "symbol": symbol,
-                "action": "BUY",
-                "price": est_price if est_price else 0.0,
-                "reason": "entry",   # or use evaluate_entry reason if available
-                "bias": bias_val,
-                "pnl": None,
-                "ema_fast": ema_fast_val,
-                "ema_slow": ema_slow_val,
-                "rsi": rsi_val,
-                "vwap": vwap_val,
-                "regime": regime_at_entry,
-                "code_version": CODE_VERSION
-            }
-            exec_rows.append(buy_row)
-            write_exec_row_immediate(exec_rows[-1], symbol, RUN_MODE)
-                                    
-            # Optional lightweight execution audit
-            if EXEC_AUDIT_ENABLED:
-                try:
-                    import csv
-                    fieldnames = ["timestamp","symbol","action","price","reason","bias","pnl",
-                                  "ema_fast","ema_slow","rsi","vwap","regime","code_version"]
-                    with open(EXEC_AUDIT_FILE, "a", newline="") as f:
-                        writer = csv.DictWriter(f, fieldnames=fieldnames)
-                        if f.tell() == 0:
-                            writer.writeheader()
-                        writer.writerow(buy_row)
-                except Exception as e:
-                    logging.warning("Failed to write BUY to audit file: %s", e)
+                    est_price = None
+                if est_price and est_price > 0:
+                    qty = int((cash_for_buy * BUY_CASH_BUFFER) // est_price)
+                else:
+                    qty = 1
+                if qty <= 0 or (est_price and qty * est_price < MIN_TRADE_USD):
+                    logging.debug("Computed buy qty too small for %s (qty=%s est_price=%s cash=%.2f)",
+                                  symbol, qty, est_price, cash_for_buy)
+                    return None
+                
+                # Defensive guard: ensure deques exist and are non-empty
+                if symbol not in price_deques or symbol not in size_deques:
+                    logging.debug("Missing deque data for %s; using empty series for indicators", symbol)
+                    return None
+                
+                prices_series = pd.Series(price_deques[symbol])
+                sizes_series = pd.Series(size_deques[symbol])
                     
-            return submitted
-        except Exception as e:
-            logging.exception("safe_market_buy error for %s: %s", symbol, e)
-            return None
+                # Debug short-series early so we can correlate with buy attempts
+                if prices_series.empty:
+                    logging.debug("Short price series for %s at %s", symbol, datetime.now(timezone.utc))
+                    return None
+    
+                # === Compute indicators (correct order) ===
+                    
+                ema_fast_val = _safe_last(compute_ema_from_series(prices_series, EMA_FAST))
+                ema_slow_val = _safe_last(compute_ema_from_series(prices_series, EMA_SLOW))
+    
+                # FULL RSI SERIES (required by gate_entry)
+                rsi_series = compute_rsi_from_series(prices_series, RSI_PERIOD)
+                rsi_val = _safe_last(rsi_series)
+                
+                vwap_val = _safe_last(compute_vwap_from_ticks(prices_series, sizes_series))
+                regime_at_entry = detect_regime(prices_series, sizes_series)
+                
+                
+                bias_val = bias if bias is not None else globals().get("day_bias", "unknown")
+    
+                # === NEW: Market-trend gating ===
+                market_trend_state = globals().get("market_trend_state", "unknown")
+            
+                allowed, gate_reason = gate_entry(
+                    symbol=symbol,
+                    regime=regime_at_entry,
+                    prices_series=prices_series,
+                    sizes_series=sizes_series,
+                    vwap_val=vwap_val,
+                    rsi_series=rsi_series, # <-- NOW DEFINED
+                    market_trend_state=market_trend_state
+                )
+    
+                if not allowed:
+                    logging.info("%s - BUY blocked by gate: regime=%s market_trend=%s reason=%s",
+                                 symbol, regime_at_entry, market_trend_state, gate_reason)
+                    try:
+                        log_block_event(symbol, regime_at_entry, gate_reason, score=0.0)
+                    except Exception:
+                        pass
+                    return None
+    
+                # --- ONLY NOW submit the order ---
+                try:
+                    resp = stock_data_client.get_stock_latest_trade(
+                        StockLatestTradeRequest(symbol_or_symbols=symbol)
+                    )
+                    est_price = float(resp[symbol].price)
+                except Exception:
+                    est_price = None
+    
+    
+                
+                # submit market order
+                order = MarketOrderRequest(
+                    symbol=symbol, qty=qty, side=OrderSide.BUY,
+                    type=OrderType.MARKET, time_in_force=TimeInForce.DAY
+                )
+                submitted = trade_client_local.submit_order(order)
+                order_id = getattr(submitted, "id", None)
+                logging.info("[BUY_ORDER_SUBMITTED] %s order_id=%s response=%s", symbol, order_id, submitted)
+                
+                # --- poll/wait for fill (short timeout) ---
+                filled_qty = 0
+                filled_price = None
+                poll_start = datetime.now(timezone.utc)
+                POLL_TIMEOUT = 30  # seconds, adjust if you want longer
+                while (datetime.now(timezone.utc) - poll_start).total_seconds() < POLL_TIMEOUT:
+                    try:
+                        current = trade_client_local.get_order(order_id)
+                        # Alpaca SDK fields may be strings; coerce safely
+                        filled_qty = float(getattr(current, "filled_qty", 0) or 0)
+                        # prefer filled_avg_price if available
+                        filled_price = getattr(current, "filled_avg_price", None)
+                        if filled_price is not None:
+                            try:
+                                filled_price = float(filled_price)
+                            except Exception:
+                                pass
+                    except Exception:
+                        # transient API error — keep polling
+                        pass
+                
+                    if filled_qty and filled_qty > 0:
+                        break
+                    time.sleep(0.5)
+                
+                if not filled_qty or filled_qty == 0:
+                    logging.warning("[BUY_NOT_FILLED] %s order not filled within %ds; order_id=%s", symbol, POLL_TIMEOUT, order_id)
+                    # Optionally cancel order here:
+                    # try: trade_client_local.cancel_order(order_id) except: pass
+                    return submitted
+                
+                # Use a consistent timestamp type for entry_times (choose datetime or int)
+                fill_ts = datetime.now(timezone.utc)
+                logging.info("[BUY_FILLED] %s filled_qty=%s filled_price=%s order_id=%s", symbol, filled_qty, filled_price, order_id)
+                
+                # --- write local entry context (inside lock) ---
+                entry_config_dict = {
+                    "regime": regime_at_entry,
+                    "bias": bias_val,
+                    "ema_fast": ema_fast_val,
+                    "ema_slow": ema_slow_val,
+                    "rsi": rsi_val,
+                    "vwap": vwap_val,
+                    "order_id": order_id,
+                    "est_price": est_price
+                }
+                
+                entry_times[symbol] = fill_ts
+                entry_prices[symbol] = filled_price if filled_price is not None else (est_price if est_price else 0.0)
+                entry_qty[symbol] = filled_qty
+                entry_configs[symbol] = entry_config_dict
+                
+                # maintain your trailing/TP state
+                highest_price_since_entry[symbol] = entry_prices[symbol]
+                trailing_active[symbol] = False
+                tp1_hit[symbol] = False
+                
+                logging.info(
+                    "[BUY_CONTEXT_WRITTEN] %s entry_times=%s entry_prices=%s entry_qty=%s entry_configs=%s",
+                    symbol,
+                    entry_times.get(symbol),
+                    entry_prices.get(symbol),
+                    entry_qty.get(symbol),
+                    entry_configs.get(symbol)
+                )
+                                  
+                # === Continue with BUY logging ===
+                buy_row = {
+                    "timestamp": datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M:%S"),
+                    "symbol": symbol,
+                    "action": "BUY",
+                    "price": est_price if est_price else 0.0,
+                    "reason": "entry",   # or use evaluate_entry reason if available
+                    "bias": bias_val,
+                    "pnl": None,
+                    "ema_fast": ema_fast_val,
+                    "ema_slow": ema_slow_val,
+                    "rsi": rsi_val,
+                    "vwap": vwap_val,
+                    "regime": regime_at_entry,
+                    "code_version": CODE_VERSION
+                }
+                exec_rows.append(buy_row)
+                write_exec_row_immediate(exec_rows[-1], symbol, RUN_MODE)
+                                        
+                # Optional lightweight execution audit
+                if EXEC_AUDIT_ENABLED:
+                    try:
+                        import csv
+                        fieldnames = ["timestamp","symbol","action","price","reason","bias","pnl",
+                                      "ema_fast","ema_slow","rsi","vwap","regime","code_version"]
+                        with open(EXEC_AUDIT_FILE, "a", newline="") as f:
+                            writer = csv.DictWriter(f, fieldnames=fieldnames)
+                            if f.tell() == 0:
+                                writer.writeheader()
+                            writer.writerow(buy_row)
+                    except Exception as e:
+                        logging.warning("Failed to write BUY to audit file: %s", e)
+                        
+                return submitted
+            except Exception as e:
+                logging.exception("safe_market_buy error for %s: %s", symbol, e)
+                return None
 
 def _order_status_wait(trade_client_local, order_id, sym, max_retries=RECON_POLL_RETRIES, sleep_s=RECON_POLL_SLEEP):
     status = None
