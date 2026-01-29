@@ -961,23 +961,24 @@ def safe_market_buy(
     logging.info("[BUY_START] safe_market_buy start for %s", symbol)
     logging.debug("[DICT_ID_BUY] entry_times id=%s entry_prices id=%s entry_qty id=%s entry_configs id=%s",
                   id(entry_times), id(entry_prices), id(entry_qty), id(entry_configs))
+    symbol = symbol.strip().upper()
 
+    try:          
+        # --- SESSION GATE: block early and late entries ---
+        now_ts = datetime.now(timezone.utc)
+        minutes = _session_minutes(now_ts)
+        SESSION_LENGTH_MIN = 390 # 6.5h US cash session
     
-    # --- SESSION GATE: block early and late entries ---
-    now_ts = datetime.now(timezone.utc)
-    minutes = _session_minutes(now_ts)
-    SESSION_LENGTH_MIN = 390 # 6.5h US cash session
-    
-    # Block first X minutes after open
-    if minutes < 30:
-        logging.info("%s - BUY blocked: session minutes=%d < 30", symbol, minutes)       
-        return None
+        # Block first X minutes after open
+        if minutes < 30:
+            logging.info("%s - BUY blocked: session minutes=%d < 30", symbol, minutes)       
+            return None
 
-    # Block last 30 minutes before close
-    if minutes >= SESSION_LENGTH_MIN - 30:
-        logging.info("%s - BUY blocked: session minutes=%d >= %d (final 30 min)",
-                     symbol, minutes, SESSION_LENGTH_MIN - 30)
-        return None
+        # Block last 30 minutes before close
+        if minutes >= SESSION_LENGTH_MIN - 30:
+            logging.info("%s - BUY blocked: session minutes=%d >= %d (final 30 min)",
+                         symbol, minutes, SESSION_LENGTH_MIN - 30)
+            return None
 
     
     
@@ -1058,34 +1059,84 @@ def safe_market_buy(
                 est_price = float(resp[symbol].price)
             except Exception:
                 est_price = None
-                
+
+
+            
+            # submit market order
             order = MarketOrderRequest(
                 symbol=symbol, qty=qty, side=OrderSide.BUY,
                 type=OrderType.MARKET, time_in_force=TimeInForce.DAY
             )
             submitted = trade_client_local.submit_order(order)
-
-            # --- CRITICAL: STORE ENTRY CONTEXT ---
+            order_id = getattr(submitted, "id", None)
+            logging.info("[BUY_ORDER_SUBMITTED] %s order_id=%s response=%s", symbol, order_id, submitted)
+            
+            # --- poll/wait for fill (short timeout) ---
+            filled_qty = 0
+            filled_price = None
+            poll_start = datetime.now(timezone.utc)
+            POLL_TIMEOUT = 30  # seconds, adjust if you want longer
+            while (datetime.now(timezone.utc) - poll_start).total_seconds() < POLL_TIMEOUT:
+                try:
+                    current = trade_client_local.get_order(order_id)
+                    # Alpaca SDK fields may be strings; coerce safely
+                    filled_qty = float(getattr(current, "filled_qty", 0) or 0)
+                    # prefer filled_avg_price if available
+                    filled_price = getattr(current, "filled_avg_price", None)
+                    if filled_price is not None:
+                        try:
+                            filled_price = float(filled_price)
+                        except Exception:
+                            pass
+                except Exception:
+                    # transient API error — keep polling
+                    pass
+            
+                if filled_qty and filled_qty > 0:
+                    break
+                time.sleep(0.5)
+            
+            if not filled_qty or filled_qty == 0:
+                logging.warning("[BUY_NOT_FILLED] %s order not filled within %ds; order_id=%s", symbol, POLL_TIMEOUT, order_id)
+                # Optionally cancel order here:
+                # try: trade_client_local.cancel_order(order_id) except: pass
+                return submitted
+            
+            # Use a consistent timestamp type for entry_times (choose datetime or int)
             fill_ts = datetime.now(timezone.utc)
-            entry_times[symbol] = fill_ts
-            entry_prices[symbol] = est_price if est_price else 0.0
-            entry_qty[symbol] = qty
+            logging.info("[BUY_FILLED] %s filled_qty=%s filled_price=%s order_id=%s", symbol, filled_qty, filled_price, order_id)
             
-            highest_price_since_entry[symbol] = entry_prices[symbol]
-            trailing_active[symbol] = False
-            tp1_hit[symbol] = False
-            
-            # Optional but recommended: store regime/bias context
-            entry_configs[symbol] = {
+            # --- write local entry context (inside lock) ---
+            entry_config_dict = {
                 "regime": regime_at_entry,
                 "bias": bias_val,
                 "ema_fast": ema_fast_val,
                 "ema_slow": ema_slow_val,
                 "rsi": rsi_val,
                 "vwap": vwap_val,
+                "order_id": order_id,
+                "est_price": est_price
             }
-
-                
+            
+            entry_times[symbol] = fill_ts
+            entry_prices[symbol] = filled_price if filled_price is not None else (est_price if est_price else 0.0)
+            entry_qty[symbol] = filled_qty
+            entry_configs[symbol] = entry_config_dict
+            
+            # maintain your trailing/TP state
+            highest_price_since_entry[symbol] = entry_prices[symbol]
+            trailing_active[symbol] = False
+            tp1_hit[symbol] = False
+            
+            logging.info(
+                "[BUY_CONTEXT_WRITTEN] %s entry_times=%s entry_prices=%s entry_qty=%s entry_configs=%s",
+                symbol,
+                entry_times.get(symbol),
+                entry_prices.get(symbol),
+                entry_qty.get(symbol),
+                entry_configs.get(symbol)
+            )
+                              
             # === Continue with BUY logging ===
             buy_row = {
                 "timestamp": datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M:%S"),
