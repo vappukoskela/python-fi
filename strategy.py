@@ -2610,6 +2610,8 @@ def audit_rejection_live(sym, ts_val, price, size, ema_fast, ema_slow,
 
 # === MAIN ===
 # === Strategy parameters ===
+logging.warning(">>> MAIN LOOP IS RUNNING FROM THIS FILE <<<")
+    
 RSI_PERIOD = 14
 RSI_COOL_THRESHOLD = 3
 MAX_HOLD_SECONDS = 999999   # example: x minutes
