@@ -1155,19 +1155,19 @@ def safe_market_buy(
                 exec_rows.append(buy_row)
                 write_exec_row_immediate(exec_rows[-1], symbol, RUN_MODE)
                                         
-                # Optional lightweight execution audit
-                if EXEC_AUDIT_ENABLED:
-                    try:
-                        import csv
-                        fieldnames = ["timestamp","symbol","action","price","reason","bias","pnl",
-                                      "ema_fast","ema_slow","rsi","vwap","regime","code_version"]
-                        with open(EXEC_AUDIT_FILE, "a", newline="") as f:
-                            writer = csv.DictWriter(f, fieldnames=fieldnames)
-                            if f.tell() == 0:
-                                writer.writeheader()
-                            writer.writerow(buy_row)
-                    except Exception as e:
-                        logging.warning("Failed to write BUY to audit file: %s", e)
+        # Optional lightweight execution audit
+        if EXEC_AUDIT_ENABLED:
+            try:
+                import csv
+                fieldnames = ["timestamp","symbol","action","price","reason","bias","pnl",
+                                "ema_fast","ema_slow","rsi","vwap","regime","code_version"]
+                with open(EXEC_AUDIT_FILE, "a", newline="") as f:
+                    writer = csv.DictWriter(f, fieldnames=fieldnames)
+                    if f.tell() == 0:
+                        writer.writeheader()
+                    writer.writerow(buy_row)
+            except Exception as e:
+                logging.warning("Failed to write BUY to audit file: %s", e)
                         
         return submitted
     except Exception as e:
