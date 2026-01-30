@@ -1086,8 +1086,8 @@ def safe_market_buy(
                         if raw_filled_price is not None:
                             try:
                                 filled_price = float(raw_filled_price)
-                           except Exception:
-                               filled_price = None
+                            except Exception:
+                                filled_price = None
                             
                         # treat explicit status as authoritative
                         if last_status in ("filled", "partially_filled") and filled_qty > 0:
