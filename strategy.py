@@ -1062,20 +1062,39 @@ def safe_market_buy(
                 # --- poll/wait for fill (short timeout) ---
                 filled_qty = 0
                 filled_price = None
+                last_status = None
                 poll_start = datetime.now(timezone.utc)
-                POLL_TIMEOUT = 30  # seconds
+                POLL_TIMEOUT = 90  # seconds
                 while (datetime.now(timezone.utc) - poll_start).total_seconds() < POLL_TIMEOUT:
                     try:
                         current = trade_client_local.get_order(order_id)
-                        filled_qty = float(getattr(current, "filled_qty", 0) or 0)
-                        filled_price = getattr(current, "filled_avg_price", None)
-                        if filled_price is not None:
+                        last_status = getattr(current, "status", None)
+                        raw_filled_qty = getattr(current, "filled_qty", 0) or 0
+                        raw_filled_price = getattr(current, "filled_avg_price", None)
+
+                        # log once per loop so we see what Alpaca is telling us
+                        logging.debug(
+                            "[ORDER_STATUS] %s status=%s filled_qty=%s filled_avg_price=%s",
+                            symbol, last_status, raw_filled_qty, raw_filled_price
+                        )
+
+                        try:
+                            filled_qty = float(raw_filled_qty)
+                        except Exception:
+                            filled_qty = 0.0
+
+                        if raw_filled_price is not None:
                             try:
-                                filled_price = float(filled_price)
-                            except Exception:
-                                pass
-                    except Exception:
-                        pass
+                                filled_price = float(raw_filled_price)
+                           except Exception:
+                               filled_price = None
+                            
+                        # treat explicit status as authoritative
+                        if last_status in ("filled", "partially_filled") and filled_qty > 0:
+                            break
+                    
+                    except Exception as e:
+                        logging.debug("[ORDER_STATUS_ERROR] %s polling error: %s", symbol, e)
 
                     if filled_qty and filled_qty > 0:
                         break
