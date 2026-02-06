@@ -1100,79 +1100,89 @@ def safe_market_buy(
                         break
                     time.sleep(0.5)
 
+                # --- handle timeout or missing fill ---
                 if not filled_qty or filled_qty == 0:
-                    logging.warning("[BUY_NOT_FILLED] %s order not filled within %ds; order_id=%s", symbol, POLL_TIMEOUT, order_id)
+                    logging.warning(
+                        "[BUY_NOT_FILLED] %s order not confirmed filled within %ds; order_id=%s last_status=%s "
+                        "-- writing inferred context so exits can still function",
+                        symbol, POLL_TIMEOUT, order_id, last_status
+                    )
+
+                    # Use current time as inferred fill timestamp
+                    fill_ts = datetime.now(timezone.utc)
+
+                    # Fallback: use requested qty and est_price as our best guess
+                    inferred_price = est_price if est_price else 0.0
+                    inferred_qty = qty
+
+                    # Build inferred entry config
+                    entry_config_dict = {
+                        "regime": regime_at_entry,
+                        "bias": bias_val,
+                        "ema_fast": ema_fast_val,
+                        "ema_slow": ema_slow_val,
+                        "rsi": rsi_val,
+                        "vwap": vwap_val,
+                        "order_id": order_id,
+                        "est_price": est_price,
+                        "fill_inferred": True,
+                    }
+
+                    # Write inferred context
+                    entry_times[symbol] = fill_ts
+                    entry_prices[symbol] = inferred_price
+                    entry_qty[symbol] = inferred_qty
+                    entry_configs[symbol] = entry_config_dict
+
+                    # Maintain trailing/TP state
+                    highest_price_since_entry[symbol] = entry_prices[symbol]
+                    trailing_active[symbol] = False
+                    tp1_hit[symbol] = False
+
+                    logging.info(
+                        "[BUY_CONTEXT_WRITTEN_INFERRED] %s entry_times=%s entry_prices=%s entry_qty=%s entry_configs=%s",
+                        symbol,
+                        entry_times.get(symbol),
+                        entry_prices.get(symbol),
+                        entry_qty.get(symbol),
+                        entry_configs.get(symbol)
+                    )
+
+                    # Log BUY row for inferred fill
+                    buy_row = {
+                        "timestamp": datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M:%S"),
+                        "symbol": symbol,
+                        "action": "BUY",
+                        "price": entry_prices[symbol],
+                        "reason": "entry_timeout_inferred",
+                        "bias": bias_val,
+                        "pnl": None,
+                        "ema_fast": ema_fast_val,
+                        "ema_slow": ema_slow_val,
+                        "rsi": rsi_val,
+                        "vwap": vwap_val,
+                        "regime": regime_at_entry,
+                        "code_version": CODE_VERSION
+                    }
+                    exec_rows.append(buy_row)
+                    write_exec_row_immediate(exec_rows[-1], symbol, RUN_MODE)
+
+                    if EXEC_AUDIT_ENABLED:
+                        try:
+                            import csv
+                            fieldnames = ["timestamp","symbol","action","price","reason","bias","pnl",
+                                          "ema_fast","ema_slow","rsi","vwap","regime","code_version"]
+                            with open(EXEC_AUDIT_FILE, "a", newline="") as f:
+                                writer = csv.DictWriter(f, fieldnames=fieldnames)
+                                if f.tell() == 0:
+                                    writer.writeheader()
+                                writer.writerow(buy_row)
+                        except Exception as e:
+                            logging.warning("Failed to write inferred BUY to audit file: %s", e)
+
                     return submitted
 
-                # Use a consistent timestamp type for entry_times
-                fill_ts = datetime.now(timezone.utc)
-                logging.info("[BUY_FILLED] %s filled_qty=%s filled_price=%s order_id=%s", symbol, filled_qty, filled_price, order_id)
-
-                # --- write local entry context (inside lock) ---
-                entry_config_dict = {
-                    "regime": regime_at_entry,
-                    "bias": bias_val,
-                    "ema_fast": ema_fast_val,
-                    "ema_slow": ema_slow_val,
-                    "rsi": rsi_val,
-                    "vwap": vwap_val,
-                    "order_id": order_id,
-                    "est_price": est_price
-                }
-
-                entry_times[symbol] = fill_ts
-                entry_prices[symbol] = filled_price if filled_price is not None else (est_price if est_price else 0.0)
-                entry_qty[symbol] = filled_qty
-                entry_configs[symbol] = entry_config_dict
-
-                # maintain your trailing/TP state
-                highest_price_since_entry[symbol] = entry_prices[symbol]
-                trailing_active[symbol] = False
-                tp1_hit[symbol] = False
-
-                logging.info(
-                    "[BUY_CONTEXT_WRITTEN] %s entry_times=%s entry_prices=%s entry_qty=%s entry_configs=%s",
-                    symbol,
-                    entry_times.get(symbol),
-                    entry_prices.get(symbol),
-                    entry_qty.get(symbol),
-                    entry_configs.get(symbol)
-                )
-
-                # === Continue with BUY logging ===
-                buy_row = {
-                    "timestamp": datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M:%S"),
-                    "symbol": symbol,
-                    "action": "BUY",
-                    "price": entry_prices[symbol],
-                    "reason": "entry",
-                    "bias": bias_val,
-                    "pnl": None,
-                    "ema_fast": ema_fast_val,
-                    "ema_slow": ema_slow_val,
-                    "rsi": rsi_val,
-                    "vwap": vwap_val,
-                    "regime": regime_at_entry,
-                    "code_version": CODE_VERSION
-                }
-                exec_rows.append(buy_row)
-                write_exec_row_immediate(exec_rows[-1], symbol, RUN_MODE)
-
-                if EXEC_AUDIT_ENABLED:
-                    try:
-                        import csv
-                        fieldnames = ["timestamp","symbol","action","price","reason","bias","pnl",
-                                      "ema_fast","ema_slow","rsi","vwap","regime","code_version"]
-                        with open(EXEC_AUDIT_FILE, "a", newline="") as f:
-                            writer = csv.DictWriter(f, fieldnames=fieldnames)
-                            if f.tell() == 0:
-                                writer.writeheader()
-                            writer.writerow(buy_row)
-                    except Exception as e:
-                        logging.warning("Failed to write BUY to audit file: %s", e)
-
-                return submitted
-
+                
             except Exception as e:
                 logging.exception("safe_market_buy error for %s: %s", symbol, e)
                 return None
