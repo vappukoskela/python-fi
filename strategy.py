@@ -1067,7 +1067,7 @@ def safe_market_buy(
                 POLL_TIMEOUT = 90  # seconds
                 while (datetime.now(timezone.utc) - poll_start).total_seconds() < POLL_TIMEOUT:
                     try:
-                        current = trade_client_local.get_order(order_id)
+                        current = trade_client_local.get_order_by_id(order_id)
                         last_status = getattr(current, "status", None)
                         raw_filled_qty = getattr(current, "filled_qty", 0) or 0
                         raw_filled_price = getattr(current, "filled_avg_price", None)
