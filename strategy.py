@@ -2348,6 +2348,13 @@ def evaluate_sell(sym, last_price, ref_entry, price_deque, size_deque, entry_tim
         # --- Hold time check for soft exits ---
         soft_exits_allowed = (elapsed >= MIN_HOLD_SECONDS) if entry_time else False
 
+        # --- Simple percentage stop-loss (temporary safety net) ---
+        if last_price <= ref_entry * 0.95:
+            logging.info("[%s] EXIT evaluate_sell | reason=5%% stop-loss | last=%.4f | ref=%.4f",
+                         sym, last_price, ref_entry)
+            return True, "5% stop-loss"
+         
+          
         prices_series = pd.Series(price_deque)
         sizes_series = pd.Series(size_deque)
 
