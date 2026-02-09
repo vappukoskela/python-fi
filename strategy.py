@@ -2755,12 +2755,7 @@ def main():
     price_deques = {s: deque(maxlen=TICKS_WINDOW) for s in symbols}
     size_deques = {s: deque(maxlen=TICKS_WINDOW) for s in symbols}
     time_deques = {s: deque(maxlen=TICKS_WINDOW) for s in symbols}
-    entry_times = {}
-    entry_prices = {}
-    entry_qty = {}
-    inflight_orders = {}
-    entry_configs = {}
-
+    
     from datetime import datetime, timezone
     last_exit_time = {s: None for s in symbols}
     last_buy_time = {s: None for s in symbols}
