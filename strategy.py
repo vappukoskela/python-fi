@@ -2748,6 +2748,8 @@ def main():
             logging.warning(f"[RESTORE] Restored {sym}: qty={entry_qty[sym]}, entry={entry_prices[sym]}")
     except Exception as e:
         logging.error(f"[RESTORE] Failed to restore positions: {e}")
+
+    inflight_orders = {}
                 
     symbols = ["AAPL", "MSFT", "MU", "QCOM", "NVDA", "V", "AMD", "GOOG", "C", "EBAY", "OKTA", "TSLA", "AMZN", "ADSK", "DELL",
                "SPY", "QQQ", "IWM", "XLK", "NFLX", "COST", "CRM", "ORCL", "DIA", "XLF", "XLE", "XLV", "AVGO", "INTC", "PEP",
