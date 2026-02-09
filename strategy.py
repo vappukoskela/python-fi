@@ -2724,6 +2724,31 @@ def main():
         os.getenv("ALPACA_PAPER_SECRET_KEY"),
         paper=True
     )
+
+    # === RESTORE OPEN POSITIONS FROM ALPACA ===
+    entry_times = {}
+    entry_prices = {}
+    entry_qty = {}
+    entry_configs = {}
+    highest_price_since_entry = {}
+    trailing_active = {}
+
+    try:
+        positions = trade_client.get_all_positions()
+        for p in positions:
+            sym = p.symbol.upper()
+            entry_prices[sym] = float(p.avg_entry_price)
+            entry_qty[sym] = float(p.qty)
+            entry_times[sym] = datetime.now(timezone.utc)
+            entry_configs[sym] = {"restored": True}
+
+            highest_price_since_entry[sym] = entry_prices[sym]
+            trailing_active[sym] = False
+            
+            logging.warning(f"[RESTORE] Restored {sym}: qty={entry_qty[sym]}, entry={entry_prices[sym]}")
+    except Exception as e:
+        logging.error(f"[RESTORE] Failed to restore positions: {e}")
+                
     symbols = ["AAPL", "MSFT", "MU", "QCOM", "NVDA", "V", "AMD", "GOOG", "C", "EBAY", "OKTA", "TSLA", "AMZN", "ADSK", "DELL",
                "SPY", "QQQ", "IWM", "XLK", "NFLX", "COST", "CRM", "ORCL", "DIA", "XLF", "XLE", "XLV", "AVGO", "INTC", "PEP",
                "KO", "CSCO", "PLTR", "SMCI", "SHOP", "UBER", "SQ", "XOM", "JPM"]
