@@ -911,13 +911,18 @@ def calculate_buying_power_limit(trade_client_local, limit_fraction):
         logging.exception("Failed to read account buying power: %s", e)
         return 0.0
 
+_last_positions_map = {}
+
 def get_positions_map(trade_client_local):
+    global _last_positions_map
     try:
         positions = trade_client_local.get_all_positions()
-        return {pos.symbol: (int(float(pos.qty)), float(pos.avg_entry_price)) for pos in positions}
+        new_map = {pos.symbol: (int(float(pos.qty)), float(pos.avg_entry_price)) for pos in positions}
+        _last_positions_map = new_map
+        return new_map
     except Exception as e:
-        logging.debug("get_open_positions failed: %s", e)
-        return {}
+        logging.warning("get_positions_map failed, using last known map: %s", e)
+        return _last_positions_map
 
 def get_position_qty(trade_client_local, symbol):
     try:
