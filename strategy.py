@@ -3564,6 +3564,8 @@ def main():
                         trailing_active[symbol] = False
                         continue
 
+                    continue
+
                 # --- BUY evaluation ---
                 (
                     accept,
