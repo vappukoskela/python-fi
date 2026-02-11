@@ -2354,18 +2354,19 @@ def evaluate_sell(
                   sym, last_price, regime)
 
     # --- Basic validation ---
-    if sym not in entry_times or sym not in entry_prices or CONFIG is None:
+    if CONFIG is None:
         return False, None
 
     try:
         # --- Timestamp + elapsed ---
         now_ts = current_time or datetime.now(timezone.utc)
         entry_time = entry_times.get(sym)
-        if not isinstance(entry_time, datetime):
-            logging.error("[%s] entry_time invalid: %s", sym, entry_time)
-            return False, None
-
-        elapsed = (now_ts - entry_time).total_seconds()
+        if isinstance(entry_time, datetime):
+            elapsed = (now_ts - entry_time).total_seconds()
+            else:
+                # RECON fallback: allow SELL logic with elapsed = 0
+                entry_time = None
+                elapsed = 0.0
 
         # ============================================================
         # 1. HARD TIME-BASED EXIT (EOD EXIT)
