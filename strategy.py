@@ -2362,6 +2362,15 @@ def evaluate_sell(sym, last_price, ref_entry, price_deque, size_deque, entry_tim
             entry_time = None
             elapsed = 0.0
 
+        # --- Time-based exit: force exit 30 minutes before close ---
+        minutes = _session_minutes(current_time or datetime.now(timezone.utc))
+        SESSION_LENGTH_MIN = 390
+        
+        if minutes >= SESSION_LENGTH_MIN - 30:
+            logging.info("[%s] EXIT evaluate_sell | reason=EOD_exit | minutes=%d", sym, minutes)
+            return True, "EOD exit"
+
+
         # --- Hold time check for soft exits ---
         soft_exits_allowed = (elapsed >= MIN_HOLD_SECONDS) if entry_time else False
 
