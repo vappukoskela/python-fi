@@ -2357,6 +2357,12 @@ def evaluate_sell(
     if CONFIG is None:
         return False, None
 
+    # --- Ensure ref_entry is valid ---
+    if ref_entry is None or ref_entry == 0:
+        logging.warning("[%s] ref_entry missing or zero; using last_price as fallback", sym)
+        ref_entry = last_price
+
+
     try:
         # --- Timestamp + elapsed ---
         now_ts = current_time or datetime.now(timezone.utc)
