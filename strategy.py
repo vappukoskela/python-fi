@@ -403,15 +403,27 @@ def write_exec_row_immediate(exec_row, symbol, run_mode):
     except Exception as e:
         logging.debug("[IO] write_exec_row_immediate failed for %s: %s", filename, e)
 
-# === helpers: indicators ===
+from zoneinfo import ZoneInfo
+
 def _session_minutes(ts):
-    # get real UTC time from Alpaca server
-    server_time = datetime.now(timezone.utc)
+    # Convert timestamp to US Eastern Time (market timezone)
+    ts_et = ts.astimezone(ZoneInfo("America/New_York"))
 
-    # US market open 14:30 UTC (winter)
-    open_utc = server_time.replace(hour=14, minute=30, second=0, microsecond=0)
+    # Market open and close in ET
+    open_et = ts_et.replace(hour=9, minute=30, second=0, microsecond=0)
+    close_et = ts_et.replace(hour=16, minute=0, second=0, microsecond=0)
 
-    return max(0, int((server_time - open_utc).total_seconds() // 60))
+    # Before open → return 0
+    if ts_et < open_et:
+        return 0
+
+    # After close → return full session length (390 minutes)
+    if ts_et > close_et:
+        return 390
+
+    # Minutes since open
+    return int((ts_et - open_et).total_seconds() // 60)
+
 
 
 def compute_ema_from_series(series, period):
