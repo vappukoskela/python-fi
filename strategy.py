@@ -2363,7 +2363,7 @@ def evaluate_sell(sym, last_price, ref_entry, price_deque, size_deque, entry_tim
             elapsed = 0.0
 
         # --- Time-based exit: force exit 30 minutes before close ---
-        minutes = _session_minutes(current_time or datetime.now(timezone.utc))
+        minutes = _session_minutes(now_ts)
         SESSION_LENGTH_MIN = 390
         
         if minutes >= SESSION_LENGTH_MIN - 30:
