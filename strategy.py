@@ -2335,245 +2335,200 @@ def overlay_exit_params_by_regime(CONFIG, regime):
 
 
 
-def evaluate_sell(sym, last_price, ref_entry, price_deque, size_deque, entry_times, 
-                  CONFIG, ema_fast_period=EMA_FAST, ema_slow_period=EMA_SLOW,
-                  rsi_period=RSI_PERIOD, current_time=None, regime=None, log_stack=False):
+def evaluate_sell(
+    sym,
+    last_price,
+    ref_entry,
+    price_deque,
+    size_deque,
+    entry_times,
+    CONFIG,
+    ema_fast_period=EMA_FAST,
+    ema_slow_period=EMA_SLOW,
+    rsi_period=RSI_PERIOD,
+    current_time=None,
+    regime=None,
+    log_stack=False
+):
+    logging.debug("[%s] ENTER evaluate_sell | last_price=%.4f | regime=%s",
+                  sym, last_price, regime)
 
-    logging.debug("[%s] ENTER evaluate_sell | last_price=%.4f | regime=%s", sym, last_price, regime)
-
-    # Early exit if no entry context or CONFIG
+    # --- Basic validation ---
     if sym not in entry_times or sym not in entry_prices or CONFIG is None:
         return False, None
 
     try:
-        # --- Unpack entry_times ---
-        entry_record = entry_times.get(sym)
-        if entry_record:
-            entry_time = entry_record   # aina datetime
-            if not isinstance(entry_time, datetime):
-                logging.error("[%s] entry_time is not datetime: %s", sym, type(entry_time))
-                return False, None
+        # --- Timestamp + elapsed ---
+        now_ts = current_time or datetime.now(timezone.utc)
+        entry_time = entry_times.get(sym)
+        if not isinstance(entry_time, datetime):
+            logging.error("[%s] entry_time invalid: %s", sym, entry_time)
+            return False, None
 
-            now_ts = current_time or datetime.now(timezone.utc)
-            elapsed = (now_ts - entry_time).total_seconds()
-            logging.debug("[%s] DEBUG PATCH | entry_time=%s | elapsed=%.2f seconds",
-                          sym, entry_time, elapsed)
-        else:
-            entry_time = None
-            elapsed = 0.0
+        elapsed = (now_ts - entry_time).total_seconds()
 
-        # --- Time-based exit: force exit 30 minutes before close ---
+        # ============================================================
+        # 1. HARD TIME-BASED EXIT (EOD EXIT)
+        # ============================================================
         minutes = _session_minutes(now_ts)
         SESSION_LENGTH_MIN = 390
-        
         if minutes >= SESSION_LENGTH_MIN - 30:
-            logging.info("[%s] EXIT evaluate_sell | reason=EOD_exit | minutes=%d", sym, minutes)
+            logging.info("[%s] EXIT evaluate_sell | reason=EOD_exit | minutes=%d",
+                         sym, minutes)
             return True, "EOD exit"
 
-
-        # --- Hold time check for soft exits ---
-        soft_exits_allowed = (elapsed >= MIN_HOLD_SECONDS) if entry_time else False
-
-        # --- Simple percentage stop-loss (temporary safety net) ---
+        # ============================================================
+        # 2. EMERGENCY EXITS (catastrophic SL)
+        # ============================================================
+        # Hard 5% stop-loss
         if last_price <= ref_entry * 0.95:
             logging.info("[%s] EXIT evaluate_sell | reason=5%% stop-loss | last=%.4f | ref=%.4f",
                          sym, last_price, ref_entry)
             return True, "5% stop-loss"
-         
-          
+
+        # Emergency SL (configurable)
+        emergency_sl_pct = float(CONFIG.get("EMERGENCY_SL_PCT", 0.01))
+        if last_price <= ref_entry * (1 - emergency_sl_pct):
+            logging.info("[%s] EXIT evaluate_sell | reason=Emergency SL | last=%.4f | ref=%.4f",
+                         sym, last_price, ref_entry)
+            return True, "Emergency SL"
+
+        # ============================================================
+        # 3. INDICATORS
+        # ============================================================
         prices_series = pd.Series(price_deque)
         sizes_series = pd.Series(size_deque)
 
-        if log_stack:
-            logging.debug("[%s] SELL evaluation | regime=%s | elapsed=%.2f",
-                          sym, regime, elapsed)
+        ema_fast = compute_ema_from_series(prices_series, ema_fast_period).iloc[-1]
+        ema_slow = compute_ema_from_series(prices_series, ema_slow_period).iloc[-1]
+        rsi_series = compute_rsi_from_series(prices_series, rsi_period)
+        rsi_val = rsi_series.iloc[-1]
+        vwap_val = compute_vwap_from_ticks(prices_series, sizes_series).iloc[-1]
 
-        # --- Core indicators (needed by multiple paths) ---
-        ema_fast = compute_ema_from_series(prices_series, ema_fast_period).iloc[-1] if len(prices_series) >= 2 else float('nan')
-        ema_slow = compute_ema_from_series(prices_series, ema_slow_period).iloc[-1] if len(prices_series) >= 2 else float('nan')
-        rsi_series = compute_rsi_from_series(prices_series, rsi_period) if len(prices_series) >= 5 else pd.Series([float('nan')])
-        rsi_val = rsi_series.iloc[-1] if len(rsi_series) else float('nan')
-        vwap_series = compute_vwap_from_ticks(prices_series, sizes_series) if len(prices_series) >= 1 else pd.Series([float('nan')])
-        vwap_val = vwap_series.iloc[-1] if len(vwap_series) else float('nan')
-
-        # --- Detect regime locally if not provided ---
         regime_local = regime or detect_regime(prices_series, sizes_series)
         CONFIG_E = overlay_exit_params_by_regime(CONFIG, regime_local)
 
-        # --- DRIFT exit debug logging ---
-        if regime_local == "DRIFT":
-            logging.debug(
-                "[DRIFT_SELL][%s] regime=%s last=%.4f ref=%.4f elapsed=%.1fs",
-                sym, regime_local, last_price, ref_entry, elapsed
+        soft_exits_allowed = elapsed >= MIN_HOLD_SECONDS
+
+        # ============================================================
+        # 4. TRAILING STOP
+        # ============================================================
+        # Tuned thresholds
+        TS_ACTIVATION_BUFFER = CONFIG.get("TS_ACTIVATION_BUFFER", 0.003)  # 0.3%
+        TRAILING_STOP_PCT = CONFIG.get("TRAILING_STOP_PCT", 0.004)        # 0.4%
+
+        # Activate trailing stop
+        if last_price >= ref_entry * (1 + TS_ACTIVATION_BUFFER):
+            trailing_active[sym] = True
+            highest_price_since_entry[sym] = max(
+                highest_price_since_entry.get(sym, ref_entry),
+                last_price
             )
 
-        # === RANGE time-stop exit ===
-        if RANGE_TIME_STOP_ENABLED and regime_local == "RANGE":
-            if entry_time is not None and elapsed >= RANGE_TIME_STOP_SECONDS:
-                if not pd.isna(vwap_val):
-                    entry_dist = abs(ref_entry - vwap_val)
-                    current_dist = abs(last_price - vwap_val)
-                    progress = 1.0 - (current_dist / entry_dist) if entry_dist > 0 else 0.0
-
-                    logging.debug(
-                        "[%s] RANGE time-stop check | elapsed=%ds | progress=%.3f | entry_dist=%.5f | current_dist=%.5f",
-                        sym, int(elapsed), progress, entry_dist, current_dist
-                    )
-
-                    if progress < RANGE_VWAP_PROGRESS_MIN:
-                        logging.info(
-                            "[%s] RANGE time-stop exit triggered | elapsed=%ds | progress=%.2f",
-                            sym, int(elapsed), progress
-                        )
-                        exit_reason_count[regime_local]["Range time-stop"] += 1
-                        regime_trades[regime_local] += 1
-                        regime_pnl[regime_local] += (last_price - ref_entry) * entry_qty.get(sym, 0)
-                        # No CSV here to avoid undefined locals; SELL itself will be audited via exec writer.
-                        logging.debug("[%s] EXIT evaluate_sell | reason=Take-profit | last=%.4f | ref=%.4f | elapsed=%.1f",
-                                      sym, last_price, ref_entry, elapsed)
-                        return True, "Range time-stop"
-
-        # --- LOW_VOL time-stop exit ---
-        LOW_VOL_TIME_STOP_ENABLED = True
-        LOW_VOL_TIME_STOP_SECONDS = 120
-        if LOW_VOL_TIME_STOP_ENABLED and regime_local == "LOW_VOL" and entry_time is not None:
-            if elapsed >= LOW_VOL_TIME_STOP_SECONDS:
-                logging.debug("[%s] EXIT evaluate_sell | reason=Take-profit | last=%.4f | ref=%.4f | elapsed=%.1f",
-                              sym, last_price, ref_entry, elapsed)
-                return True, "Low-vol time-stop"
-
-        # --- TP / SL / emergency SL ---
-        tp_price = ref_entry * (1 + CONFIG_E["TP_PCT"])
-        tp_hit = last_price >= tp_price
-
-        atr_value = compute_atr_from_series(prices_series, CONFIG_E.get("ATR_PERIOD", ATR_PERIOD))
-        atr_safe = max(atr_value if not pd.isna(atr_value) else 0.0, ATR_FLOOR)
-        dyn_sl_price = ref_entry - (atr_safe * CONFIG_E["SL_MULTIPLIER"])
-        sl_hit = last_price <= dyn_sl_price
-
-        allow_sl = (elapsed >= MIN_HOLD_SECONDS)
-
-        try:
-            emergency_sl_pct = float(CONFIG.get("EMERGENCY_SL_PCT", 0.01))
-        except Exception:
-            emergency_sl_pct = 0.01
-        emergency_sl_hit = (last_price <= ref_entry * (1 - emergency_sl_pct))
-
-        logging.debug("[%s] TP check | ref_entry=%.4f | tp_price=%.4f | last=%.4f | TP_hit=%s",
-                      sym, ref_entry, tp_price, last_price, tp_hit)
-        logging.debug("[%s] SL check | ref_entry=%.4f | atr=%.4f | sl_price=%.4f | last=%.4f | SL_hit=%s",
-                      sym, ref_entry, atr_value, dyn_sl_price, last_price, sl_hit)
-
-        # --- Trailing stop activation ---
-        if last_price >= ref_entry * (1 + CONFIG["TS_ACTIVATION_BUFFER"]):
-            trailing_active[sym] = True
-            highest_price_since_entry[sym] = max(highest_price_since_entry.get(sym, ref_entry), last_price)
-            logging.debug("[%s] TS activated | ref_entry=%.4f | last=%.4f | buffer=%.4f",
-                          sym, ref_entry, last_price, CONFIG["TS_ACTIVATION_BUFFER"])
-
-        trailing_stop_hit = False
+        # Check trailing stop
         if trailing_active.get(sym, False):
-            try:
-                peak = highest_price_since_entry[sym]
-                drawdown_pct = (peak - last_price) / peak if peak > 0 else 0.0
-                trailing_stop_hit = drawdown_pct >= CONFIG["TRAILING_STOP_PCT"]
-                logging.warning(
-                    "[DEBUG][%s] Trailing stop check | peak=%.4f | last=%.4f | ref_entry=%.4f | drawdown=%.4f%% | threshold=%.4f%% | Hit=%s",
-                    sym, peak, last_price, ref_entry,
-                    drawdown_pct * 100,
-                    CONFIG["TRAILING_STOP_PCT"] * 100,
-                    trailing_stop_hit
-                )
-            except Exception as e:
-                logging.error("[ERROR][%s] Trailing stop evaluation failed: %s", sym, e)
-                trailing_stop_hit = False
-        else:
-            logging.debug("[%s] TS not active | ref_entry=%.4f | last=%.4f | buffer=%.4f",
-                          sym, ref_entry, last_price, CONFIG["TS_ACTIVATION_BUFFER"])
+            peak = highest_price_since_entry.get(sym, ref_entry)
+            drawdown_pct = (peak - last_price) / peak if peak > 0 else 0
+            if drawdown_pct >= TRAILING_STOP_PCT:
+                logging.info("[%s] EXIT evaluate_sell | reason=Trailing stop | peak=%.4f | last=%.4f",
+                             sym, peak, last_price)
+                return True, "Trailing stop"
+
+        # ============================================================
+        # 5. TAKE-PROFIT
+        # ============================================================
+        tp_price = ref_entry * (1 + CONFIG_E["TP_PCT"])
+        if last_price >= tp_price:
+            logging.info("[%s] EXIT evaluate_sell | reason=Take-profit | last=%.4f | ref=%.4f",
+                         sym, last_price, ref_entry)
+            return True, "Take-profit"
+
+        # ============================================================
+        # 6. TREND FAILURE EXITS (VWAP, EMA, RSI)
+        # ============================================================
 
         # --- VWAP fail ---
-        vwap_fail = False
-        if soft_exits_allowed and not pd.isna(vwap_val):
-            vwap_fail = prices_series.iloc[-1] < vwap_val * (1 - CONFIG["VWAP_DELTA"])
+        VWAP_DELTA = CONFIG.get("VWAP_DELTA", 0.0015)  # 0.15%
+        vwap_fail = soft_exits_allowed and last_price < vwap_val * (1 - VWAP_DELTA)
+
+        if vwap_fail:
+            logging.info("[%s] EXIT evaluate_sell | reason=VWAP fail | last=%.4f | vwap=%.4f",
+                         sym, last_price, vwap_val)
+            return True, "VWAP fail"
 
         # --- EMA fail ---
-        ema_fail = False
-        ema_condition_1 = False
-        ema_condition_2 = False
-        if soft_exits_allowed and not pd.isna(ema_fast) and not pd.isna(ema_slow):
-            ema_condition_1 = ema_fast < ema_slow
-            ema_condition_2 = last_price < ema_slow * (1 - CONFIG["EMA_DELTA"])
-            ema_fail = ema_condition_1 and ema_condition_2
+        EMA_DELTA = CONFIG.get("EMA_DELTA", 0.001)  # 0.1%
+        ema_fail = soft_exits_allowed and (
+            ema_fast < ema_slow and
+            last_price < ema_slow * (1 - EMA_DELTA)
+        )
+
+        if ema_fail:
+            logging.info("[%s] EXIT evaluate_sell | reason=EMA fail | last=%.4f | ema_slow=%.4f",
+                         sym, last_price, ema_slow)
+            return True, "EMA fail"
 
         # --- RSI fail ---
+        RSI_FAIL_TICKS = CONFIG.get("RSI_FAIL_TICKS", 2)
         rsi_fail = False
-        if soft_exits_allowed and not pd.isna(rsi_val):
-            if (rsi_val > CONFIG.get("MAX_RSI_FOR_ENTRY", MAX_RSI_FOR_ENTRY)) \
-               or (rsi_val < CONFIG.get("MIN_RSI_FOR_ENTRY", MIN_RSI_FOR_ENTRY)):
+
+        if soft_exits_allowed:
+            if rsi_val > CONFIG.get("MAX_RSI_FOR_ENTRY", MAX_RSI_FOR_ENTRY) or \
+               rsi_val < CONFIG.get("MIN_RSI_FOR_ENTRY", MIN_RSI_FOR_ENTRY):
                 rsi_fail_counter[sym] = rsi_fail_counter.get(sym, 0) + 1
             else:
                 rsi_fail_counter[sym] = 0
 
-            if rsi_fail_counter[sym] >= CONFIG.get("RSI_FAIL_TICKS", 3):
+            if rsi_fail_counter[sym] >= RSI_FAIL_TICKS:
                 rsi_fail = True
 
-        logging.debug("[%s] VWAP=%.4f | last=%.4f | vwap_fail=%s", sym, vwap_val, last_price, vwap_fail)
-        logging.debug("[%s] EMA fast=%.4f | slow=%.4f | last=%.4f | ema_fail=%s | cond1=%s | cond2=%s",
-                      sym, ema_fast, ema_slow, last_price, ema_fail, ema_condition_1, ema_condition_2)
-        logging.debug("[%s] RSI=%.2f | rsi_fail=%s", sym, rsi_val, rsi_fail)
+        if rsi_fail:
+            logging.info("[%s] EXIT evaluate_sell | reason=RSI fail | rsi=%.2f",
+                         sym, rsi_val)
+            return True, "RSI fail"
 
-        # --- Decision priority ---
-        if tp_hit:
-            logging.debug("[%s] EXIT evaluate_sell | reason=Take-profit | last=%.4f | ref=%.4f | elapsed=%.1f",
-                          sym, last_price, ref_entry, elapsed)
-            return True, "Take-profit"
+        # ============================================================
+        # 7. TIME-STOP EXITS (RANGE, LOW_VOL)
+        # ============================================================
 
-        if (allow_sl and sl_hit) or emergency_sl_hit:
-            try:
-                if regime_local == "HIGH_VOL":
-                    high_vol_paused[sym] = True
-                    logging.warning("[%s] HIGH_VOL paused due to catastrophic SL", sym)
-            except Exception:
-                pass
-            logging.debug("[%s] EXIT evaluate_sell | reason=Take-profit | last=%.4f | ref=%.4f | elapsed=%.1f",
-                          sym, last_price, ref_entry, elapsed)
-            return True, "Stop-loss"
+        # RANGE time-stop
+        if regime_local == "RANGE":
+            RANGE_TIME_STOP_SECONDS = CONFIG.get("RANGE_TIME_STOP_SECONDS", 900)
+            RANGE_VWAP_PROGRESS_MIN = CONFIG.get("RANGE_VWAP_PROGRESS_MIN", 0.15)
 
-        if trailing_stop_hit:
-            logging.debug("[%s] EXIT evaluate_sell | reason=Take-profit | last=%.4f | ref=%.4f | elapsed=%.1f",
-                          sym, last_price, ref_entry, elapsed)
-            return True, "Trailing stop"
+            if elapsed >= RANGE_TIME_STOP_SECONDS:
+                entry_dist = abs(ref_entry - vwap_val)
+                current_dist = abs(last_price - vwap_val)
+                progress = 1 - (current_dist / entry_dist) if entry_dist > 0 else 0
 
-        if vwap_fail:
-            logging.debug("[%s] EXIT evaluate_sell | reason=Take-profit | last=%.4f | ref=%.4f | elapsed=%.1f",
-                          sym, last_price, ref_entry, elapsed)
-            return True, "VWAP fail"
+                if progress < RANGE_VWAP_PROGRESS_MIN:
+                    logging.info("[%s] EXIT evaluate_sell | reason=Range time-stop | progress=%.3f",
+                                 sym, progress)
+                    return True, "Range time-stop"
 
-        if ema_fail:
-            logging.debug("[%s] EXIT evaluate_sell | reason=Take-profit | last=%.4f | ref=%.4f | elapsed=%.1f",
-                          sym, last_price, ref_entry, elapsed)
-            return True, "EMA fail"
+        # LOW_VOL time-stop
+        if regime_local == "LOW_VOL":
+            LOW_VOL_TIME_STOP_SECONDS = CONFIG.get("LOW_VOL_TIME_STOP_SECONDS", 300)
+            if elapsed >= LOW_VOL_TIME_STOP_SECONDS:
+                logging.info("[%s] EXIT evaluate_sell | reason=Low-vol time-stop",
+                             sym)
+                return True, "Low-vol time-stop"
 
-        if rsi_fail and (ema_fail or vwap_fail):
-            logging.debug("[%s] EXIT evaluate_sell | reason=Take-profit | last=%.4f | ref=%.4f | elapsed=%.1f",
-                          sym, last_price, ref_entry, elapsed)
-            return True, "RSI+EMA/VWAP fail"
-
-        # --- Final fallback: Max hold ---
-        max_hold_hit = elapsed >= MAX_HOLD_SECONDS if entry_time else False
-        logging.debug("[%s] elapsed=%.2f | MAX_HOLD_SECONDS=%d | max_hold_hit=%s",
-                      sym, elapsed, MAX_HOLD_SECONDS, max_hold_hit)
-
-        if max_hold_hit:
-            logging.debug("[%s] EXIT evaluate_sell | reason=Take-profit | last=%.4f | ref=%.4f | elapsed=%.1f",
-                          sym, last_price, ref_entry, elapsed)
+        # ============================================================
+        # 8. MAX HOLD (final fallback)
+        # ============================================================
+        MAX_HOLD_SECONDS = CONFIG.get("MAX_HOLD_SECONDS", 3600)
+        if elapsed >= MAX_HOLD_SECONDS:
+            logging.info("[%s] EXIT evaluate_sell | reason=Max hold | elapsed=%.1f",
+                         sym, elapsed)
             return True, "Max hold"
 
         return False, None
 
     except Exception as e:
-        logging.debug("[%s] Sell evaluation failed: %s", sym, str(e))
+        logging.error("[%s] evaluate_sell failed: %s", sym, e)
         return False, None
+
 
 
 
