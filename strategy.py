@@ -2363,10 +2363,10 @@ def evaluate_sell(
         entry_time = entry_times.get(sym)
         if isinstance(entry_time, datetime):
             elapsed = (now_ts - entry_time).total_seconds()
-            else:
-                # RECON fallback: allow SELL logic with elapsed = 0
-                entry_time = None
-                elapsed = 0.0
+        else:
+            # RECON fallback: allow SELL logic with elapsed = 0
+            entry_time = None
+            elapsed = 0.0
 
         # ============================================================
         # 1. HARD TIME-BASED EXIT (EOD EXIT)
