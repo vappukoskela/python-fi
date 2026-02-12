@@ -2491,7 +2491,8 @@ def evaluate_sell(
         # ============================================================
         # 5. TAKE-PROFIT
         # ============================================================
-        tp_price = ref_entry * (1 + CONFIG_E["TP_PCT"])
+        tp_pct = CONFIG_E.get("TP_PCT", TP_PCT) # TP_PCT is your global default (0.004)
+        tp_price = ref_entry * (1 + tp_pct)
         if last_price >= tp_price:
             logging.info("[%s] EXIT evaluate_sell | reason=Take-profit | last=%.4f | ref=%.4f",
                          sym, last_price, ref_entry)
