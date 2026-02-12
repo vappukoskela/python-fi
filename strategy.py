@@ -1117,6 +1117,46 @@ def safe_market_buy(
                         break
                     time.sleep(0.5)
 
+                # >>> NEW: handle normal filled case <<<
+                if filled_qty and filled_qty > 0 and filled_price is not None:
+                    fill_ts = datetime.now(timezone.utc)
+
+                    entry_config_dict = {
+                        "regime": regime_at_entry,
+                        "bias": bias_val,
+                        "ema_fast": ema_fast_val,
+                        "ema_slow": ema_slow_val,
+                        "rsi": rsi_val,
+                        "vwap": vwap_val,
+                        "order_id": order_id,
+                        "est_price": est_price,
+                        "fill_inferred": False,
+                    }
+
+                    # Write REAL entry context
+                    entry_times[symbol] = fill_ts
+                    entry_prices[symbol] = filled_price
+                    entry_qty[symbol] = filled_qty
+                    entry_configs[symbol] = entry_config_dict
+
+                    # Maintain trailing/TP state
+                    highest_price_since_entry[symbol] = entry_prices[symbol]
+                    trailing_active[symbol] = False
+                    tp1_hit[symbol] = False
+
+                    logging.info(
+                        "[BUY_CONTEXT_WRITTEN] %s entry_times=%s entry_prices=%s entry_qty=%s entry_configs=%s",
+                        symbol,
+                        entry_times.get(symbol),
+                        entry_prices.get(symbol),
+                        entry_qty.get(symbol),
+                        entry_configs.get(symbol)
+                    )
+
+                    return submitted
+                # <<< END NEW BLOCK >>>
+
+
                 # --- handle timeout or missing fill ---
                 if not filled_qty or filled_qty == 0:
                     logging.warning(
