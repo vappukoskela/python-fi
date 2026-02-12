@@ -2362,23 +2362,36 @@ def evaluate_entry(sym, price, size, prices_series, sizes_series, ts_val,
 # === EXIT OVERLAY BY REGIME ===
 def overlay_exit_params_by_regime(CONFIG, regime):
     """
-    Adjust TP/SL buffers per regime without changing core indicators.
+    Adjust TP/SL buffers per regime without breaking if CONFIG
+    is missing fields. Uses safe .get() lookups with global defaults.
     """
-    adj = dict(CONFIG)  # shallow copy
+
+    # Base defaults (your global constants)
+    base_tp      = CONFIG.get("TP_PCT", TP_PCT)
+    base_sl_mult = CONFIG.get("SL_MULTIPLIER", SL_MULTIPLIER)
+    base_ts_act  = CONFIG.get("TS_ACTIVATION_BUFFER", TS_ACTIVATION_BUFFER)
+
+    # Start with a shallow copy
+    adj = dict(CONFIG)
+
     if regime == "RANGE":
-        adj["TP_PCT"] = max(0.0010, CONFIG["TP_PCT"] * 0.8)
-        adj["SL_MULTIPLIER"] = max(0.6, CONFIG["SL_MULTIPLIER"] * 0.9)
-        adj["TS_ACTIVATION_BUFFER"] = max(0.002, CONFIG["TS_ACTIVATION_BUFFER"] * 0.8)
+        adj["TP_PCT"] = max(0.0010, base_tp * 0.8)
+        adj["SL_MULTIPLIER"] = max(0.6, base_sl_mult * 0.9)
+        adj["TS_ACTIVATION_BUFFER"] = max(0.002, base_ts_act * 0.8)
+
     elif regime == "HIGH_VOL":
-        adj["TP_PCT"] = min(0.0050, CONFIG["TP_PCT"] * 1.4)
-        adj["SL_MULTIPLIER"] = min(1.5, CONFIG["SL_MULTIPLIER"] * 1.2)
-        adj["TS_ACTIVATION_BUFFER"] = min(0.008, CONFIG["TS_ACTIVATION_BUFFER"] * 1.4)
+        adj["TP_PCT"] = min(0.0050, base_tp * 1.4)
+        adj["SL_MULTIPLIER"] = min(1.5, base_sl_mult * 1.2)
+        adj["TS_ACTIVATION_BUFFER"] = min(0.008, base_ts_act * 1.4)
+
     elif regime == "LOW_VOL":
-        adj["TP_PCT"] = max(0.0010, CONFIG["TP_PCT"] * 0.9)
-        adj["SL_MULTIPLIER"] = max(0.7, CONFIG["SL_MULTIPLIER"] * 0.9)
-        adj["TS_ACTIVATION_BUFFER"] = max(0.0025, CONFIG["TS_ACTIVATION_BUFFER"] * 0.85)
-    # TREND uses base CONFIG
+        adj["TP_PCT"] = max(0.0010, base_tp * 0.9)
+        adj["SL_MULTIPLIER"] = max(0.7, base_sl_mult * 0.9)
+        adj["TS_ACTIVATION_BUFFER"] = max(0.0025, base_ts_act * 0.85)
+
+    # TREND regime uses base CONFIG unchanged
     return adj
+
 
 
 
