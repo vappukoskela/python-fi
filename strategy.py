@@ -30,6 +30,14 @@ from alpaca.trading.requests import MarketOrderRequest
 from alpaca.data.timeframe import TimeFrame, TimeFrameUnit
 from alpaca.data.requests import StockLatestTradeRequest
 
+# === GLOBAL EXIT DEFAULTS (required by SELL and regime overlays) ===
+TP_PCT = 0.004                 # 0.4% take-profit
+TS_ACTIVATION_BUFFER = 0.003   # 0.3% trailing activation
+TRAILING_STOP_PCT = 0.004      # 0.4% trailing stop
+EMERGENCY_SL_PCT = 0.01        # 1% emergency stop
+HARD_SL_PCT = 0.05             # 5% hard stop
+SL_MULTIPLIER = 1.0            # default SL multiplier for regime tuning
+
 
 # --- Lataa .env ---
 load_dotenv()
