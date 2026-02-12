@@ -1131,6 +1131,13 @@ def safe_market_buy(
                         "order_id": order_id,
                         "est_price": est_price,
                         "fill_inferred": False,
+
+                        # >>> ADD THESE <<<
+                        "TP_PCT": TP_PCT,
+                        "TS_ACTIVATION_BUFFER": TS_ACTIVATION_BUFFER,
+                        "TRAILING_STOP_PCT": TRAILING_STOP_PCT,
+                        "EMERGENCY_SL_PCT": EMERGENCY_SL_PCT,
+                        "HARD_SL_PCT": HARD_SL_PCT,
                     }
 
                     # Write REAL entry context
