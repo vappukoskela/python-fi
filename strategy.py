@@ -3557,17 +3557,17 @@ def main():
                 # --- SELL evaluation ---
                 has_entry = (symbol in entry_times) and (symbol in entry_prices)
                 
-                # Fallback CONFIG for safety: if we lost entry_configs, use current session CONFIG
+                # Fallback CONFIG for safety
                 active_config = entry_configs.get(symbol, CONFIG_SESSION)
                 
-                # Optional: detect on-chain position without local context
+                # RECON: Alpaca shows position but local context missing
                 onchain_qty, _ = positions_map.get(symbol, (0, 0.0))
                 if onchain_qty > 0 and not has_entry:
                     logging.warning(
                         "[RECON][%s] Position open on Alpaca but no local entry context; "
                         "using CONFIG_SESSION for exit evaluation", symbol
                     )
-                    has_entry = True  # force evaluation with whatever context we have
+                    has_entry = True
                 
                 if has_entry:
                     accept_exit, reason_exit = evaluate_sell(
@@ -3582,13 +3582,11 @@ def main():
                         regime=regime,
                         log_stack=True
                     )
-
-
+                
                     if accept_exit:
                         qty = entry_qty.get(symbol, 0)
                         pnl = (price - entry_prices.get(symbol, price)) * qty
-
-                        
+                
                         exec_rows.append({
                             "timestamp": ts_val.strftime("%Y-%m-%d %H:%M:%S"),
                             "symbol": symbol,
@@ -3603,8 +3601,8 @@ def main():
                             "vwap": round(vwap_val, 4),
                             "regime": regime
                         })
-                        write_exec_row_immediate(exec_rows[-1], symbol, RUN_MODE)
-
+                        write_exec_row_immediate(exec_rows[-1], RUN_MODE)
+                
                         # Cleanup
                         entry_times.pop(symbol, None)
                         entry_prices.pop(symbol, None)
@@ -3613,21 +3611,11 @@ def main():
                         last_exit_time[symbol] = ts_val
                         highest_price_since_entry.pop(symbol, None)
                         trailing_active[symbol] = False
-                        continue
-
-                    continue
-
+                
+                        continue  # skip BUY on same tick
+                
                 # --- BUY evaluation ---
-                (
-                    accept,
-                    reason,
-                    score,
-                    stack,
-                    ema_fast_val,
-                    ema_slow_val,
-                    rsi_val,
-                    vwap_val
-                )= evaluate_entry(
+                accept, reason, score, stack = evaluate_entry(
                     symbol,
                     price,
                     size,
@@ -3644,33 +3632,28 @@ def main():
                     bias=day_bias,
                     log_stack=True
                 )
-
-                log_entry_attempt(
-                    ts_val,
-                    symbol,
-                    regime,
-                    day_bias,
-                    accept,
-                    reason,
-                    score,
-                    ema_fast_val,
-                    ema_slow_val,
-                    rsi_val,
-                    vwap_val,
-                    price
-                )
                 
                 if accept:
-                    # --- Run gating logic ---
-                    allowed, gate_reason = gate_entry(
+                    safe_market_buy(
                         symbol=symbol,
+                        price=price,
+                        size=size,
+                        ts_val=ts_val,
+                        trade_client=trade_client,
+                        order_lock=order_lock,
+                        positions_map=positions_map,
+                        inflight_orders=inflight_orders,
+                        pending_entries=pending_entries,
+                        last_exit_time=last_exit_time,
+                        last_buy_time=last_buy_time,
+                        CONFIG_SESSION=CONFIG_SESSION,
                         regime=regime,
-                        prices_series=prices_series,
-                        sizes_series=sizes_series,
+                        ema_fast_val=ema_fast_val,
+                        ema_slow_val=ema_slow_val,
+                        rsi_val=rsi_val,
                         vwap_val=vwap_val,
-                        rsi_series=rsi_series,
-                        market_trend_state=globals().get("market_trend_state", "unknown")
                     )
+
 
                     # compute range quality score for logging
                     rq_score = range_quality_score(prices_series, vwap_val, rsi_series) if regime == "RANGE" else float("nan")
@@ -3687,25 +3670,7 @@ def main():
                         log_block_event(symbol, regime, gate_reason, score)
                         continue
 
-                    # --- Execute BUY ---
-                    logging.info("[LOOP_BUY_CALL] calling safe_market_buy for %s", symbol)
-                    logging.debug("[DICT_ID_CALLSITE] entry_times id=%s entry_prices id=%s entry_qty id=%s entry_configs id=%s",
-                                  id(entry_times), id(entry_prices), id(entry_qty), id(entry_configs))
-                    
-                    safe_market_buy(
-                        trade_client_local=trade_client,
-                        symbol=symbol,
-                        cash_for_buy=max_loop_budget,
-                        order_lock=order_lock,
-                        price_deques=price_deques,
-                        size_deques=size_deques,
-                        entry_times=entry_times,
-                        entry_prices=entry_prices,
-                        entry_qty=entry_qty,
-                        entry_configs=entry_configs,
-                        bias=day_bias
-                    )
-                  
+                                     
                    
             # --- Loop pacing ---
             elapsed = (datetime.now(timezone.utc) - loop_start).total_seconds()
