@@ -1798,101 +1798,37 @@ def evaluate_entry(sym, price, size, prices_series, sizes_series, ts_val,
 
     if since_last_exit < _regime_cooldown(regime) or since_last_buy < _regime_cooldown(regime):
         logging.debug(f"[BLOCK] {sym} rejected | Reason=Cooldown")
-        return (
-            False,
-            "Cooldown",
-            0.0,
-            {},
-            ema_fast,
-            ema_slow,
-            rsi_val,
-            vwap_val
-        )
-        
+        return False, "Cooldown", 0.0, {}
+                    
     # Regime kill-switch gates
     if regime == "HIGH_VOL" and high_vol_paused[sym]:
-        return (
-            False,
-            "HIGH_VOL paused",
-            0.0,
-            {},
-            ema_fast,
-            ema_slow,
-            rsi_val,
-            vwap_val
-        )
-        
+        return False, "HIGH_VOL paused", 0.0, {}
+                    
     if regime == "TREND" and trend_paused[sym]:
-        return (
-            False,
-            "TREND paused",
-            0.0,
-            {},
-            ema_fast,
-            ema_slow,
-            rsi_val,
-            vwap_val
-        )
-
+        return False, "TREND paused", 0.0, {}
+           
     # --- HARD GATE: disable HIGH_VOL entries entirely ---
     if regime == "HIGH_VOL":
         logging.debug(f"[BLOCK] {sym} rejected | Reason=HIGH_VOL regime blocked for entries")
-        return (
-            False,
-            "HIGH_VOL blocked",
-            0.0,
-            {},
-            ema_fast,
-            ema_slow,
-            rsi_val,
-            vwap_val
-        )
-
+        return False, "HIGH_VOL blocked", 0.0, {}
+            
     # FitScore gate: auto-pause regime if underperforming
     if regime_trades[regime] >= 5:
         sls = exit_reason_count[regime].get("Stop-loss", 0)
         net = regime_pnl[regime]
         if (sls / regime_trades[regime] >= 0.6) and (net < 0):
-            return (
-                False,
-                f"{regime} paused by FitScore",
-                0.0,
-                {},
-                ema_fast,
-                ema_slow,
-                rsi_val,
-                vwap_val
-            )
-
+            return False, f"{regime} paused by FitScore", 0.0, {}
+               
     # --- RE-ENTRY COOLDOWN instead of hard block ---
     last_exit = last_exit_time.get(sym)
     if last_exit:
         if (datetime.now(timezone.utc) - last_exit).total_seconds() < 10:
-            return (
-                False,
-                "Cooldown block",
-                0.0,
-                {},
-                ema_fast,
-                ema_slow,
-                rsi_val,
-                vwap_val
-            )
-    
+            return False, "Cooldown block", 0.0, {}
+                   
     # Still block if inflight or pending
     if inflight_orders.get(sym) is not None or sym in pending_entries:
-        return (
-            False,
-            "Order flow block",
-            0.0,
-            {},
-            ema_fast,
-            ema_slow,
-            rsi_val,
-            vwap_val
-        )
-
-
+        return False, "Order flow block", 0.0, {}
+            
     # Base features
    
     macd_line, macd_signal, macd_hist = compute_macd(prices_series)
@@ -1956,33 +1892,15 @@ def evaluate_entry(sym, price, size, prices_series, sizes_series, ts_val,
     # Base sanity filters to avoid nonsense:
     if pd.isna(ema_fast) or pd.isna(ema_slow) or pd.isna(vwap_val) or pd.isna(rsi_val):
         logging.debug(f"[BLOCK] {sym} rejected | Reason=Missing core indicators")
-        return (
-            False,
-            "Missing core indicators",
-            0.0,
-            {},
-            ema_fast,
-            ema_slow,
-            rsi_val,
-            vwap_val
-        )
-
+        return False, "Missing core indicators", 0.0, {}
+            
     # --- Bias-aware safety filter (global) ---
     # For bearish bias, avoid buying into deeply oversold tape that can keep falling.
     if bias == "bearish":
         if rsi_val < 35:
             logging.debug(f"[BLOCK] {sym} rejected | Reason=Bearish bias RSI<35 (rsi={rsi_val:.2f})")
-            return (
-                False,
-                "Bearish bias RSI<35 block",
-                0.0,
-                {},
-                ema_fast,
-                ema_slow,
-                rsi_val,
-                vwap_val
-            )
-
+            return False, "Bearish bias RSI<35 block", 0.0, {}
+               
     signal_stack = {}
     score = 0.0
 
@@ -2068,41 +1986,14 @@ def evaluate_entry(sym, price, size, prices_series, sizes_series, ts_val,
        
            
         if score < threshold:
-            return (
-                False,
-                "DRIFT score block",
-                score,
-                signal_stack,
-                ema_fast,
-                ema_slow,
-                rsi_val,
-                vwap_val
-            )
-    
+            return False, "DRIFT score block", score, signal_stack
+                    
         # Confirmation: last 3 ticks higher
         if not _confirm_trend(prices_series, vwap_val, ema_slow):
-            return (
-                False,
-                "DRIFT confirm block",
-                score,
-                signal_stack,
-                ema_fast,
-                ema_slow,
-                rsi_val,
-                vwap_val
-            )
-    
-        return (
-            True,
-            "entry",
-            score,
-            signal_stack,
-             ema_fast,
-             ema_slow,
-            rsi_val,
-            vwap_val
-        )
-
+            return False, "DRIFT confirm block", score, signal_stack
+                   
+        return True, "entry", score, signal_stack
+            
     elif regime == "RANGE":
         # RANGE_BULL no longer depends on global bias.
         # We only block RANGE_BEAR if bias is explicitly bearish AND RSI is not oversold.
@@ -2149,17 +2040,8 @@ def evaluate_entry(sym, price, size, prices_series, sizes_series, ts_val,
 
         if not range_bull_bias_ok:
             logging.debug(f"[BLOCK] {sym} rejected | Reason=RANGE_BULL local bias block")
-            return (
-                False,
-                "RANGE_BULL bias block",
-                0.0,
-                {},
-                ema_fast,
-                ema_slow,
-                rsi_val,
-                vwap_val
-            )
-
+            return False, "RANGE_BULL bias block", 0.0, {}
+                
         # --- Optional: Bollinger bandwidth ROC filter (block expanding volatility) ---
         bb_roc = 0
         if not pd.isna(bandwidth):
@@ -2174,17 +2056,8 @@ def evaluate_entry(sym, price, size, prices_series, sizes_series, ts_val,
 
         if RANGE_BB_ROC_MAX is not None and bb_roc > RANGE_BB_ROC_MAX:
             logging.debug(f"[BLOCK] {sym} rejected | Reason=Range blocked by BB ROC (bb_roc={bb_roc:.6f})")
-            return (
-                False,
-                "Range blocked by BB ROC",
-                0.0,
-                {},
-                ema_fast,
-                ema_slow,
-                rsi_val,
-                vwap_val
-            )
-
+            return False, "Range blocked by BB ROC", 0.0, {}
+                
         # --- Update signal_stack and score for RANGE_BULL ---
         signal_stack.update({
             "lower_band_touch": lower_band_touch,
@@ -2234,16 +2107,8 @@ def evaluate_entry(sym, price, size, prices_series, sizes_series, ts_val,
     else:  # LOW_VOL
         # STEP 1: hard-block LOW_VOL entries (exit-only regime for now)
         logging.debug(f"[BLOCK] {sym} rejected | Reason=LOW_VOL regime blocked for entries")
-        return (
-            False,
-            "LOW_VOL blocked",
-            0.0,
-            {},
-            ema_fast,
-            ema_slow,
-            rsi_val,
-            vwap_val
-        )
+        return False, "LOW_VOL blocked", 0.0, {}
+            
         w = LOW_VOL_CONFIG["WEIGHTS"]
 
         # Require short-term momentum not aggressively against you:
@@ -2258,17 +2123,8 @@ def evaluate_entry(sym, price, size, prices_series, sizes_series, ts_val,
         # Hard block: in LOW_VOL regime, do not take entries if EMA_fast << EMA_slow
         if not ema_momentum_ok:
             logging.debug(f"[BLOCK] {sym} rejected | Reason=LOW_VOL ema_momentum_ok=False (ema_fast={ema_fast:.4f} ema_slow={ema_slow:.4f})")
-            return (
-                False,
-                "LOW_VOL EMA momentum block",
-                0.0,
-                {},
-                ema_fast,
-                ema_slow,
-                rsi_val,
-                vwap_val
-            )
-            
+            return False, "LOW_VOL EMA momentum block", 0.0, {}
+                          
 
         signal_stack.update({
             "vwap_below": vwap_below_ok,
@@ -2295,17 +2151,8 @@ def evaluate_entry(sym, price, size, prices_series, sizes_series, ts_val,
         
         if bias == "bearish":
             if not obv_ok:
-                return (
-                    False,
-                    "LOW_VOL bearish blocked by OBV slope<=0",
-                    score,
-                    signal_stack,
-                    ema_fast,
-                    ema_slow,
-                    rsi_val,
-                    vwap_val
-                )
-                
+                return False, "LOW_VOL bearish blocked by OBV slope<=0", score, signal_stack
+                                    
         else: # bullish
             if not obv_ok:
                 score -= 0.5 # penalize but allow if other signals are strong
@@ -2317,16 +2164,8 @@ def evaluate_entry(sym, price, size, prices_series, sizes_series, ts_val,
 
         if vwap_dist > VWAP_DIST_MAX:
             logging.debug(f"[BLOCK] {sym} rejected | Reason=VWAP distance {vwap_dist:.4f} > {VWAP_DIST_MAX:.4f}")
-            return (
-                False,
-                "VWAP distance block",
-                0.0,
-                {},
-                ema_fast,
-                ema_slow,
-                rsi_val,
-                vwap_val
-            )
+            return False, "VWAP distance block", 0.0, {}
+                
                        
     # Inside evaluate_entry, before computing 'accept'
     confirm_ok = True
@@ -2356,14 +2195,11 @@ def evaluate_entry(sym, price, size, prices_series, sizes_series, ts_val,
     if log_stack and (accept or AUDIT_TRAIL_ENABLED):
         logging.debug(f"[ENTRY_STACK][{sym}] regime={regime} score={score:.2f} threshold={threshold} stack={signal_stack}")
 
-    return (accept,
+    return (
+        accept,
             f"Regime={regime} score={score:.2f}",
             score,
             signal_stack,
-            ema_fast,
-            ema_slow,
-            rsi_val,
-            vwap_val
     )
 
 # === EXIT OVERLAY BY REGIME ===
