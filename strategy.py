@@ -3655,20 +3655,7 @@ def main():
                     )
 
 
-                    # compute range quality score for logging
-                    rq_score = range_quality_score(prices_series, vwap_val, rsi_series) if regime == "RANGE" else float("nan")
-                    sym_trend = symbol_trend_filter(prices_series)
-                    vol_state = volatility_filter(prices_series)
-                    market_trend = globals().get("market_trend_state", "unknown")
                     
-                    log_gate_event(
-                        ts_val, symbol, regime, allowed, gate_reason,
-                        market_trend, sym_trend, vol_state, rq_score
-                    )
-                    
-                    if not allowed:
-                        log_block_event(symbol, regime, gate_reason, score)
-                        continue
 
                                      
                    
