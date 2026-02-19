@@ -455,6 +455,9 @@ def compute_rsi_from_series(series, period=14):
     if len(series) < period + 1:
         return pd.Series([float("nan")] * len(series))
     delta = series.diff()
+    # Guard: if all deltas are zero (flat price), RSI is neutral 50
+    if delta.abs().sum() == 0:
+        return pd.Series([50.0] * len(series))
     gain = (delta.where(delta > 0, 0)).rolling(period).mean()
     loss = (-delta.where(delta < 0, 0)).rolling(period).mean()
     rs = gain / loss
