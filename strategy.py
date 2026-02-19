@@ -3411,6 +3411,9 @@ def main():
                         "using CONFIG_SESSION for exit evaluation", symbol
                     )
                     has_entry = True
+
+                accept_exit = False
+                reason_exit = None
                 
                 if has_entry:
                     ref_entry = entry_prices.get(symbol)
