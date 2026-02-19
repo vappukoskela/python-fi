@@ -3413,18 +3413,25 @@ def main():
                     has_entry = True
                 
                 if has_entry:
-                    accept_exit, reason_exit = evaluate_sell(
-                        symbol,
-                        price,
-                        entry_prices.get(symbol),
-                        price_deques[symbol],
-                        size_deques[symbol],
-                        entry_times,
-                        active_config,
-                        current_time=ts_val,
-                        regime=regime,
-                        log_stack=True
-                    )
+                    ref_entry = entry_prices.get(symbol)
+                    if ref_entry is None:
+                        logging.warning(
+                            "[LIVE][%s] entry_prices is None at sell evaluation — skipping evaluate_sell this tick",
+                            symbol
+                        )
+                    else:
+                        accept_exit, reason_exit = evaluate_sell(
+                            symbol,
+                            price,
+                            entry_prices.get(symbol),
+                            price_deques[symbol],
+                            size_deques[symbol],
+                            entry_times,
+                            active_config,
+                            current_time=ts_val,
+                            regime=regime,
+                            log_stack=True
+                        )
                 
                     if accept_exit:
                         qty = entry_qty.get(symbol, 0)
