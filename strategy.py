@@ -3437,7 +3437,7 @@ def main():
                             "vwap": round(vwap_val, 4),
                             "regime": regime
                         })
-                        write_exec_row_immediate(exec_rows[-1], RUN_MODE)
+                        write_exec_row_immediate(exec_rows[-1], symbol, RUN_MODE)
                 
                         # Cleanup
                         entry_times.pop(symbol, None)
