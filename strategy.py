@@ -990,7 +990,8 @@ def safe_market_buy(
     entry_prices,
     entry_qty,
     entry_configs,
-    bias=None
+    bias=None,
+    config_session=None
 ):
     logging.info("[BUY_START] safe_market_buy start for %s", symbol)
     symbol = symbol.strip().upper()
