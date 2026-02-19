@@ -3362,7 +3362,12 @@ def main():
                         f"ema_fast={ema_fast_val} ema_slow={ema_slow_val} rsi={rsi_val} vwap={vwap_val} "
                         f"len_prices={len(prices_series)}"
                     )
-                    continue
+                    if symbol not in entry_prices:
+                        continue
+                    logging.warning(
+                        "[SKIP_OVERRIDE][%s] Indicators NaN but position is open — forcing sell evaluation",
+                        symbol
+                    )
 
                 # --- Update market trend when SPY ticks ---
                 if symbol == "SPY":
