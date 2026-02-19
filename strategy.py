@@ -3468,27 +3468,23 @@ def main():
                     bias=day_bias,
                     log_stack=True
                 )
-                
+
                 if accept:
                     safe_market_buy(
-                        symbol=symbol,
-                        price=price,
-                        size=size,
-                        ts_val=ts_val,
                         trade_client_local=trading_client,
+                        symbol=symbol,
+                        cash_for_buy=max_loop_budget,
                         order_lock=order_lock,
-                        positions_map=positions_map,
-                        inflight_orders=inflight_orders,
-                        pending_entries=pending_entries,
-                        last_exit_time=last_exit_time,
-                        last_buy_time=last_buy_time,
-                        CONFIG_SESSION=CONFIG_SESSION,
-                        regime=regime,
-                        ema_fast_val=ema_fast_val,
-                        ema_slow_val=ema_slow_val,
-                        rsi_val=rsi_val,
-                        vwap_val=vwap_val,
+                        price_deques=price_deques,
+                        size_deques=size_deques,
+                        entry_times=entry_times,
+                        entry_prices=entry_prices,
+                        entry_qty=entry_qty,
+                        entry_configs=entry_configs,
+                        bias=day_bias
                     )
+
+                
 
 
                     
