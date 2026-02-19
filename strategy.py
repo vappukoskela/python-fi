@@ -3481,7 +3481,8 @@ def main():
                         entry_prices=entry_prices,
                         entry_qty=entry_qty,
                         entry_configs=entry_configs,
-                        bias=day_bias
+                        bias=day_bias,
+                        config_session=CONFIG_SESSION
                     )
 
                 
