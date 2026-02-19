@@ -980,7 +980,7 @@ def _status_is(status, target):
         return False
 
 def safe_market_buy(
-    trade_client_local=trade_client,
+    trade_client_local=trading_client,
     symbol=symbol,
     cash_for_buy=max_loop_budget,
     order_lock=order_lock,
