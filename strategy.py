@@ -3265,7 +3265,7 @@ def main():
                     continue
                 if u == "exit":
                     logging.info("Received exit command — selling all positions.")
-                    sell_all_positions(trade_client, order_lock)
+                    sell_all_positions(trading_client, order_lock)
                     stop_event.set()
                     break
         except Exception as e:
@@ -3310,7 +3310,7 @@ def main():
             _risk_governor_update()
 
             # --- Refresh positions ---
-            positions_map = get_positions_map(trade_client)
+            positions_map = get_positions_map(trading_client)
             spent_this_loop = 0.0
             max_loop_budget = calculate_buying_power_limit(
                 trade_client_local=trade_client,
