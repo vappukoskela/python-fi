@@ -2626,7 +2626,7 @@ def main():
     trailing_active = {}
 
     try:
-        positions = trade_client.get_all_positions()
+        positions = trading_client.get_all_positions()
         for p in positions:
             sym = p.symbol.upper()
             entry_prices[sym] = float(p.avg_entry_price)
