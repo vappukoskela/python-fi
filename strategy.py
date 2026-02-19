@@ -3439,6 +3439,16 @@ def main():
                     if accept_exit:
                         qty = entry_qty.get(symbol, 0)
                         pnl = (price - entry_prices.get(symbol, price)) * qty
+
+                        # ADD THIS — actually submit the sell order to Alpaca:
+                        safe_market_sell(
+                            trade_client_local=trading_client,
+                            symbol=symbol,
+                            intended_qty=qty,
+                            order_lock=order_lock,
+                            price_deques=price_deques,
+                            size_deques=size_deques
+                        )
                 
                         exec_rows.append({
                             "timestamp": ts_val.strftime("%Y-%m-%d %H:%M:%S"),
