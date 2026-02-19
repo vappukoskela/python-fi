@@ -3475,7 +3475,7 @@ def main():
                         price=price,
                         size=size,
                         ts_val=ts_val,
-                        trade_client=trade_client,
+                        trade_client_local=trading_client,
                         order_lock=order_lock,
                         positions_map=positions_map,
                         inflight_orders=inflight_orders,
