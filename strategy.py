@@ -1127,6 +1127,9 @@ def safe_market_buy(
                         "SL_MULTIPLIER": SL_MULTIPLIER,
                     }
 
+                    if config_session:
+                        entry_config_dict.update(config_session)
+                    
                     entry_times[symbol] = fill_ts
                     entry_prices[symbol] = filled_price
                     entry_qty[symbol] = filled_qty
@@ -1207,6 +1210,9 @@ def safe_market_buy(
                     "HARD_SL_PCT": HARD_SL_PCT,
                     "SL_MULTIPLIER": SL_MULTIPLIER,
                 }
+
+                if config_session:
+                    entry_config_dict.update(config_session)
 
                 entry_times[symbol] = fill_ts
                 entry_prices[symbol] = inferred_price
