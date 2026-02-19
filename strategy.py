@@ -980,17 +980,17 @@ def _status_is(status, target):
         return False
 
 def safe_market_buy(
-    trade_client_local=trading_client,
-    symbol=symbol,
-    cash_for_buy=max_loop_budget,
-    order_lock=order_lock,
-    price_deques=price_deques,
-    size_deques=size_deques,
-    entry_times=entry_times,
-    entry_prices=entry_prices,
-    entry_qty=entry_qty,
-    entry_configs=entry_configs,
-    bias=day_bias
+    trade_client_local,
+    symbol,
+    cash_for_buy,
+    order_lock,
+    price_deques,
+    size_deques,
+    entry_times,
+    entry_prices,
+    entry_qty,
+    entry_configs,
+    bias=None
 ):
     logging.info("[BUY_START] safe_market_buy start for %s", symbol)
     symbol = symbol.strip().upper()
