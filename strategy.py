@@ -1423,6 +1423,61 @@ def force_liquidation_at_cutoff(trade_client_local, symbols, cutoff_hour_eet=22,
                     logging.exception("%s - EOD forced sell error: %s", s, e)
 
 
+def reattach_orphan_if_needed(symbol, positions_map, entry_times, entry_prices,
+                               entry_qty, entry_configs, CONFIG_SESSION):
+    """
+    Returns True if an orphan was reattached (or position already tracked).
+    Call this before evaluate_sell in the LIVE loop.
+    """
+    from datetime import datetime, timezone
+
+    onchain_qty, onchain_avg = positions_map.get(symbol, (0, 0.0))
+
+    has_local_context = (
+        symbol in entry_prices and
+        entry_prices[symbol] is not None and
+        symbol in entry_times and
+        symbol in entry_configs
+    )
+
+    if onchain_qty > 0 and not has_local_context:
+        logging.warning(
+            "[ORPHAN_REATTACH][%s] Position qty=%d avg=%.4f on Alpaca but no local context. "
+            "Reattaching with conservative config.",
+            symbol, onchain_qty, onchain_avg
+        )
+        now = datetime.now(timezone.utc)
+        entry_prices[symbol]  = onchain_avg if onchain_avg > 0 else None
+        entry_qty[symbol]     = float(onchain_qty)
+        entry_times[symbol]   = now   # unknown real entry time, use now
+        entry_configs[symbol] = dict(CONFIG_SESSION)  # use current session config
+        entry_configs[symbol]["fill_inferred"] = True
+        entry_configs[symbol]["orphan_reattached"] = True
+        highest_price_since_entry[symbol] = onchain_avg if onchain_avg > 0 else 0.0
+        trailing_active[symbol] = False
+
+        logging.warning(
+            "[ORPHAN_REATTACH][%s] State written: price=%.4f qty=%.2f",
+            symbol, entry_prices[symbol] or 0, entry_qty[symbol]
+        )
+        return True
+
+    if onchain_qty <= 0 and has_local_context:
+        # Position closed externally (manual, margin call, etc) — clean up
+        logging.warning(
+            "[ORPHAN_CLEANUP][%s] Local context exists but no Alpaca position. Purging.",
+            symbol
+        )
+        entry_times.pop(symbol, None)
+        entry_prices.pop(symbol, None)
+        entry_qty.pop(symbol, None)
+        entry_configs.pop(symbol, None)
+        highest_price_since_entry.pop(symbol, None)
+        trailing_active[symbol] = False
+        return False
+
+    return has_local_context
+
 def reconcile_positions(
     trade_client_local,                    
     symbols,
