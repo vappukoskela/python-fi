@@ -1919,7 +1919,11 @@ def evaluate_entry(sym, price, size, prices_series, sizes_series, ts_val,
     if pd.isna(ema_fast) or pd.isna(ema_slow) or pd.isna(vwap_val) or pd.isna(rsi_val):
         logging.debug(f"[BLOCK] {sym} rejected | Reason=Missing core indicators")
         return False, "Missing core indicators", 0.0, {}
-            
+
+    if pd.isna(rsi_val) or rsi_val <= 0 or rsi_val > 100:
+    logging.debug("[BLOCK] %s rejected | Reason=RSI invalid (rsi=%.2f)", sym, rsi_val if rsi_val else -1)
+    return False, "RSI invalid", 0.0, {}
+                       
     # --- Bias-aware safety filter (global) ---
     # For bearish bias, avoid buying into deeply oversold tape that can keep falling.
     if bias == "bearish":
