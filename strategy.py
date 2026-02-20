@@ -3421,20 +3421,82 @@ def main():
                 CONFIG = BULLISH_CONFIG if day_bias == "bullish" else BEARISH_CONFIG
                 CONFIG_SESSION = overlay_by_session(CONFIG, ts_val, regime)
 
-                # --- SELL evaluation ---
-                has_entry = (symbol in entry_times) and (symbol in entry_prices)
+                LIVE_LOOP_SELL_BLOCK_TEMPLATE = '''
+                # --- SELL evaluation (put this where your current sell block is) ---
                 
-                # Fallback CONFIG for safety
-                active_config = entry_configs.get(symbol, CONFIG_SESSION)
+                # Step 1: Reattach orphan if needed (fixes the None entry_prices issue)
+                reattach_orphan_if_needed(
+                    symbol, positions_map, entry_times, entry_prices,
+                    entry_qty, entry_configs, CONFIG_SESSION
+                )
                 
-                # RECON: Alpaca shows position but local context missing
-                onchain_qty, _ = positions_map.get(symbol, (0, 0.0))
-                if onchain_qty > 0 and not has_entry:
-                    logging.warning(
-                        "[RECON][%s] Position open on Alpaca but no local entry context; "
-                        "using CONFIG_SESSION for exit evaluation", symbol
+                # Step 2: Check has_entry AFTER reattach (now reliable)
+                has_entry = (
+                    symbol in entry_prices and
+                    entry_prices.get(symbol) is not None and
+                    symbol in entry_times and
+                    symbol in entry_configs
+                )
+                
+                accept_exit = False
+                reason_exit = None
+                
+                if has_entry:
+                    ref_entry = entry_prices.get(symbol)
+                    active_config = entry_configs.get(symbol, CONFIG_SESSION)
+                
+                    accept_exit, reason_exit = evaluate_sell(
+                        symbol,
+                        price,
+                        ref_entry,
+                        price_deques[symbol],
+                        size_deques[symbol],
+                        entry_times,
+                        active_config,
+                        current_time=ts_val,
+                        regime=regime,
+                        log_stack=True
                     )
-                    has_entry = True
+                
+                    if accept_exit:
+                        qty = entry_qty.get(symbol, 0)
+                        pnl = (price - ref_entry) * qty if ref_entry else 0.0
+                
+                        safe_market_sell(
+                            trade_client_local=trading_client,
+                            symbol=symbol,
+                            intended_qty=qty,
+                            order_lock=order_lock,
+                            price_deques=price_deques,
+                            size_deques=size_deques
+                        )
+                
+                        exec_rows.append({
+                            "timestamp": ts_val.strftime("%Y-%m-%d %H:%M:%S"),
+                            "symbol": symbol,
+                            "action": "SELL",
+                            "price": price,
+                            "reason": reason_exit,
+                            "bias": day_bias,
+                            "pnl": round(pnl, 4),
+                            "ema_fast": round(ema_fast_val, 4),
+                            "ema_slow": round(ema_slow_val, 4),
+                            "rsi": round(rsi_val, 2),
+                            "vwap": round(vwap_val, 4),
+                            "regime": regime
+                        })
+                        write_exec_row_immediate(exec_rows[-1], symbol, RUN_MODE)
+                
+                        # Cleanup local state
+                        entry_times.pop(symbol, None)
+                        entry_prices.pop(symbol, None)
+                        entry_qty.pop(symbol, None)
+                        entry_configs.pop(symbol, None)
+                        last_exit_time[symbol] = ts_val
+                        highest_price_since_entry.pop(symbol, None)
+                        trailing_active[symbol] = False
+                
+                        continue  # skip BUY on same tick
 
                 accept_exit = False
                 reason_exit = None
