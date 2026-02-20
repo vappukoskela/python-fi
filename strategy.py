@@ -996,19 +996,21 @@ def safe_market_buy(
     bias=None,
     config_session=None
 ):
+    import logging, time, csv, os
+    import pandas as pd
+    from datetime import datetime, timezone
+
     logging.info("[BUY_START] safe_market_buy start for %s", symbol)
     symbol = symbol.strip().upper()
 
     try:
-        # --- SESSION GATE: block early and late entries ---
         now_ts = datetime.now(timezone.utc)
         minutes = _session_minutes(now_ts)
-        SESSION_LENGTH_MIN = 390  # 6.5h US cash session
+        SESSION_LENGTH_MIN = 390
 
         if minutes < 30:
             logging.info("%s - BUY blocked: session minutes=%d < 30", symbol, minutes)
             return None
-
         if minutes >= SESSION_LENGTH_MIN - 30:
             logging.info("%s - BUY blocked: session minutes=%d >= %d (final 30 min)",
                          symbol, minutes, SESSION_LENGTH_MIN - 30)
@@ -1016,41 +1018,33 @@ def safe_market_buy(
 
         with order_lock:
             try:
-                # --- Get latest trade for est_price ---
+                # --- Get latest price estimate ---
                 try:
                     resp = stock_data_client.get_stock_latest_trade(
                         StockLatestTradeRequest(symbol_or_symbols=symbol)
                     )
                     est_price = float(resp[symbol].price)
                 except Exception as e:
-                    logging.warning("[BUY_PRICE_FALLBACK] %s failed to get latest trade: %s", symbol, e)
+                    logging.warning("[BUY_PRICE_FALLBACK] %s: %s", symbol, e)
                     est_price = None
 
-                if est_price and est_price > 0:
-                    qty = int((cash_for_buy * BUY_CASH_BUFFER) // est_price)
-                else:
-                    qty = 1
-
-                if qty <= 0 or (est_price and qty * est_price < MIN_TRADE_USD):
-                    logging.info(
-                        "Computed buy qty too small for %s (qty=%s est_price=%s cash=%.2f)",
-                        symbol, qty, est_price, cash_for_buy
-                    )
+                if not est_price or est_price <= 0:
+                    logging.warning("[BUY_SKIP] %s est_price invalid: %s", symbol, est_price)
                     return None
 
-                # --- Defensive: ensure deques exist ---
-                if symbol not in price_deques or symbol not in size_deques:
-                    logging.debug("Missing deque data for %s; using empty series for indicators", symbol)
-                    prices_series = pd.Series(dtype=float)
-                    sizes_series = pd.Series(dtype=float)
-                else:
+                qty = int((cash_for_buy * BUY_CASH_BUFFER) // est_price)
+                if qty <= 0 or qty * est_price < MIN_TRADE_USD:
+                    logging.info("[BUY_SKIP] %s qty too small: qty=%d est_price=%.4f", symbol, qty, est_price)
+                    return None
+
+                # --- Indicators at entry time ---
+                if symbol in price_deques and symbol in size_deques:
                     prices_series = pd.Series(price_deques[symbol])
                     sizes_series = pd.Series(size_deques[symbol])
+                else:
+                    prices_series = pd.Series(dtype=float)
+                    sizes_series = pd.Series(dtype=float)
 
-                if prices_series.empty:
-                    logging.debug("Short price series for %s at %s", symbol, datetime.now(timezone.utc))
-
-                # --- Indicators at entry ---
                 ema_fast_val = _safe_last(compute_ema_from_series(prices_series, EMA_FAST))
                 ema_slow_val = _safe_last(compute_ema_from_series(prices_series, EMA_SLOW))
                 rsi_val = _safe_last(compute_rsi_from_series(prices_series, RSI_PERIOD))
@@ -1058,7 +1052,7 @@ def safe_market_buy(
                 regime_at_entry = detect_regime(prices_series, sizes_series)
                 bias_val = bias if bias is not None else globals().get("day_bias", "unknown")
 
-                # --- Submit market order ---
+                # --- Submit order ---
                 order = MarketOrderRequest(
                     symbol=symbol,
                     qty=qty,
@@ -1068,14 +1062,77 @@ def safe_market_buy(
                 )
                 submitted = trade_client_local.submit_order(order)
                 order_id = getattr(submitted, "id", None)
-                logging.info("[BUY_ORDER_SUBMITTED] %s order_id=%s response=%s", symbol, order_id, submitted)
+                submit_ts = datetime.now(timezone.utc)
 
-                # --- Poll for fill (short timeout) ---
+                logging.info("[BUY_SUBMITTED] %s order_id=%s qty=%d est_price=%.4f",
+                             symbol, order_id, qty, est_price)
+
+                # ============================================================
+                # KEY FIX: Write state IMMEDIATELY after submission,
+                # using est_price as placeholder. This guarantees the position
+                # is tracked even if polling times out or process restarts.
+                # ============================================================
+                entry_config_dict = {
+                    "regime": regime_at_entry,
+                    "bias": bias_val,
+                    "ema_fast": ema_fast_val,
+                    "ema_slow": ema_slow_val,
+                    "rsi": rsi_val,
+                    "vwap": vwap_val,
+                    "order_id": order_id,
+                    "est_price": est_price,
+                    "fill_inferred": True,   # assume inferred until confirmed
+                    "TP_PCT": TP_PCT,
+                    "TS_ACTIVATION_BUFFER": TS_ACTIVATION_BUFFER,
+                    "TRAILING_STOP_PCT": TRAILING_STOP_PCT,
+                    "EMERGENCY_SL_PCT": EMERGENCY_SL_PCT,
+                    "HARD_SL_PCT": HARD_SL_PCT,
+                    "SL_MULTIPLIER": SL_MULTIPLIER,
+                }
+                if config_session:
+                    entry_config_dict.update(config_session)
+
+                # Write state now — before polling
+                entry_times[symbol]   = submit_ts
+                entry_prices[symbol]  = est_price        # placeholder, updated on fill
+                entry_qty[symbol]     = float(qty)
+                entry_configs[symbol] = entry_config_dict
+
+                highest_price_since_entry[symbol] = est_price
+                trailing_active[symbol] = False
+                tp1_hit[symbol] = False
+
+                logging.info("[BUY_STATE_WRITTEN] %s entry_time=%s entry_price=%.4f qty=%d (pre-fill placeholder)",
+                             symbol, submit_ts, est_price, qty)
+
+                # Write to exec log immediately (as inferred)
+                buy_row = {
+                    "timestamp": submit_ts.strftime("%Y-%m-%d %H:%M:%S"),
+                    "symbol": symbol,
+                    "action": "BUY",
+                    "price": est_price,
+                    "reason": "entry_pre_fill",
+                    "bias": bias_val,
+                    "pnl": None,
+                    "ema_fast": ema_fast_val,
+                    "ema_slow": ema_slow_val,
+                    "rsi": rsi_val,
+                    "vwap": vwap_val,
+                    "regime": regime_at_entry,
+                    "code_version": CODE_VERSION
+                }
+                exec_rows.append(buy_row)
+                write_exec_row_immediate(buy_row, symbol, RUN_MODE)
+
+                # ============================================================
+                # Now poll for actual fill — update price if confirmed,
+                # but state is already safe regardless of outcome
+                # ============================================================
+                POLL_TIMEOUT = 90
+                poll_start = datetime.now(timezone.utc)
                 filled_qty = 0.0
                 filled_price = None
                 last_status = None
-                poll_start = datetime.now(timezone.utc)
-                POLL_TIMEOUT = 90  # seconds
 
                 while (datetime.now(timezone.utc) - poll_start).total_seconds() < POLL_TIMEOUT:
                     try:
@@ -1084,10 +1141,8 @@ def safe_market_buy(
                         raw_filled_qty = getattr(current, "filled_qty", 0) or 0
                         raw_filled_price = getattr(current, "filled_avg_price", None)
 
-                        logging.debug(
-                            "[ORDER_STATUS] %s status=%s filled_qty=%s filled_avg_price=%s",
-                            symbol, last_status, raw_filled_qty, raw_filled_price
-                        )
+                        logging.debug("[ORDER_STATUS] %s status=%s filled_qty=%s filled_avg_price=%s",
+                                      symbol, last_status, raw_filled_qty, raw_filled_price)
 
                         try:
                             filled_qty = float(raw_filled_qty)
@@ -1100,60 +1155,48 @@ def safe_market_buy(
                             except Exception:
                                 filled_price = None
 
-                        if last_status in ("filled", "partially_filled") and filled_qty > 0:
+                        if _status_is(last_status, "filled") and filled_qty > 0:
                             break
 
+                        if _status_is(last_status, "canceled") or _status_is(last_status, "rejected"):
+                            logging.warning("[BUY_CANCELED] %s order %s status=%s — clearing state",
+                                            symbol, order_id, last_status)
+                            # Order was rejected/canceled — remove the pre-written state
+                            entry_times.pop(symbol, None)
+                            entry_prices.pop(symbol, None)
+                            entry_qty.pop(symbol, None)
+                            entry_configs.pop(symbol, None)
+                            highest_price_since_entry.pop(symbol, None)
+                            trailing_active[symbol] = False
+                            return None
+
                     except Exception as e:
-                        logging.debug("[ORDER_STATUS_ERROR] %s polling error: %s", symbol, e)
+                        logging.debug("[ORDER_STATUS_ERROR] %s: %s", symbol, e)
 
                     time.sleep(0.5)
 
-                # === NORMAL FILLED CASE ===
-                if filled_qty and filled_qty > 0 and filled_price is not None:
+                # ============================================================
+                # Update state with actual fill price if confirmed
+                # If timeout, keep est_price — state is still valid
+                # ============================================================
+                if filled_qty > 0 and filled_price is not None:
                     fill_ts = datetime.now(timezone.utc)
+                    entry_times[symbol]   = fill_ts
+                    entry_prices[symbol]  = filled_price   # update to real fill price
+                    entry_qty[symbol]     = filled_qty
+                    entry_configs[symbol]["fill_inferred"] = False
+                    highest_price_since_entry[symbol] = filled_price
 
-                    entry_config_dict = {
-                        "regime": regime_at_entry,
-                        "bias": bias_val,
-                        "ema_fast": ema_fast_val,
-                        "ema_slow": ema_slow_val,
-                        "rsi": rsi_val,
-                        "vwap": vwap_val,
-                        "order_id": order_id,
-                        "est_price": est_price,
-                        "fill_inferred": False,
-                        "TP_PCT": TP_PCT,
-                        "TS_ACTIVATION_BUFFER": TS_ACTIVATION_BUFFER,
-                        "TRAILING_STOP_PCT": TRAILING_STOP_PCT,
-                        "EMERGENCY_SL_PCT": EMERGENCY_SL_PCT,
-                        "HARD_SL_PCT": HARD_SL_PCT,
-                        "SL_MULTIPLIER": SL_MULTIPLIER,
-                    }
+                    logging.info("[BUY_FILLED] %s fill_price=%.4f qty=%.2f (state updated from placeholder)",
+                                 symbol, filled_price, filled_qty)
 
-                    if config_session:
-                        entry_config_dict.update(config_session)
-                    
-                    entry_times[symbol] = fill_ts
-                    entry_prices[symbol] = filled_price
-                    entry_qty[symbol] = filled_qty
-                    entry_configs[symbol] = entry_config_dict
-
-                    highest_price_since_entry[symbol] = entry_prices[symbol]
-                    trailing_active[symbol] = False
-                    tp1_hit[symbol] = False
-
-                    logging.info(
-                        "[BUY_CONTEXT_WRITTEN] %s entry_time=%s entry_price=%.4f qty=%.2f",
-                        symbol, entry_times.get(symbol), entry_prices.get(symbol), entry_qty.get(symbol)
-                    )
-
-                    # --- BUY audit row (like v25) ---
-                    buy_row = {
-                        "timestamp": datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M:%S"),
+                    # Write confirmed fill row to exec log
+                    fill_row = {
+                        "timestamp": fill_ts.strftime("%Y-%m-%d %H:%M:%S"),
                         "symbol": symbol,
-                        "action": "BUY",
+                        "action": "BUY_CONFIRMED",
                         "price": filled_price,
-                        "reason": "entry",
+                        "reason": "entry_fill_confirmed",
                         "bias": bias_val,
                         "pnl": None,
                         "ema_fast": ema_fast_val,
@@ -1163,112 +1206,30 @@ def safe_market_buy(
                         "regime": regime_at_entry,
                         "code_version": CODE_VERSION
                     }
-                    exec_rows.append(buy_row)
-                    write_exec_row_immediate(exec_rows[-1], symbol, RUN_MODE)
-                    logging.info(
-                        f"[TRADE] {symbol} [{RUN_MODE}] BUY qty={filled_qty:.0f} @ {filled_price:.4f} "
-                        f"| Time={datetime.now(timezone.utc).strftime('%H:%M:%S')} "
-                        f"| Regime={regime_at_entry} | Bias={bias_val}"
+                    exec_rows.append(fill_row)
+                    write_exec_row_immediate(fill_row, symbol, RUN_MODE)
+
+                else:
+                    logging.warning(
+                        "[BUY_TIMEOUT] %s order_id=%s not confirmed within %ds "
+                        "— keeping est_price=%.4f as entry (state already written)",
+                        symbol, order_id, POLL_TIMEOUT, est_price
                     )
-
-                    if EXEC_AUDIT_ENABLED:
-                        try:
-                            fieldnames = ["timestamp","symbol","action","price","reason","bias","pnl",
-                                          "ema_fast","ema_slow","rsi","vwap","regime","code_version"]
-                            with open(EXEC_AUDIT_FILE, "a", newline="") as f:
-                                writer = csv.DictWriter(f, fieldnames=fieldnames)
-                                if f.tell() == 0:
-                                    writer.writeheader()
-                                writer.writerow(buy_row)
-                        except Exception as e:
-                            logging.warning("Failed to write BUY to audit file: %s", e)
-
-                    return submitted
-
-                # === TIMEOUT / INFERRED CASE ===
-                logging.warning(
-                    "[BUY_NOT_FILLED] %s order not confirmed filled within %ds; order_id=%s last_status=%s "
-                    "-- writing inferred context so exits can still function",
-                    symbol, POLL_TIMEOUT, order_id, last_status
-                )
-
-                fill_ts = datetime.now(timezone.utc)
-                inferred_price = est_price if est_price else 0.0
-                inferred_qty = qty
-
-                entry_config_dict = {
-                    "regime": regime_at_entry,
-                    "bias": bias_val,
-                    "ema_fast": ema_fast_val,
-                    "ema_slow": ema_slow_val,
-                    "rsi": rsi_val,
-                    "vwap": vwap_val,
-                    "order_id": order_id,
-                    "est_price": est_price,
-                    "fill_inferred": True,
-                    "TP_PCT": TP_PCT,
-                    "TS_ACTIVATION_BUFFER": TS_ACTIVATION_BUFFER,
-                    "TRAILING_STOP_PCT": TRAILING_STOP_PCT,
-                    "EMERGENCY_SL_PCT": EMERGENCY_SL_PCT,
-                    "HARD_SL_PCT": HARD_SL_PCT,
-                    "SL_MULTIPLIER": SL_MULTIPLIER,
-                }
-
-                if config_session:
-                    entry_config_dict.update(config_session)
-
-                entry_times[symbol] = fill_ts
-                entry_prices[symbol] = inferred_price
-                entry_qty[symbol] = inferred_qty
-                entry_configs[symbol] = entry_config_dict
-
-                highest_price_since_entry[symbol] = entry_prices[symbol]
-                trailing_active[symbol] = False
-                tp1_hit[symbol] = False
-
-                logging.info(
-                    "[BUY_CONTEXT_WRITTEN_INFERRED] %s entry_time=%s entry_price=%.4f qty=%.2f",
-                    symbol, entry_times.get(symbol), entry_prices.get(symbol), entry_qty.get(symbol)
-                )
-
-                buy_row = {
-                    "timestamp": datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M:%S"),
-                    "symbol": symbol,
-                    "action": "BUY",
-                    "price": entry_prices[symbol],
-                    "reason": "entry_timeout_inferred",
-                    "bias": bias_val,
-                    "pnl": None,
-                    "ema_fast": ema_fast_val,
-                    "ema_slow": ema_slow_val,
-                    "rsi": rsi_val,
-                    "vwap": vwap_val,
-                    "regime": regime_at_entry,
-                    "code_version": CODE_VERSION
-                }
-                exec_rows.append(buy_row)
-                write_exec_row_immediate(exec_rows[-1], symbol, RUN_MODE)
-
-                if EXEC_AUDIT_ENABLED:
-                    try:
-                        fieldnames = ["timestamp","symbol","action","price","reason","bias","pnl",
-                                      "ema_fast","ema_slow","rsi","vwap","regime","code_version"]
-                        with open(EXEC_AUDIT_FILE, "a", newline="") as f:
-                            writer = csv.DictWriter(f, fieldnames=fieldnames)
-                            if f.tell() == 0:
-                                writer.writeheader()
-                            writer.writerow(buy_row)
-                    except Exception as e:
-                        logging.warning("Failed to write inferred BUY to audit file: %s", e)
 
                 return submitted
 
             except Exception as e:
-                logging.exception("safe_market_buy error for %s: %s", symbol, e)
+                logging.exception("[BUY_INNER_ERROR] %s: %s", symbol, e)
+                # Safety: if submission itself failed, clear any partial state
+                if symbol in entry_configs and entry_configs[symbol].get("fill_inferred"):
+                    entry_times.pop(symbol, None)
+                    entry_prices.pop(symbol, None)
+                    entry_qty.pop(symbol, None)
+                    entry_configs.pop(symbol, None)
                 return None
 
     except Exception as e:
-        logging.exception("safe_market_buy outer error for %s: %s", symbol, e)
+        logging.exception("[BUY_OUTER_ERROR] %s: %s", symbol, e)
         return None
 
 
