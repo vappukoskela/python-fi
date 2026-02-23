@@ -1519,6 +1519,10 @@ def reconcile_positions(
     now_ts = datetime.now(timezone.utc)
 
     for sym in symbols:
+        # === DOUBLE-SELL GUARD: skip if LIVE loop is already selling this symbol ===
+        if sym in _pending_sells:
+            logging.debug("[RECON][%s] Skipping — sell already inflight from LIVE loop", sym)
+            continue
         qty_open, avg_entry = positions_map.get(sym, (0, 0.0))
         if qty_open <= 0:
             # If no position but local state says in trade, clean up
