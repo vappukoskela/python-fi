@@ -75,6 +75,9 @@ pending_entries = set()
 # Avoimet toimeksiannot (symbol -> order_id tai True jos ei tiedossa)
 inflight_orders = {}
 
+# === SELL INFLIGHT GUARD (prevents double-sell between LIVE loop and reconcile) ===
+_pending_sells = set()  # symbols currently being sold by the LIVE loop
+
 # Entryjen seuranta
 entry_times = {}
 entry_prices = {}
