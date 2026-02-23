@@ -2019,7 +2019,20 @@ def evaluate_entry(sym, price, size, prices_series, sizes_series, ts_val,
     if pd.isna(rsi_val) or rsi_val <= 0 or rsi_val > 100:
         logging.debug("[BLOCK] %s rejected | Reason=RSI invalid (rsi=%.2f)", sym, rsi_val if rsi_val else -1)
         return False, "RSI invalid", 0.0, {}
-                       
+
+    # === MARKET REGIME GATE ===
+    # Inserted here: after all core indicators are validated (ema, vwap, rsi)
+    # but before per-regime scoring begins, so the gate has clean data to work with.
+    market_trend = globals().get("market_trend_state", "unknown")
+    gate_ok, gate_reason = gate_entry(
+        sym, regime, prices_series, sizes_series, vwap_val,
+        compute_rsi_from_series(prices_series, RSI_PERIOD),
+        market_trend_state=market_trend
+    )
+    if not gate_ok:
+        logging.debug("[BLOCK] %s rejected by gate_entry | Reason=%s", sym, gate_reason)
+        return False, gate_reason, 0.0, {}
+
     # --- Bias-aware safety filter (global) ---
     # For bearish bias, avoid buying into deeply oversold tape that can keep falling.
     if bias == "bearish":
