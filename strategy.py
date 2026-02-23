@@ -3467,14 +3467,38 @@ def main():
                         qty = entry_qty.get(symbol, 0)
                         pnl = (price - ref_entry) * qty if ref_entry else 0.0
 
-                        safe_market_sell(
-                            trade_client_local=trading_client,
-                            symbol=symbol,
-                            intended_qty=qty,
-                            order_lock=order_lock,
-                            price_deques=price_deques,
-                            size_deques=size_deques
-                        )
+                        # === DOUBLE-SELL GUARD: clear local state BEFORE submitting sell ===
+                        # This means reconcile_positions will see no entry context
+                        # for this symbol and will skip it, even if it runs between
+                        # the sell submission and fill confirmation.
+                        _pending_sells.add(symbol)
+                        _snap_qty   = entry_qty.pop(symbol, 0)
+                        _snap_price = entry_prices.pop(symbol, None)
+                        _snap_time  = entry_times.pop(symbol, None)
+                        _snap_cfg   = entry_configs.pop(symbol, None)
+                        highest_price_since_entry.pop(symbol, None)
+                        trailing_active[symbol] = False
+
+                        try:
+                            safe_market_sell(
+                                trade_client_local=trading_client,
+                                symbol=symbol,
+                                intended_qty=qty,
+                                order_lock=order_lock,
+                                price_deques=price_deques,
+                                size_deques=size_deques
+                            )
+                        except Exception as _sell_err:
+                            # If sell fails, restore state so next tick can retry
+                            logging.error("[SELL_GUARD][%s] safe_market_sell raised: %s — restoring state", symbol, _sell_err)
+                            if _snap_price is not None:
+                                entry_qty[symbol]    = _snap_qty
+                                entry_prices[symbol] = _snap_price
+                                entry_times[symbol]  = _snap_time
+                                entry_configs[symbol] = _snap_cfg
+                                highest_price_since_entry[symbol] = _snap_price
+                        finally:
+                            _pending_sells.discard(symbol)
 
                         exec_rows.append({
                             "timestamp": ts_val.strftime("%Y-%m-%d %H:%M:%S"),
