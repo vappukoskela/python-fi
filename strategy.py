@@ -617,23 +617,112 @@ def range_quality_score(prices_series, vwap_val, rsi_series, boll_period=20, bol
 
 def gate_entry(symbol, regime, prices_series, sizes_series, vwap_val, rsi_series,
                market_trend_state="unknown"):
+    """
+    Pre-scoring gate: blocks entries based on regime/market conflict.
+    Called before evaluate_entry scoring to reject low-quality setups early.
+    Returns (allowed: bool, reason: str)
+    """
     sym_trend = symbol_trend_filter(prices_series)
     vol_state = volatility_filter(prices_series)
+    last_price = float(prices_series.iloc[-1]) if len(prices_series) > 0 else float("nan")
+
+    # === GATE 1: HIGH_VOL — always block entries ===
     if regime == "HIGH_VOL":
         return False, "high_vol_regime_block"
-    if regime == "RANGE":
+
+    # === GATE 2: RANGE vs bear market ===
+    # On bear-trending market days, lower Bollinger band touches are
+    # continuation moves down, not mean-reversion opportunities.
+    # Only allow RANGE entries if the symbol shows relative strength
+    # (price above its own VWAP while market is bearish).
+    if regime == "RANGE" and market_trend_state == "bear":
+        sym_above_vwap = (
+            not pd.isna(vwap_val) and
+            not pd.isna(last_price) and
+            last_price > vwap_val
+        )
+        if not sym_above_vwap:
+            logging.debug(
+                "[GATE] %s RANGE blocked | market=bear sym_below_vwap "
+                "(price=%.4f vwap=%.4f)",
+                symbol, last_price, vwap_val
+            )
+            return False, "RANGE blocked: market=bear sym below VWAP"
+
+        # Secondary check: even if above VWAP, require range quality score
+        # to be higher than normal since bear market makes reversions less reliable
+        rq_score = range_quality_score(prices_series, vwap_val, rsi_series)
+        if rq_score < 2.0:
+            logging.debug(
+                "[GATE] %s RANGE blocked | market=bear rq_score=%.2f < 2.0",
+                symbol, rq_score
+            )
+            return False, f"RANGE blocked: market=bear low quality (score={rq_score:.2f})"
+
+    # === GATE 3: RANGE quality check on neutral/bull market ===
+    # Original logic preserved but now split by market trend for clarity
+    elif regime == "RANGE":
         rq_score = range_quality_score(prices_series, vwap_val, rsi_series)
         if market_trend_state == "bear" and sym_trend == "bear":
+            # Double bear: both market and symbol trending down
             if rq_score < 2.0:
                 return False, f"range_block_bear_trend_low_quality(score={rq_score:.2f})"
         else:
             if rq_score < 1.0:
                 return False, f"range_block_low_quality(score={rq_score:.2f})"
+
+    # === GATE 4: DRIFT vs bear market ===
+    # Directional grind entries need OBV confirmation when market is bearish
+    # to ensure the symbol is genuinely grinding up, not drifting down
+    if regime == "DRIFT" and market_trend_state == "bear":
+        obv_check = _obv_slope_proxy(prices_series, sizes_series, window=10)
+        if pd.isna(obv_check) or obv_check <= 0:
+            logging.debug(
+                "[GATE] %s DRIFT blocked | market=bear OBV=%.2f <= 0",
+                symbol, obv_check if not pd.isna(obv_check) else -999
+            )
+            return False, "DRIFT blocked: market=bear OBV non-positive"
+
+    # === GATE 5: LOW_VOL vs high volatility ===
+    # Original logic preserved
     if regime == "LOW_VOL" and vol_state == "high":
         return False, "low_vol_block_high_volatility"
+
+    # === GATE 6: TREND — symbol vs market direction mismatch ===
+    # Original logic preserved
     if regime == "TREND":
         if market_trend_state == "bear" and sym_trend == "bull":
-            return False, "trend_block_symbol_vs_market_mismatch"
+            # Allow if relative strength is very strong:
+            # symbol clearly above VWAP while market is bear
+            sym_above_vwap = (
+                not pd.isna(vwap_val) and
+                not pd.isna(last_price) and
+                last_price > vwap_val * 1.001  # at least 0.1% above VWAP
+            )
+            if not sym_above_vwap:
+                return False, "trend_block_symbol_vs_market_mismatch"
+            # Log that we're allowing a counter-trend entry on relative strength
+            logging.debug(
+                "[GATE] %s TREND allowed despite bear market | "
+                "relative strength confirmed (price=%.4f vwap=%.4f)",
+                symbol, last_price, vwap_val
+            )
+
+    # === GATE 7: Universal relative strength bonus check ===
+    # On bear market days, add an extra confirmation for any remaining
+    # entry: symbol must not be making a fresh low in the last 10 bars.
+    # This prevents buying into accelerating downtrends across all regimes.
+    if market_trend_state == "bear" and regime not in ("HIGH_VOL",):
+        if len(prices_series) >= 10:
+            recent_low_val = prices_series.iloc[-10:].min()
+            if not pd.isna(last_price) and last_price <= recent_low_val * 1.0005:
+                logging.debug(
+                    "[GATE] %s blocked | market=bear price at/near 10-bar low "
+                    "(price=%.4f low=%.4f)",
+                    symbol, last_price, recent_low_val
+                )
+                return False, "blocked: market=bear price at 10-bar low"
+
     return True, "ok"
 
 
