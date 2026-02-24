@@ -3437,6 +3437,15 @@ def main():
                 trade_client_local=trade_client,
                 limit_fraction=BUY_POWER_LIMIT
             )
+            # Hard cap: never allow more than N simultaneous positions
+            # regardless of buying power calculation
+            MAX_CONCURRENT_POSITIONS = 3
+            current_open_positions = len([s for s in entry_prices if entry_prices.get(s) is not None])
+            if current_open_positions >= MAX_CONCURRENT_POSITIONS:
+                logging.info("[BUDGET] Max concurrent positions reached (%d) — skipping all entries this loop",
+                             current_open_positions)
+                time.sleep(LOOP_SLEEP)
+                continue
 
             # --- Fetch latest trades for all symbols ---
             for symbol in symbols:
