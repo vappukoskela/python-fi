@@ -3652,6 +3652,22 @@ def main():
                 )
 
                 if accept:
+                    # === BUDGET GUARD: check remaining budget before buying ===
+                    if spent_this_loop + (price * 10) > max_loop_budget:
+                        logging.info("[BUDGET] %s skipped — spent_this_loop=%.2f would exceed max=%.2f",
+                                     symbol, spent_this_loop, max_loop_budget)
+                        continue
+
+                    # === CONCURRENT POSITION GUARD ===
+                    current_open = len([s for s in entry_prices if entry_prices.get(s) is not None])
+                    if current_open >= MAX_CONCURRENT_POSITIONS:
+                        logging.info("[BUDGET] %s skipped — already at max concurrent positions %d",
+                                     symbol, MAX_CONCURRENT_POSITIONS)
+                        continue
+
+                    estimated_cost = price * int((max_loop_budget * BUY_CASH_BUFFER) // price)
+                    spent_this_loop += estimated_cost
+                    
                     safe_market_buy(
                         trade_client_local=trading_client,
                         symbol=symbol,
