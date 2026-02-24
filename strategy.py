@@ -1820,8 +1820,11 @@ def _smooth_regime(sym, raw_regime):
 
 
 def detect_regime(prices_series, sizes_series):
-    ema_fast = compute_ema_from_series(prices_series, EMA_FAST).iloc[-1] if len(prices_series) >= 2 else float('nan')
-    ema_slow = compute_ema_from_series(prices_series, EMA_SLOW).iloc[-1] if len(prices_series) >= 2 else float('nan')
+    if len(prices_series) < 2:
+        return "RANGE"
+
+    ema_fast = compute_ema_from_series(prices_series, EMA_FAST).iloc[-1]
+    ema_slow = compute_ema_from_series(prices_series, EMA_SLOW).iloc[-1]
     vwap_val = compute_vwap_from_ticks(prices_series, sizes_series).iloc[-1] if len(sizes_series) else float('nan')
     slope = ema_slope(prices_series, EMA_SLOW)
     atr_val = compute_atr_from_series(prices_series, ATR_PERIOD)
@@ -1830,10 +1833,16 @@ def detect_regime(prices_series, sizes_series):
     rsi_val = compute_rsi_from_series(prices_series, RSI_PERIOD).iloc[-1]
     price = float(prices_series.iloc[-1]) if len(prices_series) else float("nan")
 
+    # === NORMALIZE SLOPE BY PRICE ===
+    # Original slope is absolute dollars per tick — meaningless across
+    # different price levels. Normalizing makes the threshold work the
+    # same for a $80 KO and a $297 JPM.
+    slope_pct = (slope / price) if (not pd.isna(slope) and price > 0) else float('nan')
+
     # Session-based early bias (unchanged)
     minutes = _session_minutes(datetime.now(timezone.utc))
     if minutes < 40:
-        return "TREND" if slope > 0 else "RANGE"
+        return "TREND" if (not pd.isna(slope_pct) and slope_pct > 0) else "RANGE"
 
     # ATR percentile proxy (unchanged logic)
     N = 50
@@ -1844,6 +1853,22 @@ def detect_regime(prices_series, sizes_series):
     else:
         pct = 0.5
 
+    # === TREND SCORING (replaces hard triple-AND) ===
+    # Each condition contributes independently.
+    # Two of three passing is sufficient for TREND classification.
+    # This prevents one slightly-missed condition from forcing everything
+    # into RANGE on a genuinely trending day.
+    ema_trend_ok  = (not pd.isna(ema_fast) and not pd.isna(ema_slow) and ema_fast > ema_slow)
+    slope_ok      = (not pd.isna(slope_pct) and slope_pct > 0.000006)  # 0.0006% per tick normalized
+    vwap_ok       = (not pd.isna(vwap_val) and price >= vwap_val * 0.9995)  # within 0.05% of VWAP counts
+    trend_score   = sum([ema_trend_ok, slope_ok, vwap_ok])
+
+    # Strong trend: all three conditions — use original strict path
+    # Moderate trend: two of three — still classify as TREND
+    # Weak/no trend: one or zero — fall through to other regimes
+    TREND_STRONG  = (trend_score == 3)
+    TREND_MODERATE = (trend_score == 2)
+
     # === Decision order: HIGH_VOL -> TREND -> DRIFT -> LOW_VOL -> RANGE ===
 
     # 1) HIGH_VOL: strong range expansion / high ATR percentile
@@ -1853,20 +1878,22 @@ def detect_regime(prices_series, sizes_series):
     ):
         raw = "HIGH_VOL"
 
-    # 2) TREND: classic bullish trend (slightly relaxed on slope)
-    elif (
-        not pd.isna(ema_fast) and not pd.isna(ema_slow) and (ema_fast > ema_slow) and
-        not pd.isna(slope) and (slope > 0.0015) and
-        not pd.isna(vwap_val) and (price >= vwap_val)
-    ):
-        raw = "TREND"
+    # 2) TREND: now triggers on strong OR moderate trend score
+    elif TREND_STRONG or TREND_MODERATE:
+        # Extra guard: don't call TREND if bandwidth is extremely tight
+        # (that's LOW_VOL consolidation, not a trend)
+        if not pd.isna(bandwidth) and bandwidth < 0.0008:
+            raw = "LOW_VOL"
+        else:
+            raw = "TREND"
 
-    # 3) DRIFT: directional grind, moderate volatility (bullish or bearish)
+    # 3) DRIFT: directional grind, moderate volatility
+    # Slope threshold also normalized here for consistency
     elif (
-        not pd.isna(slope) and
+        not pd.isna(slope_pct) and
         not pd.isna(bandwidth) and
         0.003 <= bandwidth <= 0.007 and
-        0.015 <= abs(slope) <= 0.06 and
+        0.00010 <= abs(slope_pct) <= 0.00045 and  # normalized: was 0.015-0.06 absolute
         0.30 <= pct <= 0.95 and
         not pd.isna(rsi_val) and 20 <= rsi_val <= 80
     ):
@@ -1876,23 +1903,21 @@ def detect_regime(prices_series, sizes_series):
     elif (
         not pd.isna(bandwidth) and
         bandwidth <= min(LOW_VOL_CONFIG["BANDWIDTH_CAP"], 0.0035) and
-        not pd.isna(slope) and abs(slope) < 0.005
+        not pd.isna(slope_pct) and abs(slope_pct) < 0.000035  # normalized: was 0.005 absolute
     ):
         raw = "LOW_VOL"
 
-    # 5) RANGE: mid-bandwidth, limited slope (avoid large-slope mislabels)
+    # 5) RANGE: mid-bandwidth, limited slope
     elif (
         not pd.isna(bandwidth) and
         RANGE_CONFIG["BANDWIDTH_MIN"] <= bandwidth <= RANGE_CONFIG["BANDWIDTH_MAX"] and
-        not pd.isna(slope) and abs(slope) <= 0.02
+        not pd.isna(slope_pct) and abs(slope_pct) <= 0.00015  # normalized: was 0.02 absolute
     ):
         raw = "RANGE"
 
     else:
-        # fallback: treat unknown as RANGE for now
         raw = "RANGE"
 
-    # Note: smoothing needs 'sym'; applied at call sites via _smooth_regime
     return raw
 
 
