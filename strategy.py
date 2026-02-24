@@ -1848,10 +1848,14 @@ def detect_regime(prices_series, sizes_series):
     ):
         raw = "HIGH_VOL"
 
+    # 2) TREND: classic bullish trend
+    # slope normalized by price so threshold works consistently
+    # across all price levels ($80 KO vs $297 JPM vs $262 IWM)
     elif (
         not pd.isna(ema_fast) and not pd.isna(ema_slow) and (ema_fast > ema_slow) and
-        not pd.isna(slope) and (slope > 0.0015) and
-        not pd.isna(vwap_val) and (price >= vwap_val)
+        not pd.isna(slope) and not pd.isna(price) and price > 0 and
+        (slope / price) > 0.000008 and   # normalized: ~0.0008% per tick
+        not pd.isna(vwap_val) and (price >= vwap_val * 0.9998)
     ):
         raw = "TREND"
 
