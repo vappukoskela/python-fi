@@ -2319,8 +2319,7 @@ def evaluate_entry(sym, price, size, prices_series, sizes_series, ts_val,
         # We require: price below VWAP, oversold RSI, and healthy OBV.
         range_bull_bias_ok = (
             vwap_rev_ok and
-            rsi_band_ok and
-            obv_ok
+            rsi_band_ok 
         )
 
         if not range_bull_bias_ok:
