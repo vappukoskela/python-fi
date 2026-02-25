@@ -1599,6 +1599,65 @@ def reattach_orphan_if_needed(symbol, positions_map, entry_times, entry_prices,
 
     return has_local_context
 
+def warmup_deques(symbols, price_deques, size_deques, time_deques, lookback_minutes=60):
+    """
+    Pre-fill deques with recent 1-minute bars so indicators are
+    meaningful from the first loop tick, not after 300 live polls.
+    """
+    from alpaca.data.requests import StockBarsRequest
+    from alpaca.data.timeframe import TimeFrame, TimeFrameUnit
+    from dateutil import parser as dateutil_parser
+
+    end_dt = datetime.now(timezone.utc)
+    start_dt = end_dt - timedelta(minutes=lookback_minutes + 5)
+
+    logging.info("[WARMUP] Pre-filling deques for %d symbols (%d min lookback)",
+                 len(symbols), lookback_minutes)
+
+    for sym in symbols:
+        try:
+            req = StockBarsRequest(
+                symbol_or_symbols=sym,
+                start=start_dt,
+                end=end_dt,
+                timeframe=TimeFrame(1, TimeFrameUnit.Minute)
+            )
+            bars = stock_data_client.get_stock_bars(req).df
+            if bars is None or bars.empty:
+                logging.warning("[WARMUP] No bars for %s", sym)
+                continue
+
+            bars = bars.reset_index()
+            # handle multi-index (symbol, timestamp) vs single index
+            if "timestamp" not in bars.columns and len(bars.columns) > 0:
+                bars = bars.reset_index()
+
+            for _, row in bars.iterrows():
+                try:
+                    ts = pd.to_datetime(row.get("timestamp", row.name), utc=True)
+                    price = float(row["close"])
+                    size = float(row.get("volume", 1))
+                    bucket_ts = ts.replace(microsecond=0)
+
+                    if len(time_deques[sym]) > 0 and time_deques[sym][-1] == bucket_ts:
+                        price_deques[sym][-1] = (price_deques[sym][-1] + price) / 2.0
+                        size_deques[sym][-1] += size
+                    else:
+                        price_deques[sym].append(price)
+                        size_deques[sym].append(size)
+                        time_deques[sym].append(bucket_ts)
+                except Exception as e:
+                    logging.debug("[WARMUP] row parse error %s: %s", sym, e)
+                    continue
+
+            logging.info("[WARMUP] %s: loaded %d bars (deque len=%d)",
+                         sym, len(bars), len(price_deques[sym]))
+
+        except Exception as e:
+            logging.warning("[WARMUP] Failed for %s: %s", sym, e)
+
+    logging.info("[WARMUP] Complete. Sample: AAPL deque len=%d", len(price_deques.get("AAPL", [])))
+
 def reconcile_positions(
     trade_client_local,                    
     symbols,
