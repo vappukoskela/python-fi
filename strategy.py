@@ -3515,7 +3515,12 @@ def main():
     # === END SIMULATION BRANCH ===
    
 
+    # === END SIMULATION BRANCH ===
+    # (the return statement above means SIM never reaches here)
 
+    # === WARMUP: pre-fill deques with historical bars ===
+    if RUN_MODE == "LIVE":
+        warmup_deques(symbols, price_deques, size_deques, time_deques, lookback_minutes=60)
   
     def input_listener():
         try:
