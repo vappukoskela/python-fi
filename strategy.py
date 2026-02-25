@@ -668,7 +668,7 @@ def gate_entry(symbol, regime, prices_series, sizes_series, vwap_val, rsi_series
             if rq_score < 2.0:
                 return False, f"range_block_bear_trend_low_quality(score={rq_score:.2f})"
         else:
-            if rq_score < 1.0:
+            if rq_score < 0.8:
                 return False, f"range_block_low_quality(score={rq_score:.2f})"
 
     # === GATE 4: DRIFT vs bear market ===
