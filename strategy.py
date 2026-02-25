@@ -1819,74 +1819,123 @@ def _smooth_regime(sym, raw_regime):
     return chosen
 
 
-def detect_regime(prices_series, sizes_series):
-    ema_fast = compute_ema_from_series(prices_series, EMA_FAST).iloc[-1] if len(prices_series) >= 2 else float('nan')
-    ema_slow = compute_ema_from_series(prices_series, EMA_SLOW).iloc[-1] if len(prices_series) >= 2 else float('nan')
-    vwap_val = compute_vwap_from_ticks(prices_series, sizes_series).iloc[-1] if len(sizes_series) else float('nan')
-    slope = ema_slope(prices_series, EMA_SLOW)
-    atr_val = compute_atr_from_series(prices_series, ATR_PERIOD)
+def detect_regime(prices_series, sizes_series, debug=False):
+    # Tunables
+    MIN_PRICE_LEN = 30
+    EARLY_MINUTES_TREND = 40
+    N_ATR = 50
+    SLOPE_NORM_THRESH = 0.000005   # relaxed from 0.000008
+    VWAP_MULT = 0.998              # relaxed from 0.9998
+    BANDWIDTH_RANGE = (0.003, 0.007)
+    LOW_VOL_BW_CAP = 0.0035
+
+    # Safe computations with fallbacks
+    price = float(prices_series.iloc[-1]) if len(prices_series) else float("nan")
+    ema_fast = compute_ema_from_series(prices_series, EMA_FAST).iloc[-1] if len(prices_series) >= 2 else float("nan")
+    ema_slow = compute_ema_from_series(prices_series, EMA_SLOW).iloc[-1] if len(prices_series) >= 2 else float("nan")
+    vwap_val = None
+    try:
+        vwap_series = compute_vwap_from_ticks(prices_series, sizes_series)
+        vwap_val = vwap_series.iloc[-1] if len(vwap_series) else float("nan")
+    except Exception:
+        vwap_val = float("nan")
+
+    slope = None
+    try:
+        slope = ema_slope(prices_series, EMA_SLOW)
+    except Exception:
+        slope = float("nan")
+
+    atr_val = None
+    try:
+        atr_val = compute_atr_from_series(prices_series, ATR_PERIOD)
+    except Exception:
+        atr_val = float("nan")
+
     upper, ma, lower, bandwidth = compute_bollinger(prices_series, period=20, std=2.0)
     macd_line, macd_signal, macd_hist = compute_macd(prices_series)
-    rsi_val = compute_rsi_from_series(prices_series, RSI_PERIOD).iloc[-1]
-    price = float(prices_series.iloc[-1]) if len(prices_series) else float("nan")
+    rsi_series = compute_rsi_from_series(prices_series, RSI_PERIOD)
+    rsi_val = rsi_series.iloc[-1] if len(rsi_series) else float("nan")
 
     minutes = _session_minutes(datetime.now(timezone.utc))
-    if minutes < 40:
-        return "TREND" if slope > 0 else "RANGE"
+    if debug:
+        logging.debug(
+            "[DETECT_REGIME_DEBUG] len=%d price=%.4f ema_fast=%.4f ema_slow=%.4f slope=%.6f slope_norm=%.8f vwap=%.4f bandwidth=%.6f atr=%.6f rsi=%.2f minutes=%d",
+            len(prices_series),
+            price,
+            ema_fast if not pd.isna(ema_fast) else float("nan"),
+            ema_slow if not pd.isna(ema_slow) else float("nan"),
+            slope if slope is not None else float("nan"),
+            (slope / price) if (slope is not None and price and price > 0) else float("nan"),
+            vwap_val if not pd.isna(vwap_val) else float("nan"),
+            bandwidth if not pd.isna(bandwidth) else float("nan"),
+            atr_val if not pd.isna(atr_val) else float("nan"),
+            rsi_val if not pd.isna(rsi_val) else float("nan"),
+            minutes
+        )
 
-    N = 50
-    if len(prices_series) >= N + ATR_PERIOD:
+    # Early session: prefer TREND if slope positive
+    if minutes < EARLY_MINUTES_TREND:
+        return "TREND" if (slope is not None and slope > 0) else "RANGE"
+
+    # ATR percentile check (safe)
+    pct = 0.5
+    if len(prices_series) >= N_ATR + ATR_PERIOD and not pd.isna(atr_val):
         atr_series = prices_series.diff().abs().rolling(ATR_PERIOD).mean()
-        hist = atr_series.iloc[-N:].dropna()
-        pct = (hist < atr_val).mean() if len(hist) > 10 and not pd.isna(atr_val) else 0.5
-    else:
-        pct = 0.5
+        hist = atr_series.iloc[-N_ATR:].dropna()
+        if len(hist) > 10:
+            pct = (hist < atr_val).mean()
 
+    # HIGH_VOL detection
     if (
         (pct >= HIGH_VOL_CONFIG.get("ATR_TOP_PCT", 0.90) and not pd.isna(bandwidth) and bandwidth >= 0.006)
-        or (not pd.isna(bandwidth) and bandwidth > RANGE_CONFIG["BANDWIDTH_MAX"])
+        or (not pd.isna(bandwidth) and bandwidth > RANGE_CONFIG.get("BANDWIDTH_MAX", 0.007))
     ):
-        raw = "HIGH_VOL"
+        return "HIGH_VOL"
 
-    # 2) TREND: classic bullish trend
-    # slope normalized by price so threshold works consistently
-    # across all price levels ($80 KO vs $297 JPM vs $262 IWM)
-    elif (
+    # TREND detection (relaxed)
+    try:
+        slope_norm = (slope / price) if (slope is not None and price and price > 0) else float("nan")
+    except Exception:
+        slope_norm = float("nan")
+
+    if (
         not pd.isna(ema_fast) and not pd.isna(ema_slow) and (ema_fast > ema_slow) and
-        not pd.isna(slope) and not pd.isna(price) and price > 0 and
-        (slope / price) > 0.000008 and   # normalized: ~0.0008% per tick
-        not pd.isna(vwap_val) and (price >= vwap_val * 0.9998)
+        not pd.isna(slope_norm) and not pd.isna(price) and price > 0 and
+        slope_norm > SLOPE_NORM_THRESH and
+        not pd.isna(vwap_val) and (price >= vwap_val * VWAP_MULT)
     ):
-        raw = "TREND"
+        return "TREND"
 
-    elif (
+    # DRIFT
+    if (
         not pd.isna(slope) and
         not pd.isna(bandwidth) and
-        0.003 <= bandwidth <= 0.007 and
+        BANDWIDTH_RANGE[0] <= bandwidth <= BANDWIDTH_RANGE[1] and
         0.015 <= abs(slope) <= 0.06 and
         0.30 <= pct <= 0.95 and
         not pd.isna(rsi_val) and 20 <= rsi_val <= 80
     ):
         return "DRIFT"
 
-    elif (
+    # LOW_VOL
+    if (
         not pd.isna(bandwidth) and
-        bandwidth <= min(LOW_VOL_CONFIG["BANDWIDTH_CAP"], 0.0035) and
+        bandwidth <= min(LOW_VOL_CONFIG.get("BANDWIDTH_CAP", 0.0035), 0.0035) and
         not pd.isna(slope) and abs(slope) < 0.005
     ):
-        raw = "LOW_VOL"
+        return "LOW_VOL"
 
-    elif (
+    # RANGE
+    if (
         not pd.isna(bandwidth) and
-        RANGE_CONFIG["BANDWIDTH_MIN"] <= bandwidth <= RANGE_CONFIG["BANDWIDTH_MAX"] and
+        RANGE_CONFIG.get("BANDWIDTH_MIN", 0.001) <= bandwidth <= RANGE_CONFIG.get("BANDWIDTH_MAX", 0.007) and
         not pd.isna(slope) and abs(slope) <= 0.02
     ):
-        raw = "RANGE"
+        return "RANGE"
 
-    else:
-        raw = "RANGE"
+    return "RANGE"
 
-    return raw
 
 
 
