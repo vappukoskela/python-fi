@@ -1628,9 +1628,18 @@ def warmup_deques(symbols, price_deques, size_deques, time_deques, lookback_minu
                 continue
 
             bars = bars.reset_index()
-            # handle multi-index (symbol, timestamp) vs single index
-            if "timestamp" not in bars.columns and len(bars.columns) > 0:
-                bars = bars.reset_index()
+            # Alpaca returns MultiIndex (symbol, timestamp) — flatten it
+            if "timestamp" not in bars.columns:
+                # MultiIndex columns after reset may be named 'symbol' and 'timestamp'
+                # or the timestamp may be the index still
+                if isinstance(bars.index, pd.MultiIndex):
+                    bars = bars.reset_index()
+                # rename level_1 to timestamp if that's what happened
+                if "timestamp" not in bars.columns and "level_1" in bars.columns:
+                    bars = bars.rename(columns={"level_1": "timestamp"})
+                elif "timestamp" not in bars.columns and len(bars.columns) >= 2:
+                    # last resort: assume second column is timestamp
+                    bars.columns.values[1] = "timestamp"
 
             for _, row in bars.iterrows():
                 try:
