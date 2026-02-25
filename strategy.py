@@ -1863,25 +1863,32 @@ def reconcile_positions(
 # === BIAS DETECTION ===
 def detect_day_bias(prices_series, ema_fast_series, ema_slow_series, vwap_series):
     try:
-        # === SAFETY GUARD: prevent out-of-bounds at start of session ===
-        if (len(prices_series) == 0 or
-            len(ema_fast_series) == 0 or
-            len(ema_slow_series) == 0 or
-            len(vwap_series) == 0):
-            logging.debug("[BIAS] Series not ready yet, defaulting to bearish")
+        if (len(prices_series) == 0 or len(ema_fast_series) == 0 or
+            len(ema_slow_series) == 0 or len(vwap_series) == 0):
             return "bearish"
-                
+
         last_price = float(prices_series.iloc[-1])
         ema_fast_now = float(ema_fast_series.iloc[-1])
         ema_slow_now = float(ema_slow_series.iloc[-1])
         vwap_now = float(vwap_series.iloc[-1])
 
-        if ema_fast_now > ema_slow_now and last_price >= vwap_now:
-            return "bullish"
-        elif ema_fast_now < ema_slow_now and last_price < vwap_now:
-            return "bearish"
+        # === USE SHORT-TERM MOMENTUM, NOT EMA CROSSOVER ===
+        # On recovery days, EMA slow lags and stays above EMA fast
+        # even when price is clearly rising. Use recent price change instead.
+        if len(prices_series) >= 10:
+            recent_change = (last_price - float(prices_series.iloc[-10])) / float(prices_series.iloc[-10])
         else:
-            return "bearish"  # konservatiivinen oletus
+            recent_change = 0.0
+
+        # Bullish if: price rising in last 10 bars OR price above VWAP
+        price_above_vwap = last_price >= vwap_now
+        price_rising = recent_change > 0.0005  # 0.05% rise in last 10 ticks
+
+        if price_above_vwap or price_rising:
+            return "bullish"
+        else:
+            return "bearish"
+
     except Exception as e:
         logging.error("[ERROR] Bias detection failed: %s", e)
         return "bearish"
