@@ -1217,6 +1217,35 @@ def safe_market_buy(
                 write_exec_row_immediate(buy_row, symbol, RUN_MODE)
 
                 # ============================================================
+                # Write to central exec audit file (parity with SELL logic)
+                # ============================================================
+                if EXEC_AUDIT_ENABLED:
+                    try:
+                        fieldnames = ["timestamp","symbol","action","price","reason","bias","pnl",
+                                      "ema_fast","ema_slow","rsi","vwap","regime","code_version"]
+                        with open(EXEC_AUDIT_FILE, "a", newline="") as f:
+                            writer = csv.DictWriter(f, fieldnames=fieldnames)
+                            if f.tell() == 0:
+                                writer.writeheader()
+                            writer.writerow({
+                                "timestamp": submit_ts.strftime("%Y-%m-%d %H:%M:%S"),
+                                "symbol": symbol,
+                                "action": "BUY",
+                                "price": round(est_price, 6),
+                                "reason": "entry_pre_fill",
+                                "bias": bias_val,
+                                "pnl": None,
+                                "ema_fast": round(ema_fast_val, 6) if not pd.isna(ema_fast_val) else None,
+                                "ema_slow": round(ema_slow_val, 6) if not pd.isna(ema_slow_val) else None,
+                                "rsi": round(rsi_val, 2) if not pd.isna(rsi_val) else None,
+                                "vwap": round(vwap_val, 6) if not pd.isna(vwap_val) else None,
+                                "regime": regime_at_entry,
+                                "code_version": CODE_VERSION
+                            })
+                    except Exception as e:
+                        logging.warning("Failed to write BUY to audit file: %s", e)
+
+                # ============================================================
                 # Now poll for actual fill — update price if confirmed,
                 # but state is already safe regardless of outcome
                 # ============================================================
