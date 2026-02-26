@@ -2325,6 +2325,15 @@ def evaluate_entry(sym, price, size, prices_series, sizes_series, ts_val,
         if not range_bull_bias_ok:
             logging.debug(f"[BLOCK] {sym} rejected | Reason=RANGE_BULL local bias block")
             return False, "RANGE_BULL bias block", 0.0, {}
+
+        # Require at least 2 consecutive upticks before entering
+        # Prevents buying into a still-falling lower band
+        if len(prices_series) >= 3:
+            last_three = prices_series.iloc[-3:]
+            upticks = sum(last_three.diff().fillna(0) > 0)
+            if upticks < 2:
+                logging.debug("[BLOCK] %s rejected | Reason=RANGE insufficient upticks (%d/2)", sym, upticks)
+                return False, "RANGE insufficient upticks", 0.0, {}
                 
         # --- Optional: Bollinger bandwidth ROC filter (block expanding volatility) ---
         bb_roc = 0
