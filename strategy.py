@@ -2722,7 +2722,69 @@ def overlay_exit_params_by_regime(CONFIG, regime):
     return adj
 
 
+def evaluate_short_exit(sym, last_price, ref_short_entry, CONFIG,
+                        current_time=None, regime=None):
+    """
+    Exit logic for short positions. Mirror of evaluate_sell but inverted:
+    - Take-profit fires when price FALLS below entry by TP_PCT
+    - Stop-loss fires when price RISES above entry by SL threshold
+    - Trailing stop tracks lowest price since entry (not highest)
+    """
+    if ref_short_entry is None or ref_short_entry == 0:
+        return False, None
 
+    now_ts = current_time or datetime.now(timezone.utc)
+    entry_time = short_entry_times.get(sym)
+    elapsed = (now_ts - entry_time).total_seconds() \
+              if isinstance(entry_time, datetime) else 0.0
+
+    # EOD exit — always close shorts before market close
+    minutes = _session_minutes(now_ts)
+    if minutes >= 360:   # 30 minutes before close
+        return True, "SHORT EOD exit"
+
+    # Emergency stop-loss: price rose >1% above short entry
+    if last_price >= ref_short_entry * 1.010:
+        return True, "SHORT emergency SL"
+
+    # Hard stop: price rose >0.5% above short entry
+    emergency_sl_pct = float(CONFIG.get("EMERGENCY_SL_PCT", 0.005))
+    if last_price >= ref_short_entry * (1 + emergency_sl_pct):
+        return True, "SHORT stop-loss"
+
+    # Take-profit: price fell enough below entry
+    tp_pct = float(CONFIG.get("TP_PCT", 0.002))
+    if last_price <= ref_short_entry * (1 - tp_pct):
+        return True, "SHORT take-profit"
+
+    # Trailing stop on shorts: track lowest price since entry
+    ts_activation = float(CONFIG.get("TS_ACTIVATION_BUFFER", 0.003))
+    trailing_pct  = float(CONFIG.get("TRAILING_STOP_PCT", 0.004))
+
+    if last_price <= ref_short_entry * (1 - ts_activation):
+        short_trailing_active[sym] = True
+        lowest_price_since_short[sym] = min(
+            lowest_price_since_short.get(sym, ref_short_entry),
+            last_price
+        )
+
+    if short_trailing_active.get(sym, False):
+        trough = lowest_price_since_short.get(sym, ref_short_entry)
+        pullback_pct = (last_price - trough) / trough if trough > 0 else 0
+        if pullback_pct >= trailing_pct:
+            return True, "SHORT trailing stop"
+
+    # Time stop: if still in short after 3 minutes with no progress
+    if elapsed >= 180:
+        progress = (ref_short_entry - last_price) / ref_short_entry
+        if progress < 0.001:   # less than 0.1% move toward profit
+            return True, "SHORT time-stop"
+
+    # Max hold
+    if elapsed >= MAX_HOLD_SECONDS:
+        return True, "SHORT max hold"
+
+    return False, None
 
 def evaluate_sell(
     sym,
