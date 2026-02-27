@@ -3893,6 +3893,13 @@ def main():
                         continue  # skip BUY on same tick
 
                               
+               # === DAY REGIME MASTER GATE ===
+                _day_regime = globals().get("day_regime", "NEUTRAL_DAY")
+                if _day_regime == "BEAR_DAY":
+                    logging.debug(
+                        "[DAY_REGIME] BEAR_DAY active — skipping BUY for %s", symbol
+                    )
+                    continue
                
                 # --- BUY evaluation ---
                 accept, reason, score, stack = evaluate_entry(
