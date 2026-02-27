@@ -1759,6 +1759,106 @@ def safe_market_sell(trade_client_local, symbol, intended_qty, order_lock, price
             logging.exception("safe_market_sell error for %s: %s", symbol, e)
             return None
 
+def safe_market_cover(trade_client_local, symbol, intended_qty, order_lock):
+    """
+    Covers (closes) a short position with a BUY order.
+    Mirror of safe_market_sell but for shorts.
+    """
+    with order_lock:
+        try:
+            qty_to_cover = int(intended_qty)
+            if qty_to_cover <= 0:
+                logging.info("[COVER_SKIP] %s qty_to_cover=%d", symbol, qty_to_cover)
+                return None
+
+            order = MarketOrderRequest(
+                symbol=symbol,
+                qty=qty_to_cover,
+                side=OrderSide.BUY,         # cover = buy to close short
+                type=OrderType.MARKET,
+                time_in_force=TimeInForce.DAY
+            )
+            submitted = trade_client_local.submit_order(order)
+            order_id = getattr(submitted, "id", None)
+
+            logging.info("[COVER_SUBMITTED] %s qty=%d order_id=%s",
+                         symbol, qty_to_cover, order_id)
+
+            # Poll for fill
+            POLL_TIMEOUT = 90
+            poll_start = datetime.now(timezone.utc)
+            filled_price = None
+
+            while (datetime.now(timezone.utc) - poll_start).total_seconds() < POLL_TIMEOUT:
+                try:
+                    current = trade_client_local.get_order_by_id(order_id)
+                    status  = getattr(current, "status", None)
+                    raw_price = getattr(current, "filled_avg_price", None)
+                    if raw_price is not None:
+                        try:
+                            filled_price = float(raw_price)
+                        except Exception:
+                            pass
+                    if _status_is(status, "filled"):
+                        break
+                except Exception as e:
+                    logging.debug("[COVER_STATUS_ERROR] %s: %s", symbol, e)
+                time.sleep(0.5)
+
+            cover_price = filled_price or float(
+                stock_data_client.get_stock_latest_trade(
+                    StockLatestTradeRequest(symbol_or_symbols=symbol)
+                )[symbol].price
+            )
+
+            ref_short = short_entry_prices.get(symbol)
+            qty       = short_entry_qty.get(symbol, intended_qty)
+            # Short PnL: entry price MINUS cover price (profit when price falls)
+            pnl = (ref_short - cover_price) * qty if ref_short else 0.0
+
+            logging.info("[COVER_FILLED] %s cover_price=%.4f ref_short=%.4f PnL=%.4f",
+                         symbol, cover_price,
+                         ref_short if ref_short else 0, pnl)
+
+            # Write to exec audit
+            cover_row = {
+                "timestamp": datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M:%S"),
+                "symbol": symbol,
+                "action": "COVER",
+                "price": cover_price,
+                "reason": "short_exit",
+                "bias": "bearish",
+                "pnl": round(pnl, 4),
+                "ema_fast": None,
+                "ema_slow": None,
+                "rsi": None,
+                "vwap": None,
+                "regime": short_entry_prices.get(symbol, {}) if isinstance(
+                          short_entry_prices.get(symbol), dict) else "BEAR",
+                "code_version": CODE_VERSION
+            }
+            exec_rows.append(cover_row)
+            write_exec_row_immediate(cover_row, symbol, RUN_MODE)
+
+            if EXEC_AUDIT_ENABLED:
+                try:
+                    fieldnames = ["timestamp","symbol","action","price","reason",
+                                  "bias","pnl","ema_fast","ema_slow","rsi","vwap",
+                                  "regime","code_version"]
+                    with open(EXEC_AUDIT_FILE, "a", newline="") as f:
+                        writer = csv.DictWriter(f, fieldnames=fieldnames)
+                        if f.tell() == 0:
+                            writer.writeheader()
+                        writer.writerow(cover_row)
+                except Exception as e:
+                    logging.warning("Failed to write COVER to audit file: %s", e)
+
+            return submitted
+
+        except Exception as e:
+            logging.exception("[COVER_ERROR] %s: %s", symbol, e)
+            return None
+
 def force_liquidation_at_cutoff(trade_client_local, symbols, cutoff_hour_eet=22, cutoff_min_eet=59):
     # Convert current UTC to EET naive (UTC-5); for DST use pytz/zoneinfo
     now_utc = datetime.now(timezone.utc)
