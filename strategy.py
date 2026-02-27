@@ -2882,6 +2882,68 @@ def audit_rejection_live(sym, ts_val, price, size, ema_fast, ema_slow,
 
 # === MAIN ===
 # === Strategy parameters ===
+def classify_day_regime(stock_data_client_local, spy_deque):
+    try:
+        now = datetime.now(timezone.utc)
+        req = StockBarsRequest(
+            symbol_or_symbols="SPY",
+            timeframe=TimeFrame(1, TimeFrameUnit.Day),
+            start=now - timedelta(days=5),
+            end=now
+        )
+        bars = stock_data_client_local.get_stock_bars(req).df
+        if bars is None or len(bars) < 2:
+            logging.warning("[DAY_REGIME] Not enough daily bars, defaulting NEUTRAL_DAY")
+            return "NEUTRAL_DAY"
+
+        bars = bars.reset_index()
+        if "timestamp" not in bars.columns and "level_1" in bars.columns:
+            bars = bars.rename(columns={"level_1": "timestamp"})
+
+        prev_close = float(bars.iloc[-2]["close"])
+        today_open = float(bars.iloc[-1]["open"])
+        gap_pct = (today_open - prev_close) / prev_close
+
+        spy_prices = pd.Series(spy_deque)
+        spy_rsi = _safe_last(compute_rsi_from_series(spy_prices, RSI_PERIOD))
+
+        logging.warning(
+            "[DAY_REGIME] prev_close=%.2f today_open=%.2f gap_pct=%.4f spy_rsi=%.1f",
+            prev_close, today_open, gap_pct,
+            spy_rsi if not pd.isna(spy_rsi) else -1
+        )
+
+        if gap_pct <= -0.005:
+            if not pd.isna(spy_rsi) and spy_rsi > 55:
+                return "NEUTRAL_DAY"
+            return "BEAR_DAY"
+        elif gap_pct >= 0.005:
+            if not pd.isna(spy_rsi) and spy_rsi < 40:
+                return "NEUTRAL_DAY"
+            return "BULL_DAY"
+        else:
+            if pd.isna(spy_rsi):
+                return "NEUTRAL_DAY"
+            if spy_rsi >= 55:
+                return "BULL_DAY"
+            elif spy_rsi <= 45:
+                return "BEAR_DAY"
+            return "NEUTRAL_DAY"
+
+    except Exception as e:
+        logging.warning("[DAY_REGIME] Classification failed: %s — defaulting NEUTRAL_DAY", e)
+        return "NEUTRAL_DAY"
+
+
+def _wait_for_935_et():
+    while True:
+        now_et = datetime.now(timezone.utc).astimezone(ZoneInfo("America/New_York"))
+        if now_et.hour > 9 or (now_et.hour == 9 and now_et.minute >= 35):
+            break
+        logging.info("[DAY_REGIME] Waiting for 9:35 ET... current=%02d:%02d ET",
+                     now_et.hour, now_et.minute)
+        time.sleep(10)
+
 logging.warning(">>> MAIN LOOP IS RUNNING FROM THIS FILE <<<")
     
 RSI_PERIOD = 14
