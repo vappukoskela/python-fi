@@ -3743,6 +3743,31 @@ def main():
                         market_trend_state = market_trend_filter(market_series)
                         globals()["market_trend_state"] = market_trend_state
                         logging.debug(f"[MARKET] trend_state={market_trend_state}")
+
+                        # --- Store SPY open price on first tick ---
+                        if globals().get("today_open_spy") is None:
+                            globals()["today_open_spy"] = price
+                            logging.info("[DAY_REGIME] SPY open price captured: %.4f", price)
+
+                        # --- Mid-session override: if SPY moves >1% from open ---
+                        _today_open = globals().get("today_open_spy")
+                        _current_day_regime = globals().get("day_regime", "NEUTRAL_DAY")
+                        if _today_open is not None:
+                            _spy_move = (price - _today_open) / _today_open
+                            _session_min = _session_minutes(ts_val)
+                            if _session_min > 30 and _session_min % 5 == 0:
+                                if _spy_move <= -0.010 and _current_day_regime != "BEAR_DAY":
+                                    logging.warning(
+                                        "[DAY_REGIME] OVERRIDE → BEAR_DAY "
+                                        "(SPY move=%.2f%% from open)", _spy_move * 100
+                                    )
+                                    globals()["day_regime"] = "BEAR_DAY"
+                                elif _spy_move >= 0.010 and _current_day_regime != "BULL_DAY":
+                                    logging.warning(
+                                        "[DAY_REGIME] OVERRIDE → BULL_DAY "
+                                        "(SPY move=%.2f%% from open)", _spy_move * 100
+                                    )
+                                    globals()["day_regime"] = "BULL_DAY"
                     except Exception as e:
                         logging.debug(f"[MARKET] trend update failed: {e}")
 
