@@ -1381,6 +1381,232 @@ def _order_status_wait(trade_client_local, order_id, sym, max_retries=RECON_POLL
         logging.warning("%s - RECON status wait failed for order %s: %s", sym, order_id, e)
         return False
 
+def safe_market_short(
+    trade_client_local,
+    symbol,
+    cash_for_short,
+    order_lock,
+    price_deques,
+    size_deques,
+    short_entry_times,
+    short_entry_prices,
+    short_entry_qty,
+    config_session=None
+):
+    """
+    Submits a short (SELL) order when no position exists.
+    Mirrors safe_market_buy exactly but writes to short_entry_* dicts.
+    """
+    logging.info("[SHORT_START] safe_market_short start for %s", symbol)
+    symbol = symbol.strip().upper()
+
+    try:
+        now_ts = datetime.now(timezone.utc)
+        minutes = _session_minutes(now_ts)
+        SESSION_LENGTH_MIN = 390
+
+        # Block shorts in first 30 and last 30 minutes
+        if minutes < 30:
+            logging.info("%s - SHORT blocked: session minutes=%d < 30", symbol, minutes)
+            return None
+        if minutes >= SESSION_LENGTH_MIN - 30:
+            logging.info("%s - SHORT blocked: session minutes=%d >= %d (final 30 min)",
+                         symbol, minutes, SESSION_LENGTH_MIN - 30)
+            return None
+
+        with order_lock:
+            try:
+                # --- Get latest price estimate ---
+                try:
+                    resp = stock_data_client.get_stock_latest_trade(
+                        StockLatestTradeRequest(symbol_or_symbols=symbol)
+                    )
+                    est_price = float(resp[symbol].price)
+                except Exception as e:
+                    logging.warning("[SHORT_PRICE_FALLBACK] %s: %s", symbol, e)
+                    est_price = None
+
+                if not est_price or est_price <= 0:
+                    logging.warning("[SHORT_SKIP] %s est_price invalid: %s", symbol, est_price)
+                    return None
+
+                qty = int((cash_for_short * BUY_CASH_BUFFER) // est_price)
+                if qty <= 0 or qty * est_price < MIN_TRADE_USD:
+                    logging.info("[SHORT_SKIP] %s qty too small: qty=%d est_price=%.4f",
+                                 symbol, qty, est_price)
+                    return None
+
+                # --- Indicators at entry time ---
+                if symbol in price_deques and symbol in size_deques:
+                    prices_series = pd.Series(price_deques[symbol])
+                    sizes_series = pd.Series(size_deques[symbol])
+                else:
+                    prices_series = pd.Series(dtype=float)
+                    sizes_series = pd.Series(dtype=float)
+
+                ema_fast_val = _safe_last(compute_ema_from_series(prices_series, EMA_FAST))
+                ema_slow_val = _safe_last(compute_ema_from_series(prices_series, EMA_SLOW))
+                rsi_val      = _safe_last(compute_rsi_from_series(prices_series, RSI_PERIOD))
+                vwap_val     = _safe_last(compute_vwap_from_ticks(prices_series, sizes_series))
+                regime_at_entry = detect_regime(prices_series, sizes_series)
+
+                # --- Submit SHORT order (SELL with no existing position) ---
+                order = MarketOrderRequest(
+                    symbol=symbol,
+                    qty=qty,
+                    side=OrderSide.SELL,        # short = sell when flat
+                    type=OrderType.MARKET,
+                    time_in_force=TimeInForce.DAY
+                )
+                submitted = trade_client_local.submit_order(order)
+                order_id = getattr(submitted, "id", None)
+                submit_ts = datetime.now(timezone.utc)
+
+                logging.info("[SHORT_SUBMITTED] %s order_id=%s qty=%d est_price=%.4f",
+                             symbol, order_id, qty, est_price)
+
+                # --- Write state immediately (same pattern as safe_market_buy) ---
+                short_config = {
+                    "regime": regime_at_entry,
+                    "bias": "bearish",
+                    "ema_fast": ema_fast_val,
+                    "ema_slow": ema_slow_val,
+                    "rsi": rsi_val,
+                    "vwap": vwap_val,
+                    "order_id": order_id,
+                    "est_price": est_price,
+                    "fill_inferred": True,
+                    "TP_PCT": 0.002,
+                    "TS_ACTIVATION_BUFFER": 0.003,
+                    "TRAILING_STOP_PCT": 0.004,
+                    "EMERGENCY_SL_PCT": 0.005,
+                    "HARD_SL_PCT": 0.01,
+                    "SL_MULTIPLIER": 1.0,
+                }
+                if config_session:
+                    short_config.update(config_session)
+
+                short_entry_times[symbol]  = submit_ts
+                short_entry_prices[symbol] = est_price
+                short_entry_qty[symbol]    = float(qty)
+                lowest_price_since_short[symbol]  = est_price
+                short_trailing_active[symbol]     = False
+
+                logging.info(
+                    "[SHORT_STATE_WRITTEN] %s entry_time=%s entry_price=%.4f qty=%d",
+                    symbol, submit_ts, est_price, qty
+                )
+
+                # --- Write to exec audit log ---
+                short_row = {
+                    "timestamp": submit_ts.strftime("%Y-%m-%d %H:%M:%S"),
+                    "symbol": symbol,
+                    "action": "SHORT",
+                    "price": est_price,
+                    "reason": "short_entry_pre_fill",
+                    "bias": "bearish",
+                    "pnl": None,
+                    "ema_fast": ema_fast_val,
+                    "ema_slow": ema_slow_val,
+                    "rsi": rsi_val,
+                    "vwap": vwap_val,
+                    "regime": regime_at_entry,
+                    "code_version": CODE_VERSION
+                }
+                exec_rows.append(short_row)
+                write_exec_row_immediate(short_row, symbol, RUN_MODE)
+
+                if EXEC_AUDIT_ENABLED:
+                    try:
+                        fieldnames = ["timestamp","symbol","action","price","reason",
+                                      "bias","pnl","ema_fast","ema_slow","rsi","vwap",
+                                      "regime","code_version"]
+                        with open(EXEC_AUDIT_FILE, "a", newline="") as f:
+                            writer = csv.DictWriter(f, fieldnames=fieldnames)
+                            if f.tell() == 0:
+                                writer.writeheader()
+                            writer.writerow({k: (round(v, 6) if isinstance(v, float)
+                                             and not pd.isna(v) else v)
+                                             for k, v in short_row.items()})
+                    except Exception as e:
+                        logging.warning("Failed to write SHORT to audit file: %s", e)
+
+                # --- Poll for fill confirmation ---
+                POLL_TIMEOUT = 90
+                poll_start = datetime.now(timezone.utc)
+                filled_qty   = 0.0
+                filled_price = None
+
+                while (datetime.now(timezone.utc) - poll_start).total_seconds() < POLL_TIMEOUT:
+                    try:
+                        current = trade_client_local.get_order_by_id(order_id)
+                        last_status = getattr(current, "status", None)
+                        raw_filled_qty   = getattr(current, "filled_qty", 0) or 0
+                        raw_filled_price = getattr(current, "filled_avg_price", None)
+
+                        try:
+                            filled_qty = float(raw_filled_qty)
+                        except Exception:
+                            filled_qty = 0.0
+                        if raw_filled_price is not None:
+                            try:
+                                filled_price = float(raw_filled_price)
+                            except Exception:
+                                filled_price = None
+
+                        if _status_is(last_status, "filled") and filled_qty > 0:
+                            break
+
+                        if _status_is(last_status, "canceled") or \
+                           _status_is(last_status, "rejected"):
+                            logging.warning(
+                                "[SHORT_CANCELED] %s order %s status=%s — clearing state",
+                                symbol, order_id, last_status
+                            )
+                            short_entry_times.pop(symbol, None)
+                            short_entry_prices.pop(symbol, None)
+                            short_entry_qty.pop(symbol, None)
+                            lowest_price_since_short.pop(symbol, None)
+                            short_trailing_active[symbol] = False
+                            return None
+
+                    except Exception as e:
+                        logging.debug("[SHORT_STATUS_ERROR] %s: %s", symbol, e)
+
+                    time.sleep(0.5)
+
+                # --- Update state with real fill if confirmed ---
+                if filled_qty > 0 and filled_price is not None:
+                    fill_ts = datetime.now(timezone.utc)
+                    short_entry_times[symbol]  = fill_ts
+                    short_entry_prices[symbol] = filled_price
+                    short_entry_qty[symbol]    = filled_qty
+                    short_entry_prices[symbol] = filled_price
+                    lowest_price_since_short[symbol] = filled_price
+
+                    logging.info(
+                        "[SHORT_FILLED] %s fill_price=%.4f qty=%.2f",
+                        symbol, filled_price, filled_qty
+                    )
+                else:
+                    logging.warning(
+                        "[SHORT_TIMEOUT] %s not confirmed within %ds — "
+                        "keeping est_price=%.4f",
+                        symbol, POLL_TIMEOUT, est_price
+                    )
+
+                return submitted
+
+            except Exception as e:
+                logging.exception("[SHORT_INNER_ERROR] %s: %s", symbol, e)
+                short_entry_times.pop(symbol, None)
+                short_entry_prices.pop(symbol, None)
+                short_entry_qty.pop(symbol, None)
+                return None
+
+    except Exception as e:
+        logging.exception("[SHORT_OUTER_ERROR] %s: %s", symbol, e)
+        return None
 
 def safe_market_sell(trade_client_local, symbol, intended_qty, order_lock, price_deques, size_deques):
     with order_lock:
