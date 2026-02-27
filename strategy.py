@@ -3607,6 +3607,11 @@ def main():
     # === WARMUP: pre-fill deques with historical bars ===
     if RUN_MODE == "LIVE":
         warmup_deques(symbols, price_deques, size_deques, time_deques, lookback_minutes=60)
+        _wait_for_935_et()
+        day_regime = classify_day_regime(stock_data_client, price_deques["SPY"])
+        globals()["day_regime"] = day_regime
+        globals()["today_open_spy"] = None  # will be set on first SPY tick
+        logging.warning("[DAY_REGIME] *** Session classified as: %s ***", day_regime)
   
     def input_listener():
         try:
