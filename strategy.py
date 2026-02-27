@@ -84,6 +84,14 @@ entry_prices = {}
 entry_qty = {}
 exec_rows = []
 
+# === SHORT POSITION STATE (parallel to long entry state) ===
+short_entry_times = {}
+short_entry_prices = {}
+short_entry_qty = {}
+lowest_price_since_short = defaultdict(float)   # mirror of highest_price_since_entry
+short_trailing_active = defaultdict(bool)        # mirror of trailing_active
+pending_short_entries = set()                    # mirror of pending_entries
+
 tp1_hit = defaultdict(bool)
 
 # Viimeiset poistumisajat (symbol -> datetime)
