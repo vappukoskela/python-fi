@@ -4601,7 +4601,74 @@ def main():
                         pending_entries.discard(symbol)
 
 
-                    
+                # === SHORT ENTRY EVALUATION (BEAR_DAY only) ===
+                    _day_regime = globals().get("day_regime", "NEUTRAL_DAY")
+                    if _day_regime == "BEAR_DAY":
+                        short_accept, short_reason, short_score, short_stack = evaluate_short_entry(
+                            symbol,
+                            price,
+                            size,
+                            prices_series,
+                            sizes_series,
+                            ts_val,
+                            positions_map,
+                            inflight_orders,
+                            pending_short_entries,
+                            last_exit_time[symbol],
+                            last_buy_time,
+                            CONFIG_SESSION,
+                            regime,
+                            log_stack=True
+                        )
+    
+                        if short_accept:
+                            # Guard: never short if we have a long position
+                            if symbol in entry_prices and entry_prices.get(symbol) is not None:
+                                logging.info("[SHORT_SKIP] %s already long — skipping short", symbol)
+                            # Guard: never double-short
+                            elif symbol in short_entry_prices and \
+                                 short_entry_prices.get(symbol) is not None:
+                                logging.info("[SHORT_SKIP] %s already short — skipping", symbol)
+                            elif symbol in pending_short_entries:
+                                logging.info("[SHORT_SKIP] %s short already pending", symbol)
+                            else:
+                                pending_short_entries.add(symbol)
+                                try:
+                                    # Budget guard for shorts
+                                    if spent_this_loop + (price * 10) > max_loop_budget:
+                                        logging.info(
+                                            "[SHORT_BUDGET] %s skipped — budget exhausted", symbol
+                                        )
+                                    else:
+                                        # Concurrent short position guard
+                                        current_shorts = len([
+                                            s for s in short_entry_prices
+                                            if short_entry_prices.get(s) is not None
+                                        ])
+                                        if current_shorts >= MAX_CONCURRENT_POSITIONS:
+                                            logging.info(
+                                                "[SHORT_BUDGET] %s skipped — max short "
+                                                "positions reached (%d)",
+                                                symbol, MAX_CONCURRENT_POSITIONS
+                                            )
+                                        else:
+                                            safe_market_short(
+                                                trade_client_local=trading_client,
+                                                symbol=symbol,
+                                                cash_for_short=max_loop_budget,
+                                                order_lock=order_lock,
+                                                price_deques=price_deques,
+                                                size_deques=size_deques,
+                                                short_entry_times=short_entry_times,
+                                                short_entry_prices=short_entry_prices,
+                                                short_entry_qty=short_entry_qty,
+                                                config_session=CONFIG_SESSION
+                                            )
+                                finally:
+                                    pending_short_entries.discard(symbol)
+                        else:
+                            logging.debug("[SHORT_BLOCK] %s | %s score=%.2f",
+                                          symbol, short_reason, short_score)
 
                                      
                    
