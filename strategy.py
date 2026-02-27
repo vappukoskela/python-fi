@@ -2041,7 +2041,192 @@ def detect_regime(prices_series, sizes_series, debug=False):
     return "RANGE"
 
 
+# === SHORT ENTRY EVALUATION (BEAR_DAY only) ===
+def evaluate_short_entry(sym, price, size, prices_series, sizes_series, ts_val,
+                         positions_map, inflight_orders, pending_entries,
+                         last_exit, last_buy_time, CONFIG, regime,
+                         log_stack=False):
+    """
+    Mirror of evaluate_entry but for short positions on BEAR_DAY.
+    Looks for dead-cat bounce rejections at VWAP resistance.
+    Returns (accept: bool, reason: str, score: float, signal_stack: dict)
+    """
 
+    # === Only active on BEAR_DAY ===
+    _day_regime = globals().get("day_regime", "NEUTRAL_DAY")
+    if _day_regime != "BEAR_DAY":
+        return False, "not_bear_day", 0.0, {}
+
+    # === Core indicators (same as evaluate_entry) ===
+    ema_fast = compute_ema_from_series(prices_series, EMA_FAST).iloc[-1] \
+               if len(prices_series) >= 2 else float('nan')
+    ema_slow = compute_ema_from_series(prices_series, EMA_SLOW).iloc[-1] \
+               if len(prices_series) >= 2 else float('nan')
+    rsi_series_full = compute_rsi_from_series(prices_series, RSI_PERIOD)
+    rsi_val = rsi_series_full.iloc[-1] if len(rsi_series_full) else float('nan')
+    rsi_prev = rsi_series_full.iloc[-2] if len(rsi_series_full) >= 2 else float('nan')
+    vwap_val = compute_vwap_from_ticks(prices_series,
+               pd.Series(size_deques[sym]) if sym in size_deques else pd.Series(dtype=float)).iloc[-1] \
+               if len(prices_series) else float('nan')
+    upper, boll_ma, lower, bandwidth = compute_bollinger(prices_series,
+                                        period=RANGE_CONFIG["BOLL_PERIOD"],
+                                        std=RANGE_CONFIG["BOLL_STD"])
+    slope = ema_slope(prices_series, EMA_SLOW)
+    median_vol = pd.Series(size_deques[sym]).median() \
+                 if sym in size_deques and len(size_deques[sym]) > 0 else float('nan')
+    macd_line, macd_signal, macd_hist = compute_macd(prices_series)
+    obv_slope = _obv_slope_proxy(prices_series,
+                pd.Series(size_deques[sym]) if sym in size_deques else pd.Series(dtype=float),
+                window=20)
+
+    # === Base validation — same guards as evaluate_entry ===
+    if pd.isna(ema_fast) or pd.isna(ema_slow) or pd.isna(vwap_val) or pd.isna(rsi_val):
+        logging.debug("[SHORT_BLOCK] %s rejected | Reason=Missing core indicators", sym)
+        return False, "Missing core indicators", 0.0, {}
+
+    if pd.isna(rsi_val) or rsi_val <= 0 or rsi_val > 100:
+        logging.debug("[SHORT_BLOCK] %s rejected | Reason=RSI invalid (rsi=%.2f)",
+                      sym, rsi_val if rsi_val else -1)
+        return False, "RSI invalid", 0.0, {}
+
+    # === Cooldown (same logic as evaluate_entry) ===
+    since_last_exit = (ts_val - last_exit).total_seconds() \
+                      if last_exit is not None else float("inf")
+    since_last_buy  = (ts_val - last_buy_time[sym]).total_seconds() \
+                      if last_buy_time[sym] is not None else float("inf")
+
+    if since_last_exit < COOLDOWN_SECONDS or since_last_buy < COOLDOWN_SECONDS:
+        logging.debug("[SHORT_BLOCK] %s rejected | Reason=Cooldown", sym)
+        return False, "Cooldown", 0.0, {}
+
+    # === Order flow guard ===
+    if inflight_orders.get(sym) is not None or sym in pending_entries:
+        return False, "Order flow block", 0.0, {}
+
+    # === Already short in this symbol? ===
+    if sym in short_entry_prices and short_entry_prices.get(sym) is not None:
+        return False, "Already short", 0.0, {}
+
+    # === Already long in this symbol? Never short while long ===
+    if sym in entry_prices and entry_prices.get(sym) is not None:
+        return False, "Long position open — no short", 0.0, {}
+
+    # ================================================================
+    # SHORT SETUP CONDITIONS
+    # We are looking for dead-cat bounce rejections:
+    # Price bounces UP from lows back toward VWAP, then gets rejected.
+    # This is the opposite of RANGE_BULL entries.
+    # ================================================================
+
+    # 1. RSI overbought on a down day (bounce ran too far)
+    #    On bear days, RSI > 58 after a bounce is a short signal
+    rsi_overbought = (not pd.isna(rsi_val) and rsi_val > 58)
+
+    # 2. RSI downtick — momentum rolling over
+    rsi_downtick = (not pd.isna(rsi_prev) and not pd.isna(rsi_val)
+                    and rsi_val < rsi_prev)
+
+    # 3. Price at or above VWAP — overextended bounce
+    #    VWAP acts as resistance on bear days
+    at_vwap_resistance = (not pd.isna(vwap_val) and price >= vwap_val * 0.999)
+
+    # 4. Price at or near upper Bollinger band — exhaustion signal
+    upper_band_touch = (not pd.isna(upper) and price >= upper * 0.998)
+
+    # 5. EMA bearish alignment — fast below slow confirms downtrend
+    ema_bearish = (not pd.isna(ema_fast) and not pd.isna(ema_slow)
+                   and ema_fast < ema_slow)
+
+    # 6. Negative slope — still grinding down
+    slope_negative = (not pd.isna(slope) and slope < 0)
+
+    # 7. OBV slope negative — volume confirms selling pressure
+    obv_bearish = (not pd.isna(obv_slope) and obv_slope < 0)
+
+    # 8. MACD bearish — signal line crossover down
+    macd_bearish = (not pd.isna(macd_line) and not pd.isna(macd_signal)
+                    and macd_line < macd_signal and macd_hist < 0)
+
+    # 9. 2 consecutive downticks confirming rejection
+    #    This is the mirror of the 2-uptick requirement in RANGE_BULL
+    downticks_ok = False
+    if len(prices_series) >= 3:
+        last_three = prices_series.iloc[-3:]
+        downticks = sum(last_three.diff().fillna(0) < 0)
+        downticks_ok = (downticks >= 2)
+
+    # 10. Volume not dry — need real selling pressure
+    vol_not_dry = (not pd.isna(median_vol) and median_vol > 0)
+
+    # === HARD REQUIREMENTS ===
+    # Must have at least: RSI rolling over + price at resistance + downticks
+    # Without these three, it is just noise not a real rejection setup
+    if not rsi_downtick:
+        logging.debug("[SHORT_BLOCK] %s rejected | Reason=RSI not downticking (rsi=%.2f prev=%.2f)",
+                      sym, rsi_val, rsi_prev if not pd.isna(rsi_prev) else -1)
+        return False, "SHORT rsi_downtick required", 0.0, {}
+
+    if not (at_vwap_resistance or upper_band_touch):
+        logging.debug("[SHORT_BLOCK] %s rejected | Reason=Not at resistance "
+                      "(price=%.4f vwap=%.4f upper=%.4f)",
+                      sym, price,
+                      vwap_val if not pd.isna(vwap_val) else -1,
+                      upper if not pd.isna(upper) else -1)
+        return False, "SHORT not at resistance", 0.0, {}
+
+    if not downticks_ok:
+        logging.debug("[SHORT_BLOCK] %s rejected | Reason=Insufficient downticks", sym)
+        return False, "SHORT insufficient downticks", 0.0, {}
+
+    # === SCORING ===
+    # Weights mirror RANGE_CONFIG weights in spirit
+    signal_stack = {}
+    score = 0.0
+
+    # Core signals (high weight)
+    score += 1.0 if rsi_overbought else 0.0          # RSI overbought = strong short signal
+    score += 1.0 if at_vwap_resistance else 0.0       # VWAP resistance
+    score += 1.0 if upper_band_touch else 0.0         # Upper band exhaustion
+    score += 0.8 if ema_bearish else 0.0              # EMA alignment
+    score += 0.7 if macd_bearish else 0.0             # MACD confirms
+    score += 0.5 if slope_negative else 0.0           # Slope still down
+    score += 0.5 if obv_bearish else 0.0              # Volume confirms
+    score += 0.3 if vol_not_dry else 0.0              # Tape active
+
+    signal_stack.update({
+        "rsi_overbought": rsi_overbought,
+        "rsi_downtick": rsi_downtick,
+        "at_vwap_resistance": at_vwap_resistance,
+        "upper_band_touch": upper_band_touch,
+        "ema_bearish": ema_bearish,
+        "macd_bearish": macd_bearish,
+        "slope_negative": slope_negative,
+        "obv_bearish": obv_bearish,
+        "downticks_ok": downticks_ok,
+        "vol_not_dry": vol_not_dry,
+        "rsi_val": round(rsi_val, 2),
+        "vwap_val": round(vwap_val, 4) if not pd.isna(vwap_val) else None
+    })
+
+    # === THRESHOLD ===
+    # Require score >= 2.5 to enter a short
+    # This means at minimum: VWAP resistance + EMA bearish + one more signal
+    SHORT_ENTRY_THRESHOLD = 2.5
+
+    accept = (score >= SHORT_ENTRY_THRESHOLD)
+
+    if log_stack or accept:
+        logging.debug(
+            "[SHORT_STACK][%s] score=%.2f threshold=%.2f accept=%s | %s",
+            sym, score, SHORT_ENTRY_THRESHOLD, accept, signal_stack
+        )
+
+    if not accept:
+        logging.debug("[SHORT_BLOCK] %s rejected | score=%.2f < %.2f",
+                      sym, score, SHORT_ENTRY_THRESHOLD)
+        return False, f"SHORT score={score:.2f} < {SHORT_ENTRY_THRESHOLD}", score, signal_stack
+
+    return True, "short_entry", score, signal_stack
 
 # === REGIME-AWARE ENTRY SCORING (replacement gate) ===
 def evaluate_entry(sym, price, size, prices_series, sizes_series, ts_val,
