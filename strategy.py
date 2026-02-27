@@ -4375,6 +4375,59 @@ def main():
                 CONFIG = BULLISH_CONFIG if day_bias == "bullish" else BEARISH_CONFIG
                 CONFIG_SESSION = overlay_by_session(CONFIG, ts_val, regime)
 
+                # === SHORT EXIT EVALUATION ===
+                has_short = (
+                    symbol in short_entry_prices and
+                    short_entry_prices.get(symbol) is not None and
+                    symbol in short_entry_times
+                )
+
+                if has_short:
+                    ref_short  = short_entry_prices.get(symbol)
+                    short_cfg  = {
+                        "TP_PCT": 0.002,
+                        "TS_ACTIVATION_BUFFER": 0.003,
+                        "TRAILING_STOP_PCT": 0.004,
+                        "EMERGENCY_SL_PCT": 0.005,
+                    }
+                    should_cover, cover_reason = evaluate_short_exit(
+                        symbol, price, ref_short,
+                        short_cfg,
+                        current_time=ts_val,
+                        regime=regime
+                    )
+
+                    if should_cover:
+                        short_qty = short_entry_qty.get(symbol, 0)
+
+                        # Clear state before submitting cover
+                        _snap_short_qty   = short_entry_qty.pop(symbol, 0)
+                        _snap_short_price = short_entry_prices.pop(symbol, None)
+                        _snap_short_time  = short_entry_times.pop(symbol, None)
+                        lowest_price_since_short.pop(symbol, None)
+                        short_trailing_active[symbol] = False
+
+                        try:
+                            safe_market_cover(
+                                trade_client_local=trading_client,
+                                symbol=symbol,
+                                intended_qty=short_qty,
+                                order_lock=order_lock
+                            )
+                        except Exception as _cover_err:
+                            logging.error(
+                                "[COVER_GUARD][%s] safe_market_cover raised: %s — restoring state",
+                                symbol, _cover_err
+                            )
+                            if _snap_short_price is not None:
+                                short_entry_qty[symbol]    = _snap_short_qty
+                                short_entry_prices[symbol] = _snap_short_price
+                                short_entry_times[symbol]  = _snap_short_time
+                                lowest_price_since_short[symbol] = _snap_short_price
+
+                        last_exit_time[symbol] = ts_val
+                        continue  # skip BUY/SHORT on same tick after cover
+                
                 # --- SELL evaluation ---
                 # Step 1: Reattach orphan if needed
                 reattach_orphan_if_needed(
