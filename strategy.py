@@ -3561,6 +3561,11 @@ def main():
     highest_price_since_entry = {}
     trailing_active = {}
 
+    # === SHORT STATE INITIALIZATION ===
+    short_entry_times  = {}
+    short_entry_prices = {}
+    short_entry_qty    = {}
+    
     try:
         positions = trading_client.get_all_positions()
         for p in positions:
