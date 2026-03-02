@@ -2432,7 +2432,12 @@ def evaluate_short_entry(sym, price, size, prices_series, sizes_series, ts_val,
     Returns (accept: bool, reason: str, score: float, signal_stack: dict)
     """
 
+    # === BUDGET / POSITION LIMIT GATE (entries only) ===
+    if budget_exhausted:
+        logging.debug("[BUDGET] %s skipped — max positions reached", symbol)
+        continue
     # === Only active on BEAR_DAY ===
+    
     _day_regime = globals().get("day_regime", "NEUTRAL_DAY")
     if _day_regime != "BEAR_DAY":
         return False, "not_bear_day", 0.0, {}
