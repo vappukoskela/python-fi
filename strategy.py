@@ -4652,8 +4652,12 @@ def main():
 
                         continue  # skip BUY on same tick
 
-                              
-               # === DAY REGIME MASTER GATE ===
+                # === BUDGET / POSITION LIMIT GATE (entries only) ===
+                if budget_exhausted:
+                    logging.debug("[BUDGET] %s skipped — max positions reached", symbol)
+                    continue              
+               
+                # === DAY REGIME MASTER GATE ===
                 _day_regime = globals().get("day_regime", "NEUTRAL_DAY")
                 if _day_regime == "BEAR_DAY":
                     logging.debug(
