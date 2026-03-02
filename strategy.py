@@ -2434,13 +2434,12 @@ def evaluate_short_entry(sym, price, size, prices_series, sizes_series, ts_val,
 
     # === BUDGET / POSITION LIMIT GATE (entries only) ===
     if budget_exhausted:
-        logging.debug("[BUDGET] %s skipped — max positions reached", symbol
-        )
+        logging.debug("[BUDGET] %s skipped — max positions reached", symbol)
         continue
-    # === Only active on BEAR_DAY ===
-    
+
+    # === DAY REGIME MASTER GATE ===
     _day_regime = globals().get("day_regime", "NEUTRAL_DAY")
-    if _day_regime != "BEAR_DAY":
+    if _day_regime == "BEAR_DAY":
         logging.debug(
             "[DAY_REGIME] BEAR_DAY active — skipping BUY for %s", symbol
         )
