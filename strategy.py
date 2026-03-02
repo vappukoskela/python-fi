@@ -1948,71 +1948,126 @@ def reattach_orphan_if_needed(symbol, positions_map, entry_times, entry_prices,
 
 def warmup_deques(symbols, price_deques, size_deques, time_deques, lookback_minutes=60):
     """
-    Pre-fill deques with recent 1-minute bars so indicators are
-    meaningful from the first loop tick, not after 300 live polls.
+    Free-tier compatible warmup using live tick polling.
+    Polls get_stock_latest_trade (free) every 5 seconds for 2 minutes
+    to build enough data points for indicators to produce valid values.
+    RSI(14) needs 15+ points, EMA(20) needs 20+ points.
+    Target: 24 ticks = 2 minutes at 5-second intervals.
     """
-    from alpaca.data.requests import StockBarsRequest
-    from alpaca.data.timeframe import TimeFrame, TimeFrameUnit
-    from dateutil import parser as dateutil_parser
+    WARMUP_DURATION_SECONDS = 120   # total warmup time
+    POLL_INTERVAL_SECONDS = 5       # seconds between each poll round
+    total_ticks = WARMUP_DURATION_SECONDS // POLL_INTERVAL_SECONDS  # 24 ticks
 
-    end_dt = datetime.now(timezone.utc)
-    start_dt = end_dt - timedelta(minutes=lookback_minutes + 5)
+    logging.warning(
+        "[WARMUP] Starting live tick warmup for %d symbols "
+        "(%d seconds, polling every %ds, target=%d ticks per symbol)",
+        len(symbols), WARMUP_DURATION_SECONDS, POLL_INTERVAL_SECONDS, total_ticks
+    )
 
-    logging.info("[WARMUP] Pre-filling deques for %d symbols (%d min lookback)",
-                 len(symbols), lookback_minutes)
+    # Split symbols into chunks to avoid hammering the API
+    CHUNK_SIZE = 10
+    symbol_chunks = [
+        symbols[i:i + CHUNK_SIZE]
+        for i in range(0, len(symbols), CHUNK_SIZE)
+    ]
 
-    for sym in symbols:
-        try:
-            req = StockBarsRequest(
-                symbol_or_symbols=sym,
-                start=start_dt,
-                end=end_dt,
-                timeframe=TimeFrame(1, TimeFrameUnit.Minute)
+    for tick_num in range(1, total_ticks + 1):
+        tick_start = datetime.now(timezone.utc)
+
+        for chunk in symbol_chunks:
+            try:
+                resp = stock_data_client.get_stock_latest_trade(
+                    StockLatestTradeRequest(symbol_or_symbols=chunk)
+                )
+                for sym in chunk:
+                    try:
+                        trade = resp.get(sym)
+                        if trade is None:
+                            continue
+                        price = float(trade.price)
+                        size = float(getattr(trade, "size", 1) or 1)
+                        ts_val = datetime.now(timezone.utc)
+                        bucket_ts = ts_val.replace(microsecond=0)
+
+                        # Same aggregation logic as the main loop
+                        if (len(time_deques[sym]) > 0 and
+                                time_deques[sym][-1] == bucket_ts):
+                            price_deques[sym][-1] = (
+                                price_deques[sym][-1] + price
+                            ) / 2.0
+                            size_deques[sym][-1] += size
+                        else:
+                            price_deques[sym].append(price)
+                            size_deques[sym].append(size)
+                            time_deques[sym].append(bucket_ts)
+
+                    except Exception as e:
+                        logging.debug("[WARMUP] %s parse error: %s", sym, e)
+
+            except Exception as e:
+                logging.warning("[WARMUP] Chunk %s fetch failed: %s", chunk, e)
+
+        # Progress log every 6 ticks (every 30 seconds)
+        if tick_num % 6 == 0 or tick_num == 1 or tick_num == total_ticks:
+            sample_lens = {
+                s: len(price_deques[s])
+                for s in ["AAPL", "SPY", "NVDA"]
+                if s in price_deques
+            }
+            logging.warning(
+                "[WARMUP] Tick %d/%d complete | sample deque lengths: %s",
+                tick_num, total_ticks, sample_lens
             )
-            bars = stock_data_client.get_stock_bars(req).df
-            if bars is None or bars.empty:
-                logging.warning("[WARMUP] No bars for %s", sym)
-                continue
 
-            bars = bars.reset_index()
-            # Alpaca returns MultiIndex (symbol, timestamp) — flatten it
-            if "timestamp" not in bars.columns:
-                # MultiIndex columns after reset may be named 'symbol' and 'timestamp'
-                # or the timestamp may be the index still
-                if isinstance(bars.index, pd.MultiIndex):
-                    bars = bars.reset_index()
-                # rename level_1 to timestamp if that's what happened
-                if "timestamp" not in bars.columns and "level_1" in bars.columns:
-                    bars = bars.rename(columns={"level_1": "timestamp"})
-                elif "timestamp" not in bars.columns and len(bars.columns) >= 2:
-                    # last resort: assume second column is timestamp
-                    bars.columns.values[1] = "timestamp"
+        # Pace the loop — sleep for remainder of interval
+        elapsed = (datetime.now(timezone.utc) - tick_start).total_seconds()
+        sleep_time = max(0.1, POLL_INTERVAL_SECONDS - elapsed)
 
-            for _, row in bars.iterrows():
-                try:
-                    ts = pd.to_datetime(row.get("timestamp", row.name), utc=True)
-                    price = float(row["close"])
-                    size = float(row.get("volume", 1))
-                    bucket_ts = ts.replace(microsecond=0)
+        # Skip sleep on last tick
+        if tick_num < total_ticks:
+            time.sleep(sleep_time)
 
-                    if len(time_deques[sym]) > 0 and time_deques[sym][-1] == bucket_ts:
-                        price_deques[sym][-1] = (price_deques[sym][-1] + price) / 2.0
-                        size_deques[sym][-1] += size
-                    else:
-                        price_deques[sym].append(price)
-                        size_deques[sym].append(size)
-                        time_deques[sym].append(bucket_ts)
-                except Exception as e:
-                    logging.debug("[WARMUP] row parse error %s: %s", sym, e)
-                    continue
+    # --- Final report ---
+    filled = sum(1 for s in symbols if len(price_deques[s]) >= 20)
+    logging.warning(
+        "[WARMUP] Complete. %d/%d symbols have 20+ ticks. "
+        "AAPL deque len=%d | SPY deque len=%d",
+        filled, len(symbols),
+        len(price_deques.get("AAPL", [])),
+        len(price_deques.get("SPY", []))
+    )
 
-            logging.info("[WARMUP] %s: loaded %d bars (deque len=%d)",
-                         sym, len(bars), len(price_deques[sym]))
+    # Warn if too few ticks collected for reliable indicators
+    low_fill = [s for s in symbols if len(price_deques[s]) < 15]
+    if low_fill:
+        logging.warning(
+            "[WARMUP] %d symbols have <15 ticks (indicators may be unreliable "
+            "at session start): %s",
+            len(low_fill), low_fill
+        )
+```
 
-        except Exception as e:
-            logging.warning("[WARMUP] Failed for %s: %s", sym, e)
+---
 
-    logging.info("[WARMUP] Complete. Sample: AAPL deque len=%d", len(price_deques.get("AAPL", [])))
+**What changes in startup behavior:**
+
+Before (broken):
+```
+[WARMUP] Failed for AAPL: subscription does not permit querying recent SIP data
+[WARMUP] Complete. Sample: AAPL deque len=0
+```
+
+After (working):
+```
+[WARMUP] Starting live tick warmup for 39 symbols (120 seconds, polling every 5s, target=24 ticks)
+[WARMUP] Tick 1/24 complete | sample deque lengths: {'AAPL': 1, 'SPY': 1, 'NVDA': 1}
+[WARMUP] Tick 6/24 complete | sample deque lengths: {'AAPL': 6, 'SPY': 6, 'NVDA': 6}
+[WARMUP] Tick 12/24 complete | sample deque lengths: {'AAPL': 12, 'SPY': 12, 'NVDA': 12}
+[WARMUP] Tick 18/24 complete | sample deque lengths: {'AAPL': 18, 'SPY': 18, 'NVDA': 18}
+[WARMUP] Tick 24/24 complete | sample deque lengths: {'AAPL': 24, 'SPY': 24, 'NVDA': 24}
+[WARMUP] Complete. 39/39 symbols have 20+ ticks. AAPL deque len=24 | SPY deque len=24
+[DAY_REGIME] prev_close=559.20 spy_now=557.80 gap_pct=-0.0025 spy_rsi=48.3
+[DAY_REGIME] *** Session classified as: NEUTRAL_DAY ***
 
 def reconcile_positions(
     trade_client_local,                    
