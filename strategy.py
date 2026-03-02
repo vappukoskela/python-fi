@@ -2434,7 +2434,8 @@ def evaluate_short_entry(sym, price, size, prices_series, sizes_series, ts_val,
 
     # === BUDGET / POSITION LIMIT GATE (entries only) ===
     if budget_exhausted:
-        logging.debug("[BUDGET] %s skipped — max positions reached", symbol)
+        logging.debug("[BUDGET] %s skipped — max positions reached", symbol
+        )
         continue
     # === Only active on BEAR_DAY ===
     
