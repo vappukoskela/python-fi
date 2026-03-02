@@ -4699,11 +4699,12 @@ def main():
                             continue
 
                         # === CONCURRENT POSITION GUARD ===
-                        current_open = len([s for s in entry_prices if entry_prices.get(s) is not None])
-                        if current_open >= MAX_CONCURRENT_POSITIONS:
-                            logging.info("[BUDGET] %s skipped — already at max concurrent positions %d",
-                                         symbol, MAX_CONCURRENT_POSITIONS)
-                            continue
+                        current_open_positions = len([s for s in entry_prices if entry_prices.get(s) is not None])
+                        budget_exhausted = (current_open_positions >= MAX_CONCURRENT_POSITIONS)
+                        if budget_exhausted:
+                            logging.debug("[BUDGET] Max concurrent positions reached (%d) — entries blocked this loop",
+                                         current_open_positions)
+                        # Do NOT continue here — fall through so sell evaluation still runs
 
                         estimated_cost = price * int((max_loop_budget * BUY_CASH_BUFFER) // price)
                         spent_this_loop += estimated_cost
