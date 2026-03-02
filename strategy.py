@@ -2440,7 +2440,11 @@ def evaluate_short_entry(sym, price, size, prices_series, sizes_series, ts_val,
     
     _day_regime = globals().get("day_regime", "NEUTRAL_DAY")
     if _day_regime != "BEAR_DAY":
-        return False, "not_bear_day", 0.0, {}
+        logging.debug(
+            "[DAY_REGIME] BEAR_DAY active — skipping BUY for %s", symbol
+        )
+        continue
+        
 
     # === Core indicators (same as evaluate_entry) ===
     ema_fast = compute_ema_from_series(prices_series, EMA_FAST).iloc[-1] \
