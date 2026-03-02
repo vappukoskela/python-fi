@@ -1859,7 +1859,7 @@ def safe_market_cover(trade_client_local, symbol, intended_qty, order_lock):
             logging.exception("[COVER_ERROR] %s: %s", symbol, e)
             return None
 
-def force_liquidation_at_cutoff(trade_client_local, symbols, cutoff_hour_eet=22, cutoff_min_eet=59):
+def force_liquidation_at_cutoff(trade_client_local, symbols, cutoff_hour_eet=23, cutoff_min_eet=55):
     # Convert current UTC to EET naive (UTC-2)
     now_utc = datetime.now(timezone.utc)
     now_eet = now_utc - timedelta(hours=2)
