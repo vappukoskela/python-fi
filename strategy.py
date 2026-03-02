@@ -1860,10 +1860,23 @@ def safe_market_cover(trade_client_local, symbol, intended_qty, order_lock):
             return None
 
 def force_liquidation_at_cutoff(trade_client_local, symbols, cutoff_hour_eet=22, cutoff_min_eet=59):
-    # Convert current UTC to EET naive (UTC-5); for DST use pytz/zoneinfo
+    # Convert current UTC to EET naive (UTC-2)
     now_utc = datetime.now(timezone.utc)
     now_eet = now_utc - timedelta(hours=2)
+
     if now_eet.hour > cutoff_hour_eet or (now_eet.hour == cutoff_hour_eet and now_eet.minute >= cutoff_min_eet):
+        # === SAVE SPY CLOSE PRICE FOR TOMORROW'S DAY REGIME CLASSIFICATION ===
+        try:
+            resp = stock_data_client.get_stock_latest_trade(
+                StockLatestTradeRequest(symbol_or_symbols="SPY")
+            )
+            spy_close = float(resp["SPY"].price)
+            _save_prev_close(spy_close)
+            logging.warning("[DAY_REGIME] EOD: saved SPY close=%.4f for tomorrow", spy_close)
+        except Exception as e:
+            logging.warning("[DAY_REGIME] EOD: could not save SPY close: %s", e)
+
+        # === FETCH POSITIONS THEN LIQUIDATE ===
         positions = trade_client_local.get_all_positions()
         for p in positions:
             s = p.symbol
