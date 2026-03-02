@@ -3463,53 +3463,127 @@ def audit_rejection_live(sym, ts_val, price, size, ema_fast, ema_slow,
 
 # === MAIN ===
 # === Strategy parameters ===
-def classify_day_regime(stock_data_client_local, spy_deque):
+# === DAY REGIME CLASSIFICATION (free tier compatible) ===
+# Uses only get_stock_latest_trade (free) instead of historical bars (paid)
+# Previous close is persisted to a local file so it survives restarts
+
+PREV_CLOSE_FILE = "spy_prev_close.txt"
+
+def _save_prev_close(price):
+    """Save SPY closing price to disk for next session."""
     try:
-        now = datetime.now(timezone.utc)
-        req = StockBarsRequest(
-            symbol_or_symbols="SPY",
-            timeframe=TimeFrame(1, TimeFrameUnit.Day),
-            start=now - timedelta(days=5),
-            end=now
-        )
-        bars = stock_data_client_local.get_stock_bars(req).df
-        if bars is None or len(bars) < 2:
-            logging.warning("[DAY_REGIME] Not enough daily bars, defaulting NEUTRAL_DAY")
+        with open(PREV_CLOSE_FILE, "w") as f:
+            f.write(f"{price:.4f}")
+        logging.info("[DAY_REGIME] Saved SPY prev_close=%.4f to %s", price, PREV_CLOSE_FILE)
+    except Exception as e:
+        logging.warning("[DAY_REGIME] Could not save prev_close: %s", e)
+
+def _load_prev_close():
+    """Load SPY closing price saved from previous session."""
+    try:
+        if os.path.exists(PREV_CLOSE_FILE):
+            with open(PREV_CLOSE_FILE, "r") as f:
+                val = float(f.read().strip())
+            logging.info("[DAY_REGIME] Loaded prev_close=%.4f from %s", val, PREV_CLOSE_FILE)
+            return val
+    except Exception as e:
+        logging.warning("[DAY_REGIME] Could not load prev_close: %s", e)
+    return None
+
+def classify_day_regime(stock_data_client_local, spy_deque):
+    """
+    Free-tier compatible day regime classification.
+    Uses latest trade price (free) instead of historical bars (paid).
+    Reads previous close from local file saved at end of previous session.
+    Falls back gracefully if file is missing or stale.
+    """
+    try:
+        # --- Step 1: Get current SPY price via latest trade (free tier) ---
+        try:
+            resp = stock_data_client_local.get_stock_latest_trade(
+                StockLatestTradeRequest(symbol_or_symbols="SPY")
+            )
+            spy_now = float(resp["SPY"].price)
+            logging.info("[DAY_REGIME] SPY latest trade price: %.4f", spy_now)
+        except Exception as e:
+            logging.warning("[DAY_REGIME] Could not fetch SPY latest trade: %s", e)
             return "NEUTRAL_DAY"
 
-        bars = bars.reset_index()
-        if "timestamp" not in bars.columns and "level_1" in bars.columns:
-            bars = bars.rename(columns={"level_1": "timestamp"})
+        # --- Step 2: Load previous close from file ---
+        prev_close = _load_prev_close()
 
-        prev_close = float(bars.iloc[-2]["close"])
-        today_open = float(bars.iloc[-1]["open"])
-        gap_pct = (today_open - prev_close) / prev_close
+        if prev_close is None:
+            # No saved close — first time running or file was deleted
+            # Save today's current price as baseline and default to NEUTRAL
+            logging.warning(
+                "[DAY_REGIME] No prev_close file found. "
+                "Saving current SPY=%.4f as baseline. Defaulting NEUTRAL_DAY. "
+                "Classification will work from tomorrow onwards.",
+                spy_now
+            )
+            _save_prev_close(spy_now)
+            return "NEUTRAL_DAY"
 
+        # --- Step 3: Check if saved close is stale (older than 4 days) ---
+        # We detect staleness by checking file modification time
+        try:
+            file_age_days = (
+                datetime.now(timezone.utc) -
+                datetime.fromtimestamp(
+                    os.path.getmtime(PREV_CLOSE_FILE), tz=timezone.utc
+                )
+            ).total_seconds() / 86400
+            if file_age_days > 4:
+                logging.warning(
+                    "[DAY_REGIME] prev_close file is %.1f days old — likely stale. "
+                    "Defaulting NEUTRAL_DAY and refreshing baseline.",
+                    file_age_days
+                )
+                _save_prev_close(spy_now)
+                return "NEUTRAL_DAY"
+        except Exception:
+            pass  # file age check is best-effort
+
+        # --- Step 4: Calculate gap ---
+        gap_pct = (spy_now - prev_close) / prev_close
+
+        # --- Step 5: RSI from warmup deque (may be empty on free tier) ---
         spy_prices = pd.Series(spy_deque)
         spy_rsi = _safe_last(compute_rsi_from_series(spy_prices, RSI_PERIOD))
+        rsi_available = not pd.isna(spy_rsi)
 
         logging.warning(
-            "[DAY_REGIME] prev_close=%.2f today_open=%.2f gap_pct=%.4f spy_rsi=%.1f",
-            prev_close, today_open, gap_pct,
-            spy_rsi if not pd.isna(spy_rsi) else -1
+            "[DAY_REGIME] prev_close=%.4f spy_now=%.4f gap_pct=%.4f spy_rsi=%s",
+            prev_close, spy_now, gap_pct,
+            f"{spy_rsi:.1f}" if rsi_available else "N/A (no warmup data)"
         )
 
+        # --- Step 6: Classify ---
+        # RSI confirmation only used if warmup data is available
         if gap_pct <= -0.005:
-            if not pd.isna(spy_rsi) and spy_rsi > 55:
-                return "NEUTRAL_DAY"
-            return "BEAR_DAY"
+            # Gap down >= 0.5% → lean BEAR
+            if rsi_available and spy_rsi > 55:
+                result = "NEUTRAL_DAY"  # gap down but RSI says recovered
+            else:
+                result = "BEAR_DAY"
         elif gap_pct >= 0.005:
-            if not pd.isna(spy_rsi) and spy_rsi < 40:
-                return "NEUTRAL_DAY"
-            return "BULL_DAY"
+            # Gap up >= 0.5% → lean BULL
+            if rsi_available and spy_rsi < 40:
+                result = "NEUTRAL_DAY"  # gap up but RSI says weak
+            else:
+                result = "BULL_DAY"
         else:
-            if pd.isna(spy_rsi):
-                return "NEUTRAL_DAY"
-            if spy_rsi >= 55:
-                return "BULL_DAY"
+            # Flat open — use RSI if available, otherwise NEUTRAL
+            if not rsi_available:
+                result = "NEUTRAL_DAY"
+            elif spy_rsi >= 55:
+                result = "BULL_DAY"
             elif spy_rsi <= 45:
-                return "BEAR_DAY"
-            return "NEUTRAL_DAY"
+                result = "BEAR_DAY"
+            else:
+                result = "NEUTRAL_DAY"
+
+        return result
 
     except Exception as e:
         logging.warning("[DAY_REGIME] Classification failed: %s — defaulting NEUTRAL_DAY", e)
