@@ -2045,29 +2045,7 @@ def warmup_deques(symbols, price_deques, size_deques, time_deques, lookback_minu
             "at session start): %s",
             len(low_fill), low_fill
         )
-```
 
----
-
-**What changes in startup behavior:**
-
-Before (broken):
-```
-[WARMUP] Failed for AAPL: subscription does not permit querying recent SIP data
-[WARMUP] Complete. Sample: AAPL deque len=0
-```
-
-After (working):
-```
-[WARMUP] Starting live tick warmup for 39 symbols (120 seconds, polling every 5s, target=24 ticks)
-[WARMUP] Tick 1/24 complete | sample deque lengths: {'AAPL': 1, 'SPY': 1, 'NVDA': 1}
-[WARMUP] Tick 6/24 complete | sample deque lengths: {'AAPL': 6, 'SPY': 6, 'NVDA': 6}
-[WARMUP] Tick 12/24 complete | sample deque lengths: {'AAPL': 12, 'SPY': 12, 'NVDA': 12}
-[WARMUP] Tick 18/24 complete | sample deque lengths: {'AAPL': 18, 'SPY': 18, 'NVDA': 18}
-[WARMUP] Tick 24/24 complete | sample deque lengths: {'AAPL': 24, 'SPY': 24, 'NVDA': 24}
-[WARMUP] Complete. 39/39 symbols have 20+ ticks. AAPL deque len=24 | SPY deque len=24
-[DAY_REGIME] prev_close=559.20 spy_now=557.80 gap_pct=-0.0025 spy_rsi=48.3
-[DAY_REGIME] *** Session classified as: NEUTRAL_DAY ***
 
 def reconcile_positions(
     trade_client_local,                    
