@@ -4652,6 +4652,7 @@ def main():
 
                         continue  # skip BUY on same tick
 
+                budget_exhausted = (len([s for s in entry_prices if entry_prices.get(s) is not None]) >= MAX_CONCURRENT_POSITIONS)
                 # === BUDGET / POSITION LIMIT GATE (entries only) ===
                 if budget_exhausted:
                     logging.debug("[BUDGET] %s skipped — max positions reached", symbol)
