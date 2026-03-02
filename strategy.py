@@ -4684,6 +4684,7 @@ def main():
                     log_stack=True
                 )
 
+                budget_exhausted = (len([s for s in entry_prices if entry_prices.get(s) is not None]) >= MAX_CONCURRENT_POSITIONS)
                 if accept:
                     # === HARD DUPLICATE BUY GUARD ===
                     if symbol in entry_prices and entry_prices.get(symbol) is not None:
