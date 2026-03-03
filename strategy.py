@@ -2446,19 +2446,15 @@ def evaluate_short_entry(sym, price, size, prices_series, sizes_series, ts_val,
     rsi_series_full = compute_rsi_from_series(prices_series, RSI_PERIOD)
     rsi_val = rsi_series_full.iloc[-1] if len(rsi_series_full) else float('nan')
     rsi_prev = rsi_series_full.iloc[-2] if len(rsi_series_full) >= 2 else float('nan')
-    vwap_val = compute_vwap_from_ticks(prices_series,
-               pd.Series(size_deques[sym]) if sym in size_deques else pd.Series(dtype=float)).iloc[-1] \
+    vwap_val = compute_vwap_from_ticks(prices_series, sizes_series).iloc[-1] \
                if len(prices_series) else float('nan')
     upper, boll_ma, lower, bandwidth = compute_bollinger(prices_series,
                                         period=RANGE_CONFIG["BOLL_PERIOD"],
                                         std=RANGE_CONFIG["BOLL_STD"])
     slope = ema_slope(prices_series, EMA_SLOW)
-    median_vol = pd.Series(size_deques[sym]).median() \
-                 if sym in size_deques and len(size_deques[sym]) > 0 else float('nan')
+    median_vol = sizes_series.median() if len(sizes_series) > 0 else float('nan')
     macd_line, macd_signal, macd_hist = compute_macd(prices_series)
-    obv_slope = _obv_slope_proxy(prices_series,
-                pd.Series(size_deques[sym]) if sym in size_deques else pd.Series(dtype=float),
-                window=20)
+    obv_slope = _obv_slope_proxy(prices_series, sizes_series, window=20)
 
     # === Base validation — same guards as evaluate_entry ===
     if pd.isna(ema_fast) or pd.isna(ema_slow) or pd.isna(vwap_val) or pd.isna(rsi_val):
