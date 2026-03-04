@@ -4568,6 +4568,7 @@ def main():
                     ref_entry = entry_prices.get(symbol)
                     active_config = entry_configs.get(symbol, CONFIG_SESSION)
 
+                    entry_regime = entry_configs.get(symbol, {}).get("regime", regime)
                     accept_exit, reason_exit = evaluate_sell(
                         symbol,
                         price,
@@ -4577,7 +4578,7 @@ def main():
                         entry_times,
                         active_config,
                         current_time=ts_val,
-                        regime=regime,
+                        regime=entry_regime,
                         log_stack=True
                     )
 
