@@ -2138,7 +2138,7 @@ def reconcile_positions(
             config = BEARISH_CONFIG
             entry_configs[sym] = config
 
-                  
+        entry_regime = entry_configs.get(sym, {}).get("regime", detect_regime(prices_series, sizes_series))          
         sell, reason = evaluate_sell(
             sym,
             last_price,
@@ -2148,7 +2148,7 @@ def reconcile_positions(
             entry_times,
             config,
             current_time=now_ts,
-            regime=detect_regime(prices_series, sizes_series),
+            regime=entry_regime,
             log_stack=True
         )
 
