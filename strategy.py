@@ -3647,7 +3647,7 @@ logging.warning(">>> MAIN LOOP IS RUNNING FROM THIS FILE <<<")
 RSI_PERIOD = 14
 RSI_COOL_THRESHOLD = 3
 MAX_HOLD_SECONDS = 999999   # example: x minutes
-MIN_HOLD_SECONDS = 30    # example: x seconds grace period before indicators can trigger
+MIN_HOLD_SECONDS = 90    # example: x seconds grace period before indicators can trigger
 TRAIL_PCT = 0.010
 BUY_POWER_LIMIT = 0.05
 BUY_CASH_BUFFER = 0.95
