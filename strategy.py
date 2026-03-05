@@ -2624,7 +2624,7 @@ def evaluate_entry(sym, price, size, prices_series, sizes_series, ts_val,
     since_last_exit = (ts_val - last_exit).total_seconds() if last_exit is not None else float("inf")
     since_last_buy = (ts_val - last_buy_time[sym]).total_seconds() if last_buy_time[sym] is not None else float("inf")
     def _regime_cooldown(regime):
-        return 40 if regime == "TREND" else COOLDOWN_SECONDS
+        return COOLDOWN_SECONDS
 
     if since_last_exit < _regime_cooldown(regime) or since_last_buy < _regime_cooldown(regime):
         logging.debug(f"[BLOCK] {sym} rejected | Reason=Cooldown")
