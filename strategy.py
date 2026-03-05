@@ -96,6 +96,8 @@ tp1_hit = defaultdict(bool)
 
 # Viimeiset poistumisajat (symbol -> datetime)
 last_exit_time = defaultdict(lambda: None)
+last_exit_reason = defaultdict(lambda: None)   # tracks WHY last exit fired
+TREND_REENTRY_BLOCK_SECONDS = 600              # 10 min block after trend-failure exit
 
 # Viimeiset ostoyritykset (symbol -> datetime)
 last_trade_attempt = defaultdict(lambda: None)
