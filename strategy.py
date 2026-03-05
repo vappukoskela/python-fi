@@ -4657,6 +4657,7 @@ def main():
                         entry_qty.pop(symbol, None)
                         entry_configs.pop(symbol, None)
                         last_exit_time[symbol] = ts_val
+                        last_exit_reason[symbol] = reason_exit
                         highest_price_since_entry.pop(symbol, None)
                         trailing_active[symbol] = False
 
