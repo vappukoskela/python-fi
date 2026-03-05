@@ -2651,11 +2651,26 @@ def evaluate_entry(sym, price, size, prices_series, sizes_series, ts_val,
         if (sls / regime_trades[regime] >= 0.6) and (net < 0):
             return False, f"{regime} paused by FitScore", 0.0, {}
                
-    # --- RE-ENTRY COOLDOWN instead of hard block ---
+    # --- RE-ENTRY COOLDOWN: base 10s block ---
     last_exit = last_exit_time.get(sym)
     if last_exit:
-        if (datetime.now(timezone.utc) - last_exit).total_seconds() < 10:
+        secs_since_exit = (datetime.now(timezone.utc) - last_exit).total_seconds()
+        if secs_since_exit < 10:
             return False, "Cooldown block", 0.0, {}
+
+        # Block TREND re-entries for 10 minutes after a trend-failure exit.
+        # EMA fail and VWAP fail mean the trend signal was wrong.
+        # Avoid buying the same stock in TREND direction again immediately.
+        _last_reason = last_exit_reason.get(sym)
+        if (regime == "TREND" and
+                _last_reason in ("EMA fail", "VWAP fail") and
+                secs_since_exit < TREND_REENTRY_BLOCK_SECONDS):
+            logging.debug(
+                "[BLOCK] %s TREND re-entry blocked | last_exit_reason=%s "
+                "secs_since_exit=%.0f < %d",
+                sym, _last_reason, secs_since_exit, TREND_REENTRY_BLOCK_SECONDS
+            )
+            return False, f"TREND reentry blocked after {_last_reason}", 0.0, {}
                    
     # Still block if inflight or pending
     if inflight_orders.get(sym) is not None or sym in pending_entries:
