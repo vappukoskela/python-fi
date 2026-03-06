@@ -4460,13 +4460,20 @@ def main():
                         globals()["market_trend_state"] = market_trend_state
                         logging.debug(f"[MARKET] trend_state={market_trend_state}")
 
-                        # --- Store SPY open price on first tick ---
+                        # --- Store SPY open price and session low on first tick ---
                         if globals().get("today_open_spy") is None:
                             globals()["today_open_spy"] = price
+                            globals()["today_low_spy"] = price
                             logging.info("[DAY_REGIME] SPY open price captured: %.4f", price)
+                        else:
+                            # Track session low continuously
+                            globals()["today_low_spy"] = min(
+                                globals().get("today_low_spy", price), price
+                            )
 
                         # --- Mid-session override: if SPY moves >1% from open ---
                         _today_open = globals().get("today_open_spy")
+                        _today_low = globals().get("today_low_spy", _today_open)
                         _current_day_regime = globals().get("day_regime", "NEUTRAL_DAY")
                         if _today_open is not None:
                             _spy_move = (price - _today_open) / _today_open
@@ -4484,6 +4491,18 @@ def main():
                                         "(SPY move=%.2f%% from open)", _spy_move * 100
                                     )
                                     globals()["day_regime"] = "BULL_DAY"
+                                # --- Cancel BEAR_DAY if market recovers 0.6% from session low ---
+                                elif (_current_day_regime == "BEAR_DAY" and
+                                        _today_low is not None and
+                                        _today_low > 0):
+                                    _recovery_from_low = (price - _today_low) / _today_low
+                                    if _recovery_from_low >= 0.006:
+                                        logging.warning(
+                                            "[DAY_REGIME] OVERRIDE → NEUTRAL_DAY "
+                                            "(SPY recovered %.2f%% from session low=%.4f)",
+                                            _recovery_from_low * 100, _today_low
+                                        )
+                                        globals()["day_regime"] = "NEUTRAL_DAY"
                     except Exception as e:
                         logging.debug(f"[MARKET] trend update failed: {e}")
 
