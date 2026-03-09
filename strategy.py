@@ -2759,11 +2759,15 @@ def evaluate_entry(sym, price, size, prices_series, sizes_series, ts_val,
         return False, gate_reason, 0.0, {}
 
     # --- Bias-aware safety filter (global) ---
-    # For bearish bias, avoid buying into deeply oversold tape that can keep falling.
+    # Hard block: never take a long entry when symbol bias is bearish.
+    # Bearish bias means price is falling or below VWAP — buying into
+    # this is buying into weakness regardless of regime.
     if bias == "bearish":
-        if rsi_val < 35:
-            logging.debug(f"[BLOCK] {sym} rejected | Reason=Bearish bias RSI<35 (rsi={rsi_val:.2f})")
-            return False, "Bearish bias RSI<35 block", 0.0, {}
+        logging.debug(
+            "[BLOCK] %s rejected | Reason=Bearish bias hard block (rsi=%.2f)",
+            sym, rsi_val
+        )
+        return False, "Bearish bias hard block", 0.0, {}
                
     signal_stack = {}
     score = 0.0
