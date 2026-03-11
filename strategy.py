@@ -18,7 +18,7 @@ from collections import deque, defaultdict
 
 # === CODE VERSION TAG (for audit comparison) ===
 CODE_VERSION = "PATCH_EPOCH_5" # increment manually when you apply new patches
-CODE_VERSION = "PATCH5_2025-12-23"
+CODE_VERSION = "PATCH6_2026-03-11"
 
 rsi_fail_counter = defaultdict(int)
 
@@ -641,10 +641,6 @@ def gate_entry(symbol, regime, prices_series, sizes_series, vwap_val, rsi_series
         return False, "high_vol_regime_block"
 
     # === GATE 2: RANGE vs bear market ===
-    # On bear-trending market days, lower Bollinger band touches are
-    # continuation moves down, not mean-reversion opportunities.
-    # Only allow RANGE entries if the symbol shows relative strength
-    # (price above its own VWAP while market is bearish).
     if regime == "RANGE" and market_trend_state == "bear":
         sym_above_vwap = (
             not pd.isna(vwap_val) and
@@ -659,8 +655,6 @@ def gate_entry(symbol, regime, prices_series, sizes_series, vwap_val, rsi_series
             )
             return False, "RANGE blocked: market=bear sym below VWAP"
 
-        # Secondary check: even if above VWAP, require range quality score
-        # to be higher than normal since bear market makes reversions less reliable
         rq_score = range_quality_score(prices_series, vwap_val, rsi_series)
         if rq_score < 2.0:
             logging.debug(
@@ -669,21 +663,15 @@ def gate_entry(symbol, regime, prices_series, sizes_series, vwap_val, rsi_series
             )
             return False, f"RANGE blocked: market=bear low quality (score={rq_score:.2f})"
 
-    # === GATE 3: RANGE quality check on neutral/bull market ===
-    # Original logic preserved but now split by market trend for clarity
     elif regime == "RANGE":
         rq_score = range_quality_score(prices_series, vwap_val, rsi_series)
         if market_trend_state == "bear" and sym_trend == "bear":
-            # Double bear: both market and symbol trending down
             if rq_score < 2.0:
                 return False, f"range_block_bear_trend_low_quality(score={rq_score:.2f})"
         else:
             if rq_score < 0.8:
                 return False, f"range_block_low_quality(score={rq_score:.2f})"
 
-    # === GATE 4: DRIFT vs bear market ===
-    # Directional grind entries need OBV confirmation when market is bearish
-    # to ensure the symbol is genuinely grinding up, not drifting down
     if regime == "DRIFT" and market_trend_state == "bear":
         obv_check = _obv_slope_proxy(prices_series, sizes_series, window=10)
         if pd.isna(obv_check) or obv_check <= 0:
@@ -693,35 +681,24 @@ def gate_entry(symbol, regime, prices_series, sizes_series, vwap_val, rsi_series
             )
             return False, "DRIFT blocked: market=bear OBV non-positive"
 
-    # === GATE 5: LOW_VOL vs high volatility ===
-    # Original logic preserved
     if regime == "LOW_VOL" and vol_state == "high":
         return False, "low_vol_block_high_volatility"
 
-    # === GATE 6: TREND — symbol vs market direction mismatch ===
-    # Original logic preserved
     if regime == "TREND":
         if market_trend_state == "bear" and sym_trend == "bull":
-            # Allow if relative strength is very strong:
-            # symbol clearly above VWAP while market is bear
             sym_above_vwap = (
                 not pd.isna(vwap_val) and
                 not pd.isna(last_price) and
-                last_price > vwap_val * 1.001  # at least 0.1% above VWAP
+                last_price > vwap_val * 1.001
             )
             if not sym_above_vwap:
                 return False, "trend_block_symbol_vs_market_mismatch"
-            # Log that we're allowing a counter-trend entry on relative strength
             logging.debug(
                 "[GATE] %s TREND allowed despite bear market | "
                 "relative strength confirmed (price=%.4f vwap=%.4f)",
                 symbol, last_price, vwap_val
             )
 
-    # === GATE 7: Universal relative strength bonus check ===
-    # On bear market days, add an extra confirmation for any remaining
-    # entry: symbol must not be making a fresh low in the last 10 bars.
-    # This prevents buying into accelerating downtrends across all regimes.
     if market_trend_state == "bear" and regime not in ("HIGH_VOL",):
         if len(prices_series) >= 10:
             recent_low_val = prices_series.iloc[-10:].min()
@@ -745,11 +722,9 @@ def _confirm_trend(prices_series, vwap_val, ema_slow_val):
     if len(prices_series) < ENTRY_CONFIRM_TICKS + 2 or pd.isna(vwap_val) or pd.isna(ema_slow_val):
         return False
     tail = prices_series.iloc[-ENTRY_CONFIRM_TICKS-2:]
-    # pullback near EMA/VWAP then two upticks
     near_anchor = (abs(tail.iloc[-ENTRY_CONFIRM_TICKS] - ema_slow_val) / tail.iloc[-ENTRY_CONFIRM_TICKS] <= TREND_CONFIG["PULLBACK_TOL"]) or \
                   (abs(tail.iloc[-ENTRY_CONFIRM_TICKS] - vwap_val) / tail.iloc[-ENTRY_CONFIRM_TICKS] <= TREND_CONFIG["PULLBACK_TOL"])
     upticks = all(tail.iloc[i] < tail.iloc[i+1] for i in range(len(tail)-1))
-    # NEW grinder confirmation path: allow TREND if last N ticks are all higher
     grinder_ok = sum(tail.diff().fillna(0) > 0) >= ENTRY_CONFIRM_TICKS
     return (near_anchor and upticks) or grinder_ok
 
@@ -868,8 +843,6 @@ def _risk_stats_from_audit(rows):
     good = sum(1 for r in rows if r.get("outcome") == "good_block")
     bad  = sum(1 for r in rows if r.get("outcome") == "bad_block")
     winrate_est = good / max(1, (good + bad))
-    # Approximate rolling net from blocked outcomes (conservative): good_block ~ saved SL, bad_block ~ missed TP
-    # If you want exact PnL, wire in the live trade CSV similarly.
     net_est = (good * -ATR_FLOOR) + (bad * ATR_FLOOR)  # crude proxy; keeps directionality
     return winrate_est, net_est
 
@@ -1169,11 +1142,6 @@ def safe_market_buy(
                 logging.info("[BUY_SUBMITTED] %s order_id=%s qty=%d est_price=%.4f",
                              symbol, order_id, qty, est_price)
 
-                # ============================================================
-                # KEY FIX: Write state IMMEDIATELY after submission,
-                # using est_price as placeholder. This guarantees the position
-                # is tracked even if polling times out or process restarts.
-                # ============================================================
                 entry_config_dict = {
                     "regime": regime_at_entry,
                     "bias": bias_val,
@@ -1183,7 +1151,7 @@ def safe_market_buy(
                     "vwap": vwap_val,
                     "order_id": order_id,
                     "est_price": est_price,
-                    "fill_inferred": True,   # assume inferred until confirmed
+                    "fill_inferred": True,
                     "TP_PCT": TP_PCT,
                     "TS_ACTIVATION_BUFFER": TS_ACTIVATION_BUFFER,
                     "TRAILING_STOP_PCT": TRAILING_STOP_PCT,
@@ -1196,7 +1164,7 @@ def safe_market_buy(
 
                 # Write state now — before polling
                 entry_times[symbol]   = submit_ts
-                entry_prices[symbol]  = est_price        # placeholder, updated on fill
+                entry_prices[symbol]  = est_price
                 entry_qty[symbol]     = float(qty)
                 entry_configs[symbol] = entry_config_dict
 
@@ -1226,9 +1194,6 @@ def safe_market_buy(
                 exec_rows.append(buy_row)
                 write_exec_row_immediate(buy_row, symbol, RUN_MODE)
 
-                # ============================================================
-                # Write to central exec audit file (parity with SELL logic)
-                # ============================================================
                 if EXEC_AUDIT_ENABLED:
                     try:
                         fieldnames = ["timestamp","symbol","action","price","reason","bias","pnl",
@@ -1255,10 +1220,6 @@ def safe_market_buy(
                     except Exception as e:
                         logging.warning("Failed to write BUY to audit file: %s", e)
 
-                # ============================================================
-                # Now poll for actual fill — update price if confirmed,
-                # but state is already safe regardless of outcome
-                # ============================================================
                 POLL_TIMEOUT = 90
                 poll_start = datetime.now(timezone.utc)
                 filled_qty = 0.0
@@ -1292,7 +1253,6 @@ def safe_market_buy(
                         if _status_is(last_status, "canceled") or _status_is(last_status, "rejected"):
                             logging.warning("[BUY_CANCELED] %s order %s status=%s — clearing state",
                                             symbol, order_id, last_status)
-                            # Order was rejected/canceled — remove the pre-written state
                             entry_times.pop(symbol, None)
                             entry_prices.pop(symbol, None)
                             entry_qty.pop(symbol, None)
@@ -1306,14 +1266,10 @@ def safe_market_buy(
 
                     time.sleep(0.5)
 
-                # ============================================================
-                # Update state with actual fill price if confirmed
-                # If timeout, keep est_price — state is still valid
-                # ============================================================
                 if filled_qty > 0 and filled_price is not None:
                     fill_ts = datetime.now(timezone.utc)
                     entry_times[symbol]   = fill_ts
-                    entry_prices[symbol]  = filled_price   # update to real fill price
+                    entry_prices[symbol]  = filled_price
                     entry_qty[symbol]     = filled_qty
                     entry_configs[symbol]["fill_inferred"] = False
                     highest_price_since_entry[symbol] = filled_price
@@ -1321,7 +1277,6 @@ def safe_market_buy(
                     logging.info("[BUY_FILLED] %s fill_price=%.4f qty=%.2f (state updated from placeholder)",
                                  symbol, filled_price, filled_qty)
 
-                    # Write confirmed fill row to exec log
                     fill_row = {
                         "timestamp": fill_ts.strftime("%Y-%m-%d %H:%M:%S"),
                         "symbol": symbol,
@@ -1351,7 +1306,6 @@ def safe_market_buy(
 
             except Exception as e:
                 logging.exception("[BUY_INNER_ERROR] %s: %s", symbol, e)
-                # Safety: if submission itself failed, clear any partial state
                 if symbol in entry_configs and entry_configs[symbol].get("fill_inferred"):
                     entry_times.pop(symbol, None)
                     entry_prices.pop(symbol, None)
@@ -1407,7 +1361,6 @@ def safe_market_short(
         minutes = _session_minutes(now_ts)
         SESSION_LENGTH_MIN = 390
 
-        # Block shorts in first 30 and last 30 minutes
         if minutes < 30:
             logging.info("%s - SHORT blocked: session minutes=%d < 30", symbol, minutes)
             return None
@@ -1418,7 +1371,6 @@ def safe_market_short(
 
         with order_lock:
             try:
-                # --- Get latest price estimate ---
                 try:
                     resp = stock_data_client.get_stock_latest_trade(
                         StockLatestTradeRequest(symbol_or_symbols=symbol)
@@ -1438,7 +1390,6 @@ def safe_market_short(
                                  symbol, qty, est_price)
                     return None
 
-                # --- Indicators at entry time ---
                 if symbol in price_deques and symbol in size_deques:
                     prices_series = pd.Series(price_deques[symbol])
                     sizes_series = pd.Series(size_deques[symbol])
@@ -1452,11 +1403,10 @@ def safe_market_short(
                 vwap_val     = _safe_last(compute_vwap_from_ticks(prices_series, sizes_series))
                 regime_at_entry = detect_regime(prices_series, sizes_series)
 
-                # --- Submit SHORT order (SELL with no existing position) ---
                 order = MarketOrderRequest(
                     symbol=symbol,
                     qty=qty,
-                    side=OrderSide.SELL,        # short = sell when flat
+                    side=OrderSide.SELL,
                     type=OrderType.MARKET,
                     time_in_force=TimeInForce.DAY
                 )
@@ -1467,7 +1417,6 @@ def safe_market_short(
                 logging.info("[SHORT_SUBMITTED] %s order_id=%s qty=%d est_price=%.4f",
                              symbol, order_id, qty, est_price)
 
-                # --- Write state immediately (same pattern as safe_market_buy) ---
                 short_config = {
                     "regime": regime_at_entry,
                     "bias": "bearish",
@@ -1499,7 +1448,6 @@ def safe_market_short(
                     symbol, submit_ts, est_price, qty
                 )
 
-                # --- Write to exec audit log ---
                 short_row = {
                     "timestamp": submit_ts.strftime("%Y-%m-%d %H:%M:%S"),
                     "symbol": symbol,
@@ -1533,7 +1481,6 @@ def safe_market_short(
                     except Exception as e:
                         logging.warning("Failed to write SHORT to audit file: %s", e)
 
-                # --- Poll for fill confirmation ---
                 POLL_TIMEOUT = 90
                 poll_start = datetime.now(timezone.utc)
                 filled_qty   = 0.0
@@ -1577,7 +1524,6 @@ def safe_market_short(
 
                     time.sleep(0.5)
 
-                # --- Update state with real fill if confirmed ---
                 if filled_qty > 0 and filled_price is not None:
                     fill_ts = datetime.now(timezone.utc)
                     short_entry_times[symbol]  = fill_ts
@@ -1633,18 +1579,15 @@ def safe_market_sell(trade_client_local, symbol, intended_qty, order_lock, price
                          f"(available={available} intended={intended_qty}) order_id={order_id} "
                          f"| Time={datetime.now(timezone.utc).strftime('%H:%M:%S')}")
 
-            # === SIM cleanup: remove symbol from positions_map so no_position=True again ===
             if RUN_MODE in ["SIM", "AGG_SIM"]:
                 global positions_map
                 positions_map.pop(symbol, None)
 
-                # Immediate SELL append for SIM/AGG_SIM
                 ref_entry = entry_prices.get(symbol, float("nan"))
                 last_price = float(price_deques[symbol][-1]) if price_deques[symbol] else 0.0
                 
                 pnl = (last_price - ref_entry) * qty_to_sell if ref_entry else 0.0
                
-                # Compute indicators for parity with BUY rows
                 prices_series = pd.Series(price_deques[symbol])
                 sizes_series = pd.Series(size_deques[symbol])
                 ema_fast_val = _safe_last(compute_ema_from_series(prices_series, EMA_FAST))
@@ -1653,9 +1596,8 @@ def safe_market_sell(trade_client_local, symbol, intended_qty, order_lock, price
                 vwap_val = _safe_last(compute_vwap_from_ticks(prices_series, sizes_series))
                 regime_at_sell = detect_regime(prices_series, sizes_series)
 
-
                 bias_moment = "bullish" if ema_fast_val > ema_slow_val else "bearish"
-                sell_reason = "exit"   # replace with evaluate_sell output if available
+                sell_reason = "exit"
                 
                 sell_row = {
                     "timestamp": datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M:%S"),
@@ -1688,12 +1630,10 @@ def safe_market_sell(trade_client_local, symbol, intended_qty, order_lock, price
                     except Exception as e:
                         logging.warning("Failed to write SELL to audit file: %s", e)
 
-                # ✅ No cleanup here; caller will handle it
                 return submitted
             # === LIVE branch ===   
             if order_id:
                 try:
-                    # Use reconciliation polling window for truth and parity
                     max_retries = RECON_POLL_RETRIES
                     sleep_s = RECON_POLL_SLEEP
                     status = None
@@ -1703,7 +1643,6 @@ def safe_market_sell(trade_client_local, symbol, intended_qty, order_lock, price
                         logging.info("%s - SELL order %s status=%s (attempt %d/%d)",
                                     symbol, order_id, status, attempt+1, max_retries)
                         if _status_is(status, "filled"):
-                            # --- Compute PnL and regime for parity ---
                             ref_entry = entry_prices.get(symbol, float("nan"))
                             last_price = float(getattr(confirmed, "filled_avg_price", getattr(confirmed, "price", 0.0)))
                             pnl = (last_price - ref_entry) * qty_to_sell if ref_entry else 0.0
@@ -1717,14 +1656,13 @@ def safe_market_sell(trade_client_local, symbol, intended_qty, order_lock, price
                             regime_at_sell = detect_regime(prices_series, sizes_series)
 
                             bias_moment = "bullish" if ema_fast_val > ema_slow_val else "bearish"
-                            sell_reason = "exit"   # replace with evaluate_sell output if available
-                            # --- Append SELL trade to exec_rows ---
+                            sell_reason = "exit"
                             sell_row = {
                                 "timestamp": datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M:%S"),
                                 "symbol": symbol,
                                 "action": "SELL",
                                 "price": last_price,
-                                "reason": sell_reason,   # or use evaluate_sell reason if available
+                                "reason": sell_reason,
                                 "bias": bias_moment,
                                 "pnl": round(pnl, 4),
                                 "ema_fast": ema_fast_val,
@@ -1736,7 +1674,6 @@ def safe_market_sell(trade_client_local, symbol, intended_qty, order_lock, price
                             exec_rows.append(sell_row)
                             logging.info(f"[TRADE] {symbol} [{RUN_MODE}] SELL @ {last_price:.4f} | PnL={pnl:.4f} | Regime={regime_at_sell}")
 
-                            # audit write must be here, inside the same block
                             if EXEC_AUDIT_ENABLED:
                                 try:
                                     import csv
@@ -1776,7 +1713,7 @@ def safe_market_cover(trade_client_local, symbol, intended_qty, order_lock):
             order = MarketOrderRequest(
                 symbol=symbol,
                 qty=qty_to_cover,
-                side=OrderSide.BUY,         # cover = buy to close short
+                side=OrderSide.BUY,
                 type=OrderType.MARKET,
                 time_in_force=TimeInForce.DAY
             )
@@ -1786,7 +1723,6 @@ def safe_market_cover(trade_client_local, symbol, intended_qty, order_lock):
             logging.info("[COVER_SUBMITTED] %s qty=%d order_id=%s",
                          symbol, qty_to_cover, order_id)
 
-            # Poll for fill
             POLL_TIMEOUT = 90
             poll_start = datetime.now(timezone.utc)
             filled_price = None
@@ -1815,14 +1751,12 @@ def safe_market_cover(trade_client_local, symbol, intended_qty, order_lock):
 
             ref_short = short_entry_prices.get(symbol)
             qty       = short_entry_qty.get(symbol, intended_qty)
-            # Short PnL: entry price MINUS cover price (profit when price falls)
             pnl = (ref_short - cover_price) * qty if ref_short else 0.0
 
             logging.info("[COVER_FILLED] %s cover_price=%.4f ref_short=%.4f PnL=%.4f",
                          symbol, cover_price,
                          ref_short if ref_short else 0, pnl)
 
-            # Write to exec audit
             cover_row = {
                 "timestamp": datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M:%S"),
                 "symbol": symbol,
@@ -1862,12 +1796,10 @@ def safe_market_cover(trade_client_local, symbol, intended_qty, order_lock):
             return None
 
 def force_liquidation_at_cutoff(trade_client_local, symbols, cutoff_hour_eet=23, cutoff_min_eet=55):
-    # Convert current UTC to EET naive (UTC-2)
     now_utc = datetime.now(timezone.utc)
     now_eet = now_utc - timedelta(hours=2)
 
     if now_eet.hour > cutoff_hour_eet or (now_eet.hour == cutoff_hour_eet and now_eet.minute >= cutoff_min_eet):
-        # === SAVE SPY CLOSE PRICE FOR TOMORROW'S DAY REGIME CLASSIFICATION ===
         try:
             resp = stock_data_client.get_stock_latest_trade(
                 StockLatestTradeRequest(symbol_or_symbols="SPY")
@@ -1878,7 +1810,6 @@ def force_liquidation_at_cutoff(trade_client_local, symbols, cutoff_hour_eet=23,
         except Exception as e:
             logging.warning("[DAY_REGIME] EOD: could not save SPY close: %s", e)
 
-        # === FETCH POSITIONS THEN LIQUIDATE ===
         positions = trade_client_local.get_all_positions()
         for p in positions:
             s = p.symbol
@@ -1895,10 +1826,6 @@ def force_liquidation_at_cutoff(trade_client_local, symbols, cutoff_hour_eet=23,
 
 def reattach_orphan_if_needed(symbol, positions_map, entry_times, entry_prices,
                                entry_qty, entry_configs, CONFIG_SESSION):
-    """
-    Returns True if an orphan was reattached (or position already tracked).
-    Call this before evaluate_sell in the LIVE loop.
-    """
     from datetime import datetime, timezone
 
     onchain_qty, onchain_avg = positions_map.get(symbol, (0, 0.0))
@@ -1919,8 +1846,8 @@ def reattach_orphan_if_needed(symbol, positions_map, entry_times, entry_prices,
         now = datetime.now(timezone.utc)
         entry_prices[symbol]  = onchain_avg if onchain_avg > 0 else None
         entry_qty[symbol]     = float(onchain_qty)
-        entry_times[symbol]   = now   # unknown real entry time, use now
-        entry_configs[symbol] = dict(CONFIG_SESSION)  # use current session config
+        entry_times[symbol]   = now
+        entry_configs[symbol] = dict(CONFIG_SESSION)
         entry_configs[symbol]["fill_inferred"] = True
         entry_configs[symbol]["orphan_reattached"] = True
         highest_price_since_entry[symbol] = onchain_avg if onchain_avg > 0 else 0.0
@@ -1933,7 +1860,6 @@ def reattach_orphan_if_needed(symbol, positions_map, entry_times, entry_prices,
         return True
 
     if onchain_qty <= 0 and has_local_context:
-        # Position closed externally (manual, margin call, etc) — clean up
         logging.warning(
             "[ORPHAN_CLEANUP][%s] Local context exists but no Alpaca position. Purging.",
             symbol
@@ -1949,16 +1875,9 @@ def reattach_orphan_if_needed(symbol, positions_map, entry_times, entry_prices,
     return has_local_context
 
 def warmup_deques(symbols, price_deques, size_deques, time_deques, lookback_minutes=60):
-    """
-    Free-tier compatible warmup using live tick polling.
-    Polls get_stock_latest_trade (free) every 5 seconds for 2 minutes
-    to build enough data points for indicators to produce valid values.
-    RSI(14) needs 15+ points, EMA(20) needs 20+ points.
-    Target: 24 ticks = 2 minutes at 5-second intervals.
-    """
-    WARMUP_DURATION_SECONDS = 120   # total warmup time
-    POLL_INTERVAL_SECONDS = 5       # seconds between each poll round
-    total_ticks = WARMUP_DURATION_SECONDS // POLL_INTERVAL_SECONDS  # 24 ticks
+    WARMUP_DURATION_SECONDS = 120
+    POLL_INTERVAL_SECONDS = 5
+    total_ticks = WARMUP_DURATION_SECONDS // POLL_INTERVAL_SECONDS
 
     logging.warning(
         "[WARMUP] Starting live tick warmup for %d symbols "
@@ -1966,7 +1885,6 @@ def warmup_deques(symbols, price_deques, size_deques, time_deques, lookback_minu
         len(symbols), WARMUP_DURATION_SECONDS, POLL_INTERVAL_SECONDS, total_ticks
     )
 
-    # Split symbols into chunks to avoid hammering the API
     CHUNK_SIZE = 10
     symbol_chunks = [
         symbols[i:i + CHUNK_SIZE]
@@ -1991,7 +1909,6 @@ def warmup_deques(symbols, price_deques, size_deques, time_deques, lookback_minu
                         ts_val = datetime.now(timezone.utc)
                         bucket_ts = ts_val.replace(microsecond=0)
 
-                        # Same aggregation logic as the main loop
                         if (len(time_deques[sym]) > 0 and
                                 time_deques[sym][-1] == bucket_ts):
                             price_deques[sym][-1] = (
@@ -2009,7 +1926,6 @@ def warmup_deques(symbols, price_deques, size_deques, time_deques, lookback_minu
             except Exception as e:
                 logging.warning("[WARMUP] Chunk %s fetch failed: %s", chunk, e)
 
-        # Progress log every 6 ticks (every 30 seconds)
         if tick_num % 6 == 0 or tick_num == 1 or tick_num == total_ticks:
             sample_lens = {
                 s: len(price_deques[s])
@@ -2021,15 +1937,12 @@ def warmup_deques(symbols, price_deques, size_deques, time_deques, lookback_minu
                 tick_num, total_ticks, sample_lens
             )
 
-        # Pace the loop — sleep for remainder of interval
         elapsed = (datetime.now(timezone.utc) - tick_start).total_seconds()
         sleep_time = max(0.1, POLL_INTERVAL_SECONDS - elapsed)
 
-        # Skip sleep on last tick
         if tick_num < total_ticks:
             time.sleep(sleep_time)
 
-    # --- Final report ---
     filled = sum(1 for s in symbols if len(price_deques[s]) >= 20)
     logging.warning(
         "[WARMUP] Complete. %d/%d symbols have 20+ ticks. "
@@ -2039,7 +1952,6 @@ def warmup_deques(symbols, price_deques, size_deques, time_deques, lookback_minu
         len(price_deques.get("SPY", []))
     )
 
-    # Warn if too few ticks collected for reliable indicators
     low_fill = [s for s in symbols if len(price_deques[s]) < 15]
     if low_fill:
         logging.warning(
@@ -2065,20 +1977,13 @@ def reconcile_positions(
     logging.info("[RECON_DEBUG] entry_prices keys: %s", list(entry_prices.keys()))
     logging.debug("[DICT_ID_RECON] entry_times id=%s entry_prices id=%s entry_qty id=%s entry_configs id=%s",
                   id(entry_times), id(entry_prices), id(entry_qty), id(entry_configs))
-    """
-    Ensures local state and Alpaca positions are consistent, and forces sell if exit logic says so.
-    - Reattaches orphan positions (no local context).
-    - Re-evaluates exits using evaluate_sell.
-    - Extends sell fill polling window to avoid missed confirmations.
-    """
-    # --- Skip reconciliation entirely in SIM/AGG_SIM mode ---
+
     if RUN_MODE in ["SIM", "AGG_SIM"]:
         return
      
     if not RECONCILIATION_ENABLED:
         return
 
-    # >>> INSERT LOGGING HERE <<<
     logging.info(
         "[RECON_START] RUN_MODE=%s | RECONCILIATION_ENABLED=%s | RECON_FORCE_SELL_IF_ORPHAN=%s",
         RUN_MODE, RECONCILIATION_ENABLED, RECON_FORCE_SELL_IF_ORPHAN
@@ -2087,13 +1992,11 @@ def reconcile_positions(
     now_ts = datetime.now(timezone.utc)
 
     for sym in symbols:
-        # === DOUBLE-SELL GUARD: skip if LIVE loop is already selling this symbol ===
         if sym in _pending_sells:
             logging.debug("[RECON][%s] Skipping — sell already inflight from LIVE loop", sym)
             continue
         qty_open, avg_entry = positions_map.get(sym, (0, 0.0))
         if qty_open <= 0:
-            # If no position but local state says in trade, clean up
             if sym in entry_times or sym in entry_qty or sym in entry_configs:
                 logging.info("%s - RECON cleanup: no live position, purging local entry state", sym)
                 entry_times.pop(sym, None)
@@ -2104,25 +2007,21 @@ def reconcile_positions(
                 last_exit_time[sym] = now_ts
             continue
 
-        # There is an open position on Alpaca
         has_context = (sym in entry_prices) and (sym in entry_configs) and (sym in entry_times)
 
-        # Reattach orphan position context if missing
         if not has_context:
             if RECON_FORCE_SELL_IF_ORPHAN:
                 logging.warning("%s - RECON orphan position detected (qty=%d @ %.4f). Attaching minimal context.",
                                 sym, qty_open, avg_entry)
                 entry_prices[sym] = avg_entry
                 entry_qty[sym] = qty_open
-                entry_times[sym] = last_exit_time.get(sym, None) or now_ts  # attach now if unknown
-                # Pick a conservative config (use BEARISH_CONFIG unless bias is available)
+                entry_times[sym] = last_exit_time.get(sym, None) or now_ts
                 entry_configs[sym] = BEARISH_CONFIG
                 trailing_active[sym] = False
             else:
                 logging.info("%s - RECON orphan position detected; skip (toggle off).", sym)
                 continue
 
-        # Build local series (if insufficient data, skip)
         prices_series = pd.Series(price_deques.get(sym, []))
         sizes_series = pd.Series(size_deques.get(sym, []))
 
@@ -2131,7 +2030,6 @@ def reconcile_positions(
                          sym, len(prices_series), len(sizes_series))
             continue
 
-        # Exit evaluation (reuses your logic, SIM/LIVE parity)
         last_price = float(prices_series.iloc[-1])
         ref_entry = entry_prices.get(sym, avg_entry)
         config = entry_configs.get(sym)
@@ -2162,7 +2060,6 @@ def reconcile_positions(
  
 
         if sell:
-            # Submit sell with extended confirmation polling
             try:
                 order = MarketOrderRequest(
                     symbol=sym, qty=qty_open, side=OrderSide.SELL,
@@ -2179,11 +2076,9 @@ def reconcile_positions(
                 else:
                     logging.warning("%s - RECON SELL missing order_id; proceeding with position reconciliation", sym)
 
-                # Reconcile: check if position still exists
                 time.sleep(1.0)
                 qty_after = get_position_qty(trade_client_local, sym)
                 if filled or qty_after == 0:
-                    # Clean up local state
                     entry_times.pop(sym, None)
                     entry_prices.pop(sym, None)
                     entry_qty.pop(sym, None)
@@ -2196,7 +2091,6 @@ def reconcile_positions(
                     regime_trades[regime_at_sell] += 1
                     exit_reason_count[regime_at_sell][reason] += 1
                     logging.info("%s - RECON SELL filled or reconciled | PnL≈%.4f | Reason=%s", sym, pnl_est, reason)
-                    # --- Write SELL to audit_trades_live for parity ---
                     if EXEC_AUDIT_ENABLED:
                         try:
                             import csv
@@ -2233,7 +2127,6 @@ def reconcile_positions(
             except Exception as e:
                 logging.exception("%s - RECON SELL error: %s", sym, e)
         else:
-            # Optional: stale guard — if context is old and no exit triggered, log/watch
             et = entry_times.get(sym)
             age_min = ((now_ts - et).total_seconds() / 60.0) if et else None
             if age_min is not None and age_min >= RECON_MAX_STALE_MIN:
@@ -2254,17 +2147,13 @@ def detect_day_bias(prices_series, ema_fast_series, ema_slow_series, vwap_series
         ema_slow_now = float(ema_slow_series.iloc[-1])
         vwap_now = float(vwap_series.iloc[-1])
 
-        # === USE SHORT-TERM MOMENTUM, NOT EMA CROSSOVER ===
-        # On recovery days, EMA slow lags and stays above EMA fast
-        # even when price is clearly rising. Use recent price change instead.
         if len(prices_series) >= 10:
             recent_change = (last_price - float(prices_series.iloc[-10])) / float(prices_series.iloc[-10])
         else:
             recent_change = 0.0
 
-        # Bullish if: price rising in last 10 bars OR price above VWAP
         price_above_vwap = last_price >= vwap_now
-        price_rising = recent_change > 0.0005  # 0.05% rise in last 10 ticks
+        price_rising = recent_change > 0.0005
 
         if price_above_vwap or price_rising:
             return "bullish"
@@ -2276,12 +2165,8 @@ def detect_day_bias(prices_series, ema_fast_series, ema_slow_series, vwap_series
         return "bearish"
 
 # === REGIME DETECTOR ===
-# === PATCH 1: Regime smoothing and cleanup ===
-# Insert just below detect_regime definition
-
 REGIME_SMOOTH_ENABLED = True
 REGIME_TRANSITION = {
-    # simple sticky transitions; tune with audit
     "TREND":     {"TREND": 0.70, "RANGE": 0.15, "LOW_VOL": 0.10, "HIGH_VOL": 0.05},
     "RANGE":     {"TREND": 0.15, "RANGE": 0.65, "LOW_VOL": 0.15, "HIGH_VOL": 0.05},
     "LOW_VOL":   {"TREND": 0.10, "RANGE": 0.15, "LOW_VOL": 0.70, "HIGH_VOL": 0.05},
@@ -2289,33 +2174,48 @@ REGIME_TRANSITION = {
 }
 _last_regime = defaultdict(lambda: None)
 
+# === STEP 2 PATCH: Regime confidence tracking ===
+_regime_confidence = defaultdict(int)
+REGIME_CONFIDENCE_MIN = 5
+
 def _smooth_regime(sym, raw_regime):
     if not REGIME_SMOOTH_ENABLED:
-        return raw_regime
+        _regime_confidence[sym] = REGIME_CONFIDENCE_MIN  # treat as confirmed
+        return raw_regime, REGIME_CONFIDENCE_MIN
     prev = _last_regime[sym]
     if prev is None:
         _last_regime[sym] = raw_regime
-        return raw_regime
+        _regime_confidence[sym] = 1
+        return raw_regime, 1
     # stickiness: if raw flips but probability favors previous, keep previous
     trans = REGIME_TRANSITION.get(prev, {})
     prob_prev = trans.get(prev, 0.5)
     prob_raw = trans.get(raw_regime, 0.0)
-    chosen = prev if prob_prev >= prob_raw else raw_regime
+    if prob_prev >= prob_raw:
+        # keep previous regime — confidence decays by 1 when stickiness overrides
+        chosen = prev
+        _regime_confidence[sym] = max(1, _regime_confidence[sym] - 1)
+    else:
+        chosen = raw_regime
+        if chosen == prev:
+            # same as before — increment confidence up to 20
+            _regime_confidence[sym] = min(20, _regime_confidence[sym] + 1)
+        else:
+            # genuine flip — reset confidence
+            _regime_confidence[sym] = 1
     _last_regime[sym] = chosen
-    return chosen
+    return chosen, _regime_confidence[sym]
 
 
 def detect_regime(prices_series, sizes_series, debug=False):
-    # Tunables
     MIN_PRICE_LEN = 30
     EARLY_MINUTES_TREND = 40
     N_ATR = 50
-    SLOPE_NORM_THRESH = 0.000005   # relaxed from 0.000008
-    VWAP_MULT = 0.998              # relaxed from 0.9998
+    SLOPE_NORM_THRESH = 0.000005
+    VWAP_MULT = 0.998
     BANDWIDTH_RANGE = (0.003, 0.007)
     LOW_VOL_BW_CAP = 0.0035
 
-    # Safe computations with fallbacks
     price = float(prices_series.iloc[-1]) if len(prices_series) else float("nan")
     ema_fast = compute_ema_from_series(prices_series, EMA_FAST).iloc[-1] if len(prices_series) >= 2 else float("nan")
     ema_slow = compute_ema_from_series(prices_series, EMA_SLOW).iloc[-1] if len(prices_series) >= 2 else float("nan")
@@ -2360,11 +2260,9 @@ def detect_regime(prices_series, sizes_series, debug=False):
             minutes
         )
 
-    # Early session: prefer TREND if slope positive
     if minutes < EARLY_MINUTES_TREND:
         return "TREND" if (slope is not None and slope > 0) else "RANGE"
 
-    # ATR percentile check (safe)
     pct = 0.5
     if len(prices_series) >= N_ATR + ATR_PERIOD and not pd.isna(atr_val):
         atr_series = prices_series.diff().abs().rolling(ATR_PERIOD).mean()
@@ -2372,14 +2270,12 @@ def detect_regime(prices_series, sizes_series, debug=False):
         if len(hist) > 10:
             pct = (hist < atr_val).mean()
 
-    # HIGH_VOL detection
     if (
         (pct >= HIGH_VOL_CONFIG.get("ATR_TOP_PCT", 0.90) and not pd.isna(bandwidth) and bandwidth >= 0.006)
         or (not pd.isna(bandwidth) and bandwidth > RANGE_CONFIG.get("BANDWIDTH_MAX", 0.007))
     ):
         return "HIGH_VOL"
 
-    # TREND detection (relaxed)
     try:
         slope_norm = (slope / price) if (slope is not None and price and price > 0) else float("nan")
     except Exception:
@@ -2393,7 +2289,6 @@ def detect_regime(prices_series, sizes_series, debug=False):
     ):
         return "TREND"
 
-    # DRIFT
     if (
         not pd.isna(slope) and
         not pd.isna(bandwidth) and
@@ -2404,7 +2299,6 @@ def detect_regime(prices_series, sizes_series, debug=False):
     ):
         return "DRIFT"
 
-    # LOW_VOL
     if (
         not pd.isna(bandwidth) and
         bandwidth <= min(LOW_VOL_CONFIG.get("BANDWIDTH_CAP", 0.0035), 0.0035) and
@@ -2412,7 +2306,6 @@ def detect_regime(prices_series, sizes_series, debug=False):
     ):
         return "LOW_VOL"
 
-    # RANGE
     if (
         not pd.isna(bandwidth) and
         RANGE_CONFIG.get("BANDWIDTH_MIN", 0.001) <= bandwidth <= RANGE_CONFIG.get("BANDWIDTH_MAX", 0.007) and
@@ -2428,19 +2321,10 @@ def evaluate_short_entry(sym, price, size, prices_series, sizes_series, ts_val,
                          positions_map, inflight_orders, pending_entries,
                          last_exit, last_buy_time, CONFIG, regime,
                          log_stack=False):
-    """
-    Mirror of evaluate_entry but for short positions on BEAR_DAY.
-    Looks for dead-cat bounce rejections at VWAP resistance.
-    Returns (accept: bool, reason: str, score: float, signal_stack: dict)
-    """
-
-    # === Only active on BEAR_DAY ===
     _day_regime = globals().get("day_regime", "NEUTRAL_DAY")
     if _day_regime != "BEAR_DAY":
         return False, "not_bear_day", 0.0, {}
         
-
-    # === Core indicators (same as evaluate_entry) ===
     ema_fast = compute_ema_from_series(prices_series, EMA_FAST).iloc[-1] \
                if len(prices_series) >= 2 else float('nan')
     ema_slow = compute_ema_from_series(prices_series, EMA_SLOW).iloc[-1] \
@@ -2458,7 +2342,6 @@ def evaluate_short_entry(sym, price, size, prices_series, sizes_series, ts_val,
     macd_line, macd_signal, macd_hist = compute_macd(prices_series)
     obv_slope = _obv_slope_proxy(prices_series, sizes_series, window=20)
 
-    # === Base validation — same guards as evaluate_entry ===
     if pd.isna(ema_fast) or pd.isna(ema_slow) or pd.isna(vwap_val) or pd.isna(rsi_val):
         logging.debug("[SHORT_BLOCK] %s rejected | Reason=Missing core indicators", sym)
         return False, "Missing core indicators", 0.0, {}
@@ -2468,7 +2351,6 @@ def evaluate_short_entry(sym, price, size, prices_series, sizes_series, ts_val,
                       sym, rsi_val if rsi_val else -1)
         return False, "RSI invalid", 0.0, {}
 
-    # === Cooldown (same logic as evaluate_entry) ===
     since_last_exit = (ts_val - last_exit).total_seconds() \
                       if last_exit is not None else float("inf")
     since_last_buy  = (ts_val - last_buy_time[sym]).total_seconds() \
@@ -2478,68 +2360,34 @@ def evaluate_short_entry(sym, price, size, prices_series, sizes_series, ts_val,
         logging.debug("[SHORT_BLOCK] %s rejected | Reason=Cooldown", sym)
         return False, "Cooldown", 0.0, {}
 
-    # === Order flow guard ===
     if inflight_orders.get(sym) is not None or sym in pending_entries:
         return False, "Order flow block", 0.0, {}
 
-    # === Already short in this symbol? ===
     if sym in short_entry_prices and short_entry_prices.get(sym) is not None:
         return False, "Already short", 0.0, {}
 
-    # === Already long in this symbol? Never short while long ===
     if sym in entry_prices and entry_prices.get(sym) is not None:
         return False, "Long position open — no short", 0.0, {}
 
-    # ================================================================
-    # SHORT SETUP CONDITIONS
-    # We are looking for dead-cat bounce rejections:
-    # Price bounces UP from lows back toward VWAP, then gets rejected.
-    # This is the opposite of RANGE_BULL entries.
-    # ================================================================
-
-    # 1. RSI overbought on a down day (bounce ran too far)
-    #    On bear days, RSI > 58 after a bounce is a short signal
     rsi_overbought = (not pd.isna(rsi_val) and rsi_val > 58)
-
-    # 2. RSI downtick — momentum rolling over
     rsi_downtick = (not pd.isna(rsi_prev) and not pd.isna(rsi_val)
                     and rsi_val < rsi_prev)
-
-    # 3. Price at or above VWAP — overextended bounce
-    #    VWAP acts as resistance on bear days
     at_vwap_resistance = (not pd.isna(vwap_val) and price >= vwap_val * 0.999)
-
-    # 4. Price at or near upper Bollinger band — exhaustion signal
     upper_band_touch = (not pd.isna(upper) and price >= upper * 0.998)
-
-    # 5. EMA bearish alignment — fast below slow confirms downtrend
     ema_bearish = (not pd.isna(ema_fast) and not pd.isna(ema_slow)
                    and ema_fast < ema_slow)
-
-    # 6. Negative slope — still grinding down
     slope_negative = (not pd.isna(slope) and slope < 0)
-
-    # 7. OBV slope negative — volume confirms selling pressure
     obv_bearish = (not pd.isna(obv_slope) and obv_slope < 0)
-
-    # 8. MACD bearish — signal line crossover down
     macd_bearish = (not pd.isna(macd_line) and not pd.isna(macd_signal)
                     and macd_line < macd_signal and macd_hist < 0)
-
-    # 9. 2 consecutive downticks confirming rejection
-    #    This is the mirror of the 2-uptick requirement in RANGE_BULL
     downticks_ok = False
     if len(prices_series) >= 3:
         last_three = prices_series.iloc[-3:]
         downticks = sum(last_three.diff().fillna(0) < 0)
         downticks_ok = (downticks >= 2)
 
-    # 10. Volume not dry — need real selling pressure
     vol_not_dry = (not pd.isna(median_vol) and median_vol > 0)
 
-    # === HARD REQUIREMENTS ===
-    # Must have at least: RSI rolling over + price at resistance + downticks
-    # Without these three, it is just noise not a real rejection setup
     if not rsi_downtick:
         logging.debug("[SHORT_BLOCK] %s rejected | Reason=RSI not downticking (rsi=%.2f prev=%.2f)",
                       sym, rsi_val, rsi_prev if not pd.isna(rsi_prev) else -1)
@@ -2557,20 +2405,17 @@ def evaluate_short_entry(sym, price, size, prices_series, sizes_series, ts_val,
         logging.debug("[SHORT_BLOCK] %s rejected | Reason=Insufficient downticks", sym)
         return False, "SHORT insufficient downticks", 0.0, {}
 
-    # === SCORING ===
-    # Weights mirror RANGE_CONFIG weights in spirit
     signal_stack = {}
     score = 0.0
 
-    # Core signals (high weight)
-    score += 1.0 if rsi_overbought else 0.0          # RSI overbought = strong short signal
-    score += 1.0 if at_vwap_resistance else 0.0       # VWAP resistance
-    score += 1.0 if upper_band_touch else 0.0         # Upper band exhaustion
-    score += 0.8 if ema_bearish else 0.0              # EMA alignment
-    score += 0.7 if macd_bearish else 0.0             # MACD confirms
-    score += 0.5 if slope_negative else 0.0           # Slope still down
-    score += 0.5 if obv_bearish else 0.0              # Volume confirms
-    score += 0.3 if vol_not_dry else 0.0              # Tape active
+    score += 1.0 if rsi_overbought else 0.0
+    score += 1.0 if at_vwap_resistance else 0.0
+    score += 1.0 if upper_band_touch else 0.0
+    score += 0.8 if ema_bearish else 0.0
+    score += 0.7 if macd_bearish else 0.0
+    score += 0.5 if slope_negative else 0.0
+    score += 0.5 if obv_bearish else 0.0
+    score += 0.3 if vol_not_dry else 0.0
 
     signal_stack.update({
         "rsi_overbought": rsi_overbought,
@@ -2587,11 +2432,7 @@ def evaluate_short_entry(sym, price, size, prices_series, sizes_series, ts_val,
         "vwap_val": round(vwap_val, 4) if not pd.isna(vwap_val) else None
     })
 
-    # === THRESHOLD ===
-    # Require score >= 2.5 to enter a short
-    # This means at minimum: VWAP resistance + EMA bearish + one more signal
     SHORT_ENTRY_THRESHOLD = 2.5
-
     accept = (score >= SHORT_ENTRY_THRESHOLD)
 
     if log_stack or accept:
@@ -2612,10 +2453,6 @@ def evaluate_entry(sym, price, size, prices_series, sizes_series, ts_val,
                    positions_map, inflight_orders, pending_entries,
                    last_exit, last_buy_time, CONFIG, regime,
                    bias=None, log_stack=False):
-    """
-    Returns (accept: bool, reason: str, score: float, signal_stack: dict)
-    Gate is regime-dependent. Keeps your cooldown and position safety checks.
-    """
 
     ema_fast = compute_ema_from_series(prices_series, EMA_FAST).iloc[-1] if len(prices_series) >= 2 else float('nan')
     ema_slow = compute_ema_from_series(prices_series, EMA_SLOW).iloc[-1] if len(prices_series) >= 2 else float('nan')
@@ -2632,35 +2469,28 @@ def evaluate_entry(sym, price, size, prices_series, sizes_series, ts_val,
         logging.debug(f"[BLOCK] {sym} rejected | Reason=Cooldown")
         return False, "Cooldown", 0.0, {}
                     
-    # Regime kill-switch gates
     if regime == "HIGH_VOL" and high_vol_paused[sym]:
         return False, "HIGH_VOL paused", 0.0, {}
                     
     if regime == "TREND" and trend_paused[sym]:
         return False, "TREND paused", 0.0, {}
            
-    # --- HARD GATE: disable HIGH_VOL entries entirely ---
     if regime == "HIGH_VOL":
         logging.debug(f"[BLOCK] {sym} rejected | Reason=HIGH_VOL regime blocked for entries")
         return False, "HIGH_VOL blocked", 0.0, {}
             
-    # FitScore gate: auto-pause regime if underperforming
     if regime_trades[regime] >= 5:
         sls = exit_reason_count[regime].get("Stop-loss", 0)
         net = regime_pnl[regime]
         if (sls / regime_trades[regime] >= 0.6) and (net < 0):
             return False, f"{regime} paused by FitScore", 0.0, {}
                
-    # --- RE-ENTRY COOLDOWN: base 10s block ---
     last_exit = last_exit_time.get(sym)
     if last_exit:
         secs_since_exit = (datetime.now(timezone.utc) - last_exit).total_seconds()
         if secs_since_exit < 10:
             return False, "Cooldown block", 0.0, {}
 
-        # Block TREND re-entries for 10 minutes after a trend-failure exit.
-        # EMA fail and VWAP fail mean the trend signal was wrong.
-        # Avoid buying the same stock in TREND direction again immediately.
         _last_reason = last_exit_reason.get(sym)
         if (regime == "TREND" and
                 _last_reason in ("EMA fail", "VWAP fail") and
@@ -2672,12 +2502,9 @@ def evaluate_entry(sym, price, size, prices_series, sizes_series, ts_val,
             )
             return False, f"TREND reentry blocked after {_last_reason}", 0.0, {}
                    
-    # Still block if inflight or pending
     if inflight_orders.get(sym) is not None or sym in pending_entries:
         return False, "Order flow block", 0.0, {}
             
-    # Base features
-   
     macd_line, macd_signal, macd_hist = compute_macd(prices_series)
 
     median_vol = sizes_series.median() if len(sizes_series) > 0 else float('nan')
@@ -2687,11 +2514,9 @@ def evaluate_entry(sym, price, size, prices_series, sizes_series, ts_val,
     atr_val = compute_atr_from_series(prices_series, ATR_PERIOD)
     slope = ema_slope(prices_series, EMA_SLOW)
 
-    # INSERT ADX/CHOP HERE
     adx_val = _adx_proxy(prices_series) if ADX_ENABLED else float('nan')
     chop_val = _choppiness_proxy(prices_series) if CHOP_ENABLED else float('nan')
 
-    # RSI banding by regime + uptick check
     REGIME_RSI_BANDS = {
         "TREND": (32, 80),
         "RANGE": (28, 70),
@@ -2706,20 +2531,15 @@ def evaluate_entry(sym, price, size, prices_series, sizes_series, ts_val,
     rsi_prev = rsi_series_full.iloc[-2] if len(rsi_series_full) >= 2 else float('nan')
     rsi_uptick = (not pd.isna(rsi_prev) and not pd.isna(rsi_val) and rsi_val > rsi_prev)
     
-    # Final RSI check combines regime band + uptick
     rsi_ok = rsi_in_band(regime, rsi_val) and rsi_uptick
 
-
-    # Pullback checks
     pullback_to_ema = (not pd.isna(ema_slow) and abs(price - ema_slow) / price <= TREND_CONFIG["PULLBACK_TOL"])
     pullback_to_vwap = (not pd.isna(vwap_val) and abs(price - vwap_val) / price <= TREND_CONFIG["PULLBACK_TOL"])
 
-    # Range checks
-    lower_touch = (not pd.isna(lower) and price <= lower * (1 + 0.0002))  # epsilon
+    lower_touch = (not pd.isna(lower) and price <= lower * (1 + 0.0002))
     upper_touch = (not pd.isna(upper) and price >= upper * (1 - 0.0002))
-    vwap_reversion_room = (not pd.isna(vwap_val) and (vwap_val - price) / vwap_val >= 0.0008)  # distance for mean reversion
+    vwap_reversion_room = (not pd.isna(vwap_val) and (vwap_val - price) / vwap_val >= 0.0008)
 
-    # High-vol checks
     N = HIGH_VOL_CONFIG["ATR_WINDOW"]
     atr_series = prices_series.diff().abs().rolling(ATR_PERIOD).mean() if len(prices_series) >= ATR_PERIOD else pd.Series([])
     atr_hist = atr_series.iloc[-N:].dropna() if len(atr_series) else pd.Series([])
@@ -2729,14 +2549,12 @@ def evaluate_entry(sym, price, size, prices_series, sizes_series, ts_val,
     vol_roc_ok = (not pd.isna(vol_roc_val) and vol_roc_val > 0.35)
     breakout_bar = (price > (recent_high(prices_series, HIGH_VOL_CONFIG["BREAKOUT_LOOKBACK"]) * 1.002))
 
-    # Low-vol checks
     envelope_lower = (ema_slow * (1 - LOW_VOL_CONFIG["ENVELOPE_PCT"])) if not pd.isna(ema_slow) else float('nan')
     envelope_touch = (not pd.isna(envelope_lower) and price <= envelope_lower)
     chop_high = (not pd.isna(bandwidth) and bandwidth <= LOW_VOL_CONFIG["BANDWIDTH_CAP"])
-    vol_ok_low = vol_spike or (not pd.isna(median_vol) and median_vol > 0)  # avoid totally dry tapes
+    vol_ok_low = vol_spike or (not pd.isna(median_vol) and median_vol > 0)
     vwap_below = (not pd.isna(vwap_val) and price < vwap_val)
 
-    # Base sanity filters to avoid nonsense:
     if pd.isna(ema_fast) or pd.isna(ema_slow) or pd.isna(vwap_val) or pd.isna(rsi_val):
         logging.debug(f"[BLOCK] {sym} rejected | Reason=Missing core indicators")
         return False, "Missing core indicators", 0.0, {}
@@ -2745,9 +2563,11 @@ def evaluate_entry(sym, price, size, prices_series, sizes_series, ts_val,
         logging.debug("[BLOCK] %s rejected | Reason=RSI invalid (rsi=%.2f)", sym, rsi_val if rsi_val else -1)
         return False, "RSI invalid", 0.0, {}
 
-    # === MARKET REGIME GATE ===
-    # Inserted here: after all core indicators are validated (ema, vwap, rsi)
-    # but before per-regime scoring begins, so the gate has clean data to work with.
+    # === STEP 2 PATCH: RSI overbought hard block ===
+    if rsi_val > 82:
+        logging.debug("[BLOCK] %s rejected | Reason=RSI overbought at entry (rsi=%.2f)", sym, rsi_val)
+        return False, "RSI overbought block", 0.0, {}
+
     market_trend = globals().get("market_trend_state", "unknown")
     gate_ok, gate_reason = gate_entry(
         sym, regime, prices_series, sizes_series, vwap_val,
@@ -2758,10 +2578,6 @@ def evaluate_entry(sym, price, size, prices_series, sizes_series, ts_val,
         logging.debug("[BLOCK] %s rejected by gate_entry | Reason=%s", sym, gate_reason)
         return False, gate_reason, 0.0, {}
 
-    # --- Bias-aware safety filter (global) ---
-    # Hard block: never take a long entry when symbol bias is bearish.
-    # Bearish bias means price is falling or below VWAP — buying into
-    # this is buying into weakness regardless of regime.
     if bias == "bearish":
         logging.debug(
             "[BLOCK] %s rejected | Reason=Bearish bias hard block (rsi=%.2f)",
@@ -2777,22 +2593,20 @@ def evaluate_entry(sym, price, size, prices_series, sizes_series, ts_val,
         w = TREND_CONFIG["WEIGHTS"]
         ema_trend_ok = (ema_fast > ema_slow) and (slope > 0)
         
-        # Conditional VWAP delta
         strong_trend = (not pd.isna(slope) and slope > 0) and (not pd.isna(adx_val) and adx_val >= 25)
         vwap_above_ok = (price > vwap_val) and (
             ((price - vwap_val) > CONFIG["VWAP_DELTA"] * vwap_val) if not strong_trend
-            else ((price - vwap_val) > (CONFIG["VWAP_DELTA"] * 0.6) * vwap_val)  # relaxed if strong_trend
+            else ((price - vwap_val) > (CONFIG["VWAP_DELTA"] * 0.6) * vwap_val)
         )
         macd_ok = (
             not pd.isna(macd_line) and not pd.isna(macd_signal)
             and macd_line > macd_signal
-            and macd_hist > 0.03   # require stronger momentum
+            and macd_hist > 0.03
         )
         pullback_ok = (pullback_to_ema or pullback_to_vwap)
         vol_ok = vol_spike
         obv_ok = (not pd.isna(obv_slope) and obv_slope > 0)
 
-        # NEW: slope-or-OBV confirmation
         slope_or_obv = (slope > 0.0008) or obv_ok
 
         signal_stack.update({
@@ -2810,7 +2624,6 @@ def evaluate_entry(sym, price, size, prices_series, sizes_series, ts_val,
         score += w["vol_confirm"] if vol_ok else 0.0
         score += 0.3 if obv_ok else 0.0
 
-        # INSERT ADX SCORING
         adx_ok = (not pd.isna(adx_val) and adx_val >= 20)
         signal_stack["adx_ok"] = adx_ok
         score += 0.4 if adx_ok else 0.0
@@ -2834,7 +2647,6 @@ def evaluate_entry(sym, price, size, prices_series, sizes_series, ts_val,
             "bandwidth_ok": bandwidth_ok
         })
 
-    
         score = (
             w["ema_trend"] * (1 if ema_ok else 0) +
             w["slope_ok"] * (1 if slope_ok else 0) +
@@ -2851,55 +2663,40 @@ def evaluate_entry(sym, price, size, prices_series, sizes_series, ts_val,
             sym, score, threshold,
             ema_ok, slope_ok, macd_ok, vwap_ok, rsi_ok, bandwidth_ok
         )
-       
            
         if score < threshold:
             return False, "DRIFT score block", score, signal_stack
                     
-        # Confirmation: last 3 ticks higher
         if not _confirm_trend(prices_series, vwap_val, ema_slow):
             return False, "DRIFT confirm block", score, signal_stack
                    
         return True, "entry", score, signal_stack
             
     elif regime == "RANGE":
-        # RANGE_BULL no longer depends on global bias.
-        # We only block RANGE_BEAR if bias is explicitly bearish AND RSI is not oversold.
-        
         w = RANGE_CONFIG["WEIGHTS"]
 
-        # --- Core RANGE_BULL conditions ---
-
-        # 1) RSI oversold band + uptick (mean-reversion long)
         rsi_band_ok = (rsi_val >= 18) and (rsi_val <= 38)
         rsi_uptick_ok = rsi_uptick
 
-        # 2) Price at or below lower Bollinger band
         if RANGE_STRICT_TOUCH_ENABLED:
             lower_band_touch = (not pd.isna(lower) and price <= lower)
         else:
             lower_band_touch = (not pd.isna(lower) and price <= lower * (1 + RANGE_TOUCH_EPSILON))
 
-        # 3) Bandwidth in range-friendly zone
         bandwidth_ok = (
             not pd.isna(bandwidth)
             and RANGE_CONFIG["BANDWIDTH_MIN"] <= bandwidth <= min(RANGE_CONFIG["BANDWIDTH_MAX"], 0.010)
         )
 
-        # 4) VWAP reversion room
         vwap_rev_ok = (
             not pd.isna(vwap_val)
             and (vwap_val - price) / vwap_val >= RANGE_VWAP_ROOM_MIN
         )
 
-        # 5) Volume not ultra-dry
         vol_not_dry = (not pd.isna(median_vol) and median_vol > 0)
 
-        # 6) OBV slope as tape health proxy (optional but helpful)
         obv_ok = (not pd.isna(obv_slope) and obv_slope >= 0)
 
-        # --- RANGE_BULL-specific local bias ---
-        # We require: price below VWAP, oversold RSI, and healthy OBV.
         range_bull_bias_ok = (
             vwap_rev_ok and
             rsi_band_ok 
@@ -2909,8 +2706,6 @@ def evaluate_entry(sym, price, size, prices_series, sizes_series, ts_val,
             logging.debug(f"[BLOCK] {sym} rejected | Reason=RANGE_BULL local bias block")
             return False, "RANGE_BULL bias block", 0.0, {}
 
-        # Require at least 2 consecutive upticks before entering
-        # Prevents buying into a still-falling lower band
         if len(prices_series) >= 3:
             last_three = prices_series.iloc[-3:]
             upticks = sum(last_three.diff().fillna(0) > 0)
@@ -2918,7 +2713,6 @@ def evaluate_entry(sym, price, size, prices_series, sizes_series, ts_val,
                 logging.debug("[BLOCK] %s rejected | Reason=RANGE insufficient upticks (%d/2)", sym, upticks)
                 return False, "RANGE insufficient upticks", 0.0, {}
                 
-        # --- Optional: Bollinger bandwidth ROC filter (block expanding volatility) ---
         bb_roc = 0
         if not pd.isna(bandwidth):
             try:
@@ -2934,7 +2728,6 @@ def evaluate_entry(sym, price, size, prices_series, sizes_series, ts_val,
             logging.debug(f"[BLOCK] {sym} rejected | Reason=Range blocked by BB ROC (bb_roc={bb_roc:.6f})")
             return False, "Range blocked by BB ROC", 0.0, {}
                 
-        # --- Update signal_stack and score for RANGE_BULL ---
         signal_stack.update({
             "lower_band_touch": lower_band_touch,
             "rsi_band_ok": rsi_band_ok,
@@ -2945,16 +2738,13 @@ def evaluate_entry(sym, price, size, prices_series, sizes_series, ts_val,
             "obv_slope_ok": obv_ok,
         })
 
-        # Use existing RANGE_CONFIG weights; map them to our conditions
         score += w["lower_band_touch"] if lower_band_touch else 0.0
         score += w["rsi_uptick"] if (rsi_band_ok and rsi_uptick_ok) else 0.0
         score += w["vwap_reversion"] if vwap_rev_ok else 0.0
         score += w["bandwidth_ok"] if bandwidth_ok else 0.0
         score += w["vol_not_dry"] if vol_not_dry else 0.0
-        # Treat "rsi_ok" as generic RSI band condition
         score += w["rsi_ok"] if rsi_band_ok else 0.0
 
-        # Small bonus for healthy OBV slope (doesn't have a dedicated weight in RANGE_CONFIG)
         if obv_ok:
             score += 0.3
 
@@ -2981,13 +2771,11 @@ def evaluate_entry(sym, price, size, prices_series, sizes_series, ts_val,
         score += w["breakout_bar"] if breakout_ok else 0.0
 
     else:  # LOW_VOL
-        # STEP 1: hard-block LOW_VOL entries (exit-only regime for now)
         logging.debug(f"[BLOCK] {sym} rejected | Reason=LOW_VOL regime blocked for entries")
         return False, "LOW_VOL blocked", 0.0, {}
             
         w = LOW_VOL_CONFIG["WEIGHTS"]
 
-        # Require short-term momentum not aggressively against you:
         ema_momentum_ok = (not pd.isna(ema_fast) and not pd.isna(ema_slow) and ema_fast >= ema_slow)
         
         vwap_below_ok = vwap_below
@@ -2996,7 +2784,6 @@ def evaluate_entry(sym, price, size, prices_series, sizes_series, ts_val,
         chop_ok = chop_high
         vol_ok = vol_ok_low
 
-        # Hard block: in LOW_VOL regime, do not take entries if EMA_fast << EMA_slow
         if not ema_momentum_ok:
             logging.debug(f"[BLOCK] {sym} rejected | Reason=LOW_VOL ema_momentum_ok=False (ema_fast={ema_fast:.4f} ema_slow={ema_slow:.4f})")
             return False, "LOW_VOL EMA momentum block", 0.0, {}
@@ -3016,12 +2803,10 @@ def evaluate_entry(sym, price, size, prices_series, sizes_series, ts_val,
         score += w["chop_high"] if chop_ok else 0.0
         score += w["vol_ok"] if vol_ok else 0.0
 
-        # INSERT CHOPPINESS SCORING
         chop_proxy_ok = (not pd.isna(chop_val) and chop_val >= 1.2)
         signal_stack["chop_proxy_ok"] = chop_ok
         score += 0.3 if chop_ok else 0.0
         
-        # === NEW: OBV slope enforcement for LOW_VOL ===
         obv_ok = (not pd.isna(obv_slope) and obv_slope > 0)
         signal_stack["obv_slope_ok"] = obv_ok
         
@@ -3029,21 +2814,18 @@ def evaluate_entry(sym, price, size, prices_series, sizes_series, ts_val,
             if not obv_ok:
                 return False, "LOW_VOL bearish blocked by OBV slope<=0", score, signal_stack
                                     
-        else: # bullish
+        else:
             if not obv_ok:
-                score -= 0.5 # penalize but allow if other signals are strong
+                score -= 0.5
 
-        # --- VWAP proximity safety filter ---
-        # Avoid buying when price is very far from VWAP in either direction, to reduce chasing extremes.
         vwap_dist = abs(price - vwap_val) / vwap_val if not pd.isna(vwap_val) and vwap_val > 0 else 0.0
-        VWAP_DIST_MAX = 0.025 # 1.5% from VWAP; tune as needed
+        VWAP_DIST_MAX = 0.025
 
         if vwap_dist > VWAP_DIST_MAX:
             logging.debug(f"[BLOCK] {sym} rejected | Reason=VWAP distance {vwap_dist:.4f} > {VWAP_DIST_MAX:.4f}")
             return False, "VWAP distance block", 0.0, {}
                 
                        
-    # Inside evaluate_entry, before computing 'accept'
     confirm_ok = True
     if ENTRY_CONFIRM_ENABLED:
         if regime == "TREND":
@@ -3052,8 +2834,7 @@ def evaluate_entry(sym, price, size, prices_series, sizes_series, ts_val,
             confirm_ok = _confirm_range(prices_series, lower)
         elif regime == "LOW_VOL":
             confirm_ok = _confirm_low_vol(prices_series, vwap_val)
-        else:  # HIGH_VOL
-            # breakout confirmation: last price > recent high and two higher closes
+        else:
             rh = recent_high(prices_series, HIGH_VOL_CONFIG["BREAKOUT_LOOKBACK"])
             if pd.isna(rh) or len(prices_series) < ENTRY_CONFIRM_TICKS + 1:
                 confirm_ok = False
@@ -3061,9 +2842,6 @@ def evaluate_entry(sym, price, size, prices_series, sizes_series, ts_val,
                 tail = prices_series.iloc[-ENTRY_CONFIRM_TICKS-1:]
                 confirm_ok = (tail.iloc[-ENTRY_CONFIRM_TICKS] > rh) and all(tail.diff().fillna(0) > 0)
 
-                       
-
-    # Final gate
     CONFIG_SESSION = overlay_by_session(CONFIG, ts_val, regime)                   
     threshold = adaptive_entry_threshold(CONFIG_SESSION, sym, regime)
     accept = (score >= threshold) and confirm_ok
@@ -3080,17 +2858,10 @@ def evaluate_entry(sym, price, size, prices_series, sizes_series, ts_val,
 
 # === EXIT OVERLAY BY REGIME ===
 def overlay_exit_params_by_regime(CONFIG, regime):
-    """
-    Adjust TP/SL buffers per regime without breaking if CONFIG
-    is missing fields. Uses safe .get() lookups with global defaults.
-    """
-
-    # Base defaults (your global constants)
     base_tp      = CONFIG.get("TP_PCT", TP_PCT)
     base_sl_mult = CONFIG.get("SL_MULTIPLIER", SL_MULTIPLIER)
     base_ts_act  = CONFIG.get("TS_ACTIVATION_BUFFER", TS_ACTIVATION_BUFFER)
 
-    # Start with a shallow copy
     adj = dict(CONFIG)
 
     if regime == "RANGE":
@@ -3108,18 +2879,11 @@ def overlay_exit_params_by_regime(CONFIG, regime):
         adj["SL_MULTIPLIER"] = max(0.7, base_sl_mult * 0.9)
         adj["TS_ACTIVATION_BUFFER"] = max(0.0025, base_ts_act * 0.85)
 
-    # TREND regime uses base CONFIG unchanged
     return adj
 
 
 def evaluate_short_exit(sym, last_price, ref_short_entry, CONFIG,
                         current_time=None, regime=None):
-    """
-    Exit logic for short positions. Mirror of evaluate_sell but inverted:
-    - Take-profit fires when price FALLS below entry by TP_PCT
-    - Stop-loss fires when price RISES above entry by SL threshold
-    - Trailing stop tracks lowest price since entry (not highest)
-    """
     if ref_short_entry is None or ref_short_entry == 0:
         return False, None
 
@@ -3128,26 +2892,21 @@ def evaluate_short_exit(sym, last_price, ref_short_entry, CONFIG,
     elapsed = (now_ts - entry_time).total_seconds() \
               if isinstance(entry_time, datetime) else 0.0
 
-    # EOD exit — always close shorts before market close
     minutes = _session_minutes(now_ts)
-    if minutes >= 360:   # 30 minutes before close
+    if minutes >= 360:
         return True, "SHORT EOD exit"
 
-    # Emergency stop-loss: price rose >1% above short entry
     if last_price >= ref_short_entry * 1.010:
         return True, "SHORT emergency SL"
 
-    # Hard stop: price rose >0.5% above short entry
     emergency_sl_pct = float(CONFIG.get("EMERGENCY_SL_PCT", 0.005))
     if last_price >= ref_short_entry * (1 + emergency_sl_pct):
         return True, "SHORT stop-loss"
 
-    # Take-profit: price fell enough below entry
     tp_pct = float(CONFIG.get("TP_PCT", 0.002))
     if last_price <= ref_short_entry * (1 - tp_pct):
         return True, "SHORT take-profit"
 
-    # Trailing stop on shorts: track lowest price since entry
     ts_activation = float(CONFIG.get("TS_ACTIVATION_BUFFER", 0.003))
     trailing_pct  = float(CONFIG.get("TRAILING_STOP_PCT", 0.004))
 
@@ -3164,13 +2923,11 @@ def evaluate_short_exit(sym, last_price, ref_short_entry, CONFIG,
         if pullback_pct >= trailing_pct:
             return True, "SHORT trailing stop"
 
-    # Time stop: if still in short after 3 minutes with no progress
     if elapsed >= 180:
         progress = (ref_short_entry - last_price) / ref_short_entry
-        if progress < 0.001:   # less than 0.1% move toward profit
+        if progress < 0.001:
             return True, "SHORT time-stop"
 
-    # Max hold
     if elapsed >= MAX_HOLD_SECONDS:
         return True, "SHORT max hold"
 
@@ -3189,29 +2946,27 @@ def evaluate_sell(
     rsi_period=RSI_PERIOD,
     current_time=None,
     regime=None,
-    log_stack=False
+    log_stack=False,
+    entry_config=None,        # Option C: entry snapshot (vwap, rsi at entry)
+    regime_confidence=None    # Option B: current consecutive-tick confidence count
 ):
     logging.debug("[%s] ENTER evaluate_sell | last_price=%.4f | regime=%s",
                   sym, last_price, regime)
 
-    # --- Basic validation ---
     if CONFIG is None:
         return False, None
 
-    # --- Ensure ref_entry is valid ---
     if ref_entry is None or ref_entry == 0:
         logging.warning("[%s] ref_entry missing or zero; using last_price as fallback", sym)
         ref_entry = last_price
 
 
     try:
-        # --- Timestamp + elapsed ---
         now_ts = current_time or datetime.now(timezone.utc)
         entry_time = entry_times.get(sym)
         if isinstance(entry_time, datetime):
             elapsed = (now_ts - entry_time).total_seconds()
         else:
-            # RECON fallback: allow SELL logic with elapsed = 0
             entry_time = None
             elapsed = 0.0
 
@@ -3228,13 +2983,11 @@ def evaluate_sell(
         # ============================================================
         # 2. EMERGENCY EXITS (catastrophic SL)
         # ============================================================
-        # Hard 5% stop-loss
         if last_price <= ref_entry * 0.95:
             logging.info("[%s] EXIT evaluate_sell | reason=5%% stop-loss | last=%.4f | ref=%.4f",
                          sym, last_price, ref_entry)
             return True, "5% stop-loss"
 
-        # Emergency SL (configurable)
         emergency_sl_pct = float(CONFIG.get("EMERGENCY_SL_PCT", 0.01))
         if last_price <= ref_entry * (1 - emergency_sl_pct):
             logging.info("[%s] EXIT evaluate_sell | reason=Emergency SL | last=%.4f | ref=%.4f",
@@ -3261,11 +3014,9 @@ def evaluate_sell(
         # ============================================================
         # 4. TRAILING STOP
         # ============================================================
-        # Tuned thresholds
-        TS_ACTIVATION_BUFFER = CONFIG.get("TS_ACTIVATION_BUFFER", 0.003)  # 0.3%
-        TRAILING_STOP_PCT = CONFIG.get("TRAILING_STOP_PCT", 0.004)        # 0.4%
+        TS_ACTIVATION_BUFFER = CONFIG.get("TS_ACTIVATION_BUFFER", 0.003)
+        TRAILING_STOP_PCT = CONFIG.get("TRAILING_STOP_PCT", 0.004)
 
-        # Activate trailing stop
         if last_price >= ref_entry * (1 + TS_ACTIVATION_BUFFER):
             trailing_active[sym] = True
             highest_price_since_entry[sym] = max(
@@ -3273,7 +3024,6 @@ def evaluate_sell(
                 last_price
             )
 
-        # Check trailing stop
         if trailing_active.get(sym, False):
             peak = highest_price_since_entry.get(sym, ref_entry)
             drawdown_pct = (peak - last_price) / peak if peak > 0 else 0
@@ -3285,7 +3035,7 @@ def evaluate_sell(
         # ============================================================
         # 5. TAKE-PROFIT
         # ============================================================
-        tp_pct = CONFIG_E.get("TP_PCT", TP_PCT) # TP_PCT is your global default (0.004)
+        tp_pct = CONFIG_E.get("TP_PCT", TP_PCT)
         tp_price = ref_entry * (1 + tp_pct)
         if last_price >= tp_price:
             logging.info("[%s] EXIT evaluate_sell | reason=Take-profit | last=%.4f | ref=%.4f",
@@ -3293,29 +3043,82 @@ def evaluate_sell(
             return True, "Take-profit"
 
         # ============================================================
-        # 6. TREND FAILURE EXITS (VWAP, EMA, RSI)
+        # 6. TREND FAILURE EXITS (VWAP, EMA, RSI) with Option B + C suppression
         # ============================================================
 
+        # Option B: regime confidence gate
+        regime_confirmed = (
+            regime_confidence is None or
+            regime_confidence >= REGIME_CONFIDENCE_MIN
+        )
+
+        # Option C: momentum health check (inline helper)
+        def _momentum_healthy():
+            if entry_config is None:
+                return False
+            entry_vwap = entry_config.get("vwap")
+            entry_rsi  = entry_config.get("rsi")
+            if entry_vwap is None or pd.isna(entry_vwap) or entry_vwap <= 0:
+                return False
+            if entry_rsi is None or pd.isna(entry_rsi):
+                return False
+            # Check 1: price not too far below entry VWAP
+            vwap_ok = last_price >= entry_vwap * 0.9985
+            # Check 2: positive 10-tick slope
+            slope_ok = (
+                len(prices_series) >= 10 and
+                float(prices_series.iloc[-1]) > float(prices_series.iloc[-10])
+            )
+            # Check 3: RSI not collapsed
+            rsi_ok = (not pd.isna(rsi_val) and
+                      rsi_val >= entry_rsi - 20 and
+                      rsi_val >= 35)
+            result = vwap_ok and slope_ok and rsi_ok
+            if result:
+                logging.debug(
+                    "[OPTION_C][%s] momentum_healthy=True vwap_ok=%s slope_ok=%s rsi_ok=%s",
+                    sym, vwap_ok, slope_ok, rsi_ok
+                )
+            return result
+
         # --- VWAP fail ---
-        VWAP_DELTA = CONFIG.get("VWAP_DELTA", 0.0015)  # 0.15%
+        VWAP_DELTA = CONFIG.get("VWAP_DELTA", 0.0015)
         vwap_fail = soft_exits_allowed and last_price < vwap_val * (1 - VWAP_DELTA)
 
         if vwap_fail:
-            logging.info("[%s] EXIT evaluate_sell | reason=VWAP fail | last=%.4f | vwap=%.4f",
-                         sym, last_price, vwap_val)
-            return True, "VWAP fail"
+            momentum_ok = _momentum_healthy()
+            if momentum_ok:
+                logging.info("[SUPPRESS][%s] VWAP fail suppressed by momentum | last=%.4f vwap=%.4f conf=%s",
+                             sym, last_price, vwap_val,
+                             regime_confidence if regime_confidence is not None else "N/A")
+            elif not regime_confirmed:
+                logging.info("[SUPPRESS][%s] VWAP fail suppressed — regime not confirmed (conf=%s)",
+                             sym, regime_confidence)
+            else:
+                logging.info("[%s] EXIT evaluate_sell | reason=VWAP fail | last=%.4f | vwap=%.4f",
+                             sym, last_price, vwap_val)
+                return True, "VWAP fail"
 
         # --- EMA fail ---
-        EMA_DELTA = CONFIG.get("EMA_DELTA", 0.001)  # 0.1%
+        EMA_DELTA = CONFIG.get("EMA_DELTA", 0.001)
         ema_fail = soft_exits_allowed and (
             ema_fast < ema_slow and
             last_price < ema_slow * (1 - EMA_DELTA)
         )
 
         if ema_fail:
-            logging.info("[%s] EXIT evaluate_sell | reason=EMA fail | last=%.4f | ema_slow=%.4f",
-                         sym, last_price, ema_slow)
-            return True, "EMA fail"
+            momentum_ok = _momentum_healthy()
+            if momentum_ok:
+                logging.info("[SUPPRESS][%s] EMA fail suppressed by momentum | last=%.4f ema_slow=%.4f conf=%s",
+                             sym, last_price, ema_slow,
+                             regime_confidence if regime_confidence is not None else "N/A")
+            elif not regime_confirmed:
+                logging.info("[SUPPRESS][%s] EMA fail suppressed — regime not confirmed (conf=%s)",
+                             sym, regime_confidence)
+            else:
+                logging.info("[%s] EXIT evaluate_sell | reason=EMA fail | last=%.4f | ema_slow=%.4f",
+                             sym, last_price, ema_slow)
+                return True, "EMA fail"
 
         # --- RSI fail ---
         RSI_FAIL_TICKS = CONFIG.get("RSI_FAIL_TICKS", 2)
@@ -3332,16 +3135,25 @@ def evaluate_sell(
                 rsi_fail = True
 
         if rsi_fail:
-            logging.info("[%s] EXIT evaluate_sell | reason=RSI fail | rsi=%.2f",
-                         sym, rsi_val)
-            return True, "RSI fail"
+            momentum_ok = _momentum_healthy()
+            if momentum_ok:
+                logging.info("[SUPPRESS][%s] RSI fail suppressed by momentum | rsi=%.2f conf=%s",
+                             sym, rsi_val,
+                             regime_confidence if regime_confidence is not None else "N/A")
+            elif not regime_confirmed:
+                logging.info("[SUPPRESS][%s] RSI fail suppressed — regime not confirmed (conf=%s)",
+                             sym, regime_confidence)
+            else:
+                logging.info("[%s] EXIT evaluate_sell | reason=RSI fail | rsi=%.2f",
+                             sym, rsi_val)
+                return True, "RSI fail"
 
         # ============================================================
         # 7. TIME-STOP EXITS (RANGE, LOW_VOL)
         # ============================================================
 
-        # RANGE time-stop
-        if regime_local == "RANGE":
+        # RANGE time-stop (only fires when regime is confirmed)
+        if regime_local == "RANGE" and regime_confirmed:
             RANGE_TIME_STOP_SECONDS = CONFIG.get("RANGE_TIME_STOP_SECONDS", 900)
             RANGE_VWAP_PROGRESS_MIN = CONFIG.get("RANGE_VWAP_PROGRESS_MIN", 0.15)
 
@@ -3382,14 +3194,8 @@ def evaluate_sell(
 
 
 # === AUDIT TRAIL (LIVE) — removable block ===
-# Käyttää suoraan price_deques ja size_deques rakenteita
-# Outcome labels:
-#   - good_block   : filtteri esti kaupan, joka olisi mennyt tappiolle
-#   - bad_block    : filtteri esti kaupan, joka olisi mennyt voitolle
-#   - neutral_block: ei TP/SL osumaa seurantajakson aikana
-
 AUDIT_TRAIL_ENABLED = True
-AUDIT_OUTCOME_WINDOW_MIN = 30     # seurantajakso minuutteina
+AUDIT_OUTCOME_WINDOW_MIN = 30
 
 
 audit_csv_lock = threading.Lock()
@@ -3441,10 +3247,6 @@ def _audit_watchdog_deque(sym, ts_val, ref_entry_price, reason,
                           ema_fast, ema_slow, rsi_val, vwap_val,
                           size, median_vol, bias, CONFIG,
                           price_deques, size_deques):
-    """
-    Watchdog: tarkistaa TP/SL osumat suoraan deque-rakenteista
-    eikä tee erillistä hintapollia.
-    """
     try:
         deadline = ts_val + timedelta(minutes=AUDIT_OUTCOME_WINDOW_MIN)
         tp_pct = float(CONFIG.get("TP_PCT", 0.002))
@@ -3468,7 +3270,6 @@ def _audit_watchdog_deque(sym, ts_val, ref_entry_price, reason,
                 break
 
             time.sleep(1.0)
-       # <-- INSERT adaptive update here
         adaptive_entry_update(sym, "DRIFT" if "DRIFT" in str(reason) else
                                    "RANGE" if "Range" in str(reason) else
                                    "TREND" if "Trend" in str(reason) else
@@ -3522,19 +3323,10 @@ def audit_rejection_live(sym, ts_val, price, size, ema_fast, ema_slow,
 # === END AUDIT TRAIL (LIVE using deques) ===
 
 
-
-
-
 # === MAIN ===
-# === Strategy parameters ===
-# === DAY REGIME CLASSIFICATION (free tier compatible) ===
-# Uses only get_stock_latest_trade (free) instead of historical bars (paid)
-# Previous close is persisted to a local file so it survives restarts
-
 PREV_CLOSE_FILE = "spy_prev_close.txt"
 
 def _save_prev_close(price):
-    """Save SPY closing price to disk for next session."""
     try:
         with open(PREV_CLOSE_FILE, "w") as f:
             f.write(f"{price:.4f}")
@@ -3543,7 +3335,6 @@ def _save_prev_close(price):
         logging.warning("[DAY_REGIME] Could not save prev_close: %s", e)
 
 def _load_prev_close():
-    """Load SPY closing price saved from previous session."""
     try:
         if os.path.exists(PREV_CLOSE_FILE):
             with open(PREV_CLOSE_FILE, "r") as f:
@@ -3555,14 +3346,7 @@ def _load_prev_close():
     return None
 
 def classify_day_regime(stock_data_client_local, spy_deque):
-    """
-    Free-tier compatible day regime classification.
-    Uses latest trade price (free) instead of historical bars (paid).
-    Reads previous close from local file saved at end of previous session.
-    Falls back gracefully if file is missing or stale.
-    """
     try:
-        # --- Step 1: Get current SPY price via latest trade (free tier) ---
         try:
             resp = stock_data_client_local.get_stock_latest_trade(
                 StockLatestTradeRequest(symbol_or_symbols="SPY")
@@ -3573,12 +3357,9 @@ def classify_day_regime(stock_data_client_local, spy_deque):
             logging.warning("[DAY_REGIME] Could not fetch SPY latest trade: %s", e)
             return "NEUTRAL_DAY"
 
-        # --- Step 2: Load previous close from file ---
         prev_close = _load_prev_close()
 
         if prev_close is None:
-            # No saved close — first time running or file was deleted
-            # Save today's current price as baseline and default to NEUTRAL
             logging.warning(
                 "[DAY_REGIME] No prev_close file found. "
                 "Saving current SPY=%.4f as baseline. Defaulting NEUTRAL_DAY. "
@@ -3588,8 +3369,6 @@ def classify_day_regime(stock_data_client_local, spy_deque):
             _save_prev_close(spy_now)
             return "NEUTRAL_DAY"
 
-        # --- Step 3: Check if saved close is stale (older than 4 days) ---
-        # We detect staleness by checking file modification time
         try:
             file_age_days = (
                 datetime.now(timezone.utc) -
@@ -3606,12 +3385,10 @@ def classify_day_regime(stock_data_client_local, spy_deque):
                 _save_prev_close(spy_now)
                 return "NEUTRAL_DAY"
         except Exception:
-            pass  # file age check is best-effort
+            pass
 
-        # --- Step 4: Calculate gap ---
         gap_pct = (spy_now - prev_close) / prev_close
 
-        # --- Step 5: RSI from warmup deque (may be empty on free tier) ---
         spy_prices = pd.Series(spy_deque)
         spy_rsi = _safe_last(compute_rsi_from_series(spy_prices, RSI_PERIOD))
         rsi_available = not pd.isna(spy_rsi)
@@ -3622,22 +3399,17 @@ def classify_day_regime(stock_data_client_local, spy_deque):
             f"{spy_rsi:.1f}" if rsi_available else "N/A (no warmup data)"
         )
 
-        # --- Step 6: Classify ---
-        # RSI confirmation only used if warmup data is available
         if gap_pct <= -0.005:
-            # Gap down >= 0.5% → lean BEAR
             if rsi_available and spy_rsi > 55:
-                result = "NEUTRAL_DAY"  # gap down but RSI says recovered
+                result = "NEUTRAL_DAY"
             else:
                 result = "BEAR_DAY"
         elif gap_pct >= 0.005:
-            # Gap up >= 0.5% → lean BULL
             if rsi_available and spy_rsi < 40:
-                result = "NEUTRAL_DAY"  # gap up but RSI says weak
+                result = "NEUTRAL_DAY"
             else:
                 result = "BULL_DAY"
         else:
-            # Flat open — use RSI if available, otherwise NEUTRAL
             if not rsi_available:
                 result = "NEUTRAL_DAY"
             elif spy_rsi >= 55:
@@ -3667,8 +3439,8 @@ logging.warning(">>> MAIN LOOP IS RUNNING FROM THIS FILE <<<")
     
 RSI_PERIOD = 14
 RSI_COOL_THRESHOLD = 3
-MAX_HOLD_SECONDS = 999999   # example: x minutes
-MIN_HOLD_SECONDS = 90    # example: x seconds grace period before indicators can trigger
+MAX_HOLD_SECONDS = 999999
+MIN_HOLD_SECONDS = 90
 TRAIL_PCT = 0.010
 BUY_POWER_LIMIT = 0.05
 BUY_CASH_BUFFER = 0.95
@@ -3691,7 +3463,6 @@ def main():
         paper=True
     )
 
-    # === RESTORE OPEN POSITIONS FROM ALPACA ===
     entry_times = {}
     entry_prices = {}
     entry_qty = {}
@@ -3699,7 +3470,6 @@ def main():
     highest_price_since_entry = {}
     trailing_active = {}
 
-    # === SHORT STATE INITIALIZATION ===
     short_entry_times  = {}
     short_entry_prices = {}
     short_entry_qty    = {}
@@ -3735,9 +3505,8 @@ def main():
 
     order_lock = threading.Lock()
     stop_event = threading.Event()
-    pending_entries = set()   # prevent duplicate buys
+    pending_entries = set()
 
-    # === SIMULATION BRANCH ===
     if RUN_MODE in ["SIM", "AGG_SIM"]:
         
         from alpaca.data.requests import StockTradesRequest
@@ -3745,19 +3514,16 @@ def main():
         
     
         symbol = "NVDA"
-        symbols = [symbol]  # tarvitaan deque-rakenteisiin
+        symbols = [symbol]
 
-        # === CALL PATCH RG in LIVE loop (once per outer iteration) ===
         _risk_governor_update()
 
                 
-        # Alusta tilarakenteet
         inflight_orders = {}
         pending_entries = set()
         positions_map = {}
         last_exit_time = {s: None for s in symbols}
 
-        # NEW: per-symbol buy guards
         last_buy_time = defaultdict(lambda: None)
         in_position_map = defaultdict(bool)
         
@@ -3765,69 +3531,53 @@ def main():
         end = "2025-12-23T21:00:00Z"
 
         
-        # Debug prints (optional; safe to keep or remove)
         print("TimeFrame attrs:", [a for a in dir(TimeFrame) if not a.startswith("_")])
         print("TimeFrameUnit attrs:", [a for a in dir(TimeFrameUnit) if not a.startswith("_")])
         
         def _build_1s_timeframe():
-            """
-            Robustly construct a 1-second TimeFrame across Alpaca SDK variants.
-            Returns a valid TimeFrame object or raises RuntimeError with helpful debug hint.
-            """
-            # 1) Preferred: TimeFrame(1, TimeFrameUnit.SECOND) or TimeFrame(1, TimeFrameUnit.Second)
             for unit_name in ("SECOND", "Second", "second"):
                 try:
                     unit = getattr(TimeFrameUnit, unit_name)
                     try:
                         return TimeFrame(1, unit)
                     except Exception:
-                        # some SDKs accept TimeFrame(1, TimeFrameUnit.SECOND) but not this call;
-                        # fall through to other attempts
                         pass
                 except Exception:
                     pass
         
-            # 2) Some SDKs expose TimeFrame.Second or TimeFrame("1Sec") / "1S" / "1sec"
             for candidate in ("Second", "SECOND", "1Sec", "1S", "1sec", "1s"):
                 try:
-                    # Try attribute on TimeFrame (e.g., TimeFrame.Second)
                     if hasattr(TimeFrame, candidate):
                         return getattr(TimeFrame, candidate)
                 except Exception:
                     pass
                 try:
-                    # Try string constructor variants
                     return TimeFrame(candidate)
                 except Exception:
                     pass
                 try:
-                    # Try classmethod from_string if present
                     if hasattr(TimeFrame, "from_string"):
                         return TimeFrame.from_string(candidate)
                 except Exception:
                     pass
         
-            # 3) Last resort: try numeric constructor without unit (some SDKs accept "1S" as int)
             try:
                 return TimeFrame("1S")
             except Exception:
                 pass
         
-            # Nothing worked — raise with debug hint
             raise RuntimeError(
                 "Could not construct a 1-second TimeFrame with your Alpaca SDK. "
                 "Paste the two debug prints above (TimeFrame attrs and TimeFrameUnit attrs) and I'll give a one-line fix."
             )
         
-        # Build timeframe (SIM path uses this; LIVE code unchanged)
         tf = TimeFrame(1, TimeFrameUnit.Minute)
 
-        # Prefer datetime objects for start/end to avoid SDK differences 
         try: 
             start_dt = parser.isoparse(start) if isinstance(start, str) else start 
             end_dt = parser.isoparse(end) if isinstance(end, str) else end 
         except Exception: 
-            start_dt, end_dt = start, end # fall back to original values if parsing fails        
+            start_dt, end_dt = start, end
         
         logging.debug("Using timeframe=%s start=%s end=%s", tf, start_dt, end_dt)
         bars_req = StockBarsRequest(symbol_or_symbols=symbol, start=start_dt, end=end_dt, timeframe=tf)
@@ -3837,14 +3587,11 @@ def main():
             logging.warning("get_stock_bars failed for %s: %s", symbol, e)
             bars = pd.DataFrame()
 
-        # Defensive check: ensure we have data
         if bars is None or bars.empty:
             logging.warning("No bars returned for %s from %s to %s (timeframe=%s)", symbol, start_dt, end_dt, tf)
-            # create an empty trades DataFrame with expected columns to avoid downstream crashes
             trades = pd.DataFrame(columns=["price", "size"])
             trades.index = pd.to_datetime(pd.Series(dtype="datetime64[ns]"))
         else:
-            # Normalize bars to a simple per-second DataFrame with price (close) and size (volume)
             bars = bars.reset_index().set_index("timestamp")
         
             trades = pd.DataFrame({
@@ -3854,21 +3601,16 @@ def main():
         trades.index = pd.to_datetime(trades.index)
            
 
-              
-       
-        # === NEW: Aggregate ticks into 1-second bars ===
         trades["bucket"] = trades.index.floor("1s")
         trades = trades.groupby("bucket").agg({
-            "price": "mean",   # average price in that second
-            "size": "sum"      # total volume in that second
+            "price": "mean",
+            "size": "sum"
         })
 
-        # AGG_SIM ja SIM: nyt käytetään 1s bars
         trades = trades.dropna()
         logging.info("%s mode: using 1-second bars. Total datapoints: %d", RUN_MODE, len(trades))
         logging.info("Starting %s replay for %s from %s to %s", RUN_MODE, symbol, start, end)
 
-        # --- Now loop over trades bar by bar ---
         for ts, row in trades.iterrows():
             try:
                 ts_val = pd.to_datetime(ts, utc=True)
@@ -3878,7 +3620,6 @@ def main():
                 logging.error("[%s] Could not parse row: %s", RUN_MODE, e)
                 continue
     
-        # AGG_SIM ja SIM: molemmat käyttävät raw tick dataa
         if RUN_MODE in ["AGG_SIM", "SIM"]:
             trades = trades.dropna()
             logging.info("%s mode: using raw tick data. Total datapoints: %d",
@@ -3888,7 +3629,7 @@ def main():
         print(trades.head())
         logging.info("Starting %s replay for %s from %s to %s", RUN_MODE, symbol, start, end)
 
-        max_loop_budget = 100000.0  # esim. kiinteä budjetti USD
+        max_loop_budget = 100000.0
         
         in_position = False
         entry_price = None
@@ -3917,14 +3658,11 @@ def main():
                 logging.error("[%s] Could not parse row: %s", RUN_MODE, e)
                 continue
 
-            # --- build series for indicators ---
             prices_series = pd.Series(price_deques[symbol])
             sizes_series = pd.Series(size_deques[symbol])
         
-            # --- detect regime before using it ---
             regime = detect_regime(prices_series, sizes_series)
 
-            # --- set CONFIG based on bias before using it ---
             day_bias = detect_day_bias(
                 prices_series,
                 compute_ema_from_series(prices_series, EMA_FAST),
@@ -3936,8 +3674,6 @@ def main():
             else:
                 CONFIG = BEARISH_CONFIG
 
-            # --- evaluate entry to get score and reason ---
-            # This is the missing part. It sets score and reason so they exist.
             accept, reason, score, signal_stack = evaluate_entry(
                 symbol,
                 price,
@@ -3958,13 +3694,12 @@ def main():
                 "timestamp": ts_val.strftime("%Y-%m-%d %H:%M:%S"),
                 "price": price,
                 "size": size,
-                "regime": regime,   # once you’ve called detect_regime
-                "score": score,     # from evaluate_entry
-                "reason": reason    # from evaluate_entry or evaluate_sell
+                "regime": regime,
+                "score": score,
+                "reason": reason
             })
 
 
-            # --- NEW: Progress log every 2000 bars ---
             if idx % 2000 == 0:
                 logging.info("[PROGRESS] %s replay at %s (%d/%d bars processed)",
                              symbol,
@@ -3973,19 +3708,15 @@ def main():
                              len(trades))
 
     
-            # --- NEW: Tick-aggregointi 1s ---
-            bucket_ts = ts_val.replace(microsecond=0)  # pyöristetään sekuntitasolle
+            bucket_ts = ts_val.replace(microsecond=0)
             if len(time_deques[symbol]) > 0 and time_deques[symbol][-1] == bucket_ts:
-                # Päivitä viimeinen aggregaatti
                 price_deques[symbol][-1] = (price_deques[symbol][-1] + price) / 2.0
                 size_deques[symbol][-1] += size
             else:
-                # Lisää uusi aggregaatti
                 price_deques[symbol].append(price)
                 size_deques[symbol].append(size)
                 time_deques[symbol].append(bucket_ts)
     
-            # Laske indikaattorit
             prices = pd.Series(price_deques[symbol])
             sizes_series = pd.Series(size_deques[symbol])
             ema_fast = compute_ema_from_series(prices, EMA_FAST).iloc[-1]
@@ -3996,7 +3727,6 @@ def main():
             if pd.isna(ema_fast) or pd.isna(ema_slow) or pd.isna(rsi_val) or pd.isna(vwap_val):
                 continue
 
-            # --- NEW: Update market trend state when SPY ticks ---
             if symbol == "SPY":
                 try:
                     market_series = pd.Series(price_deques["SPY"])
@@ -4006,7 +3736,6 @@ def main():
                 except Exception as e:
                     logging.debug(f"[MARKET] trend update failed: {e}")
 
-            # === Bias detection ===
             day_bias = detect_day_bias(prices,
                                        compute_ema_from_series(prices, EMA_FAST),
                                        compute_ema_from_series(prices, EMA_SLOW),
@@ -4022,7 +3751,6 @@ def main():
                                       
             positions_map = {} if RUN_MODE in ["SIM", "AGG_SIM"] else get_positions_map(trade_client)
 
-            # >>> INSERT THIS LINE HERE <<<
             logging.info("[LOOP] Calling reconcile_positions for %d symbols", len(symbols))
 
             reconcile_positions(
@@ -4036,28 +3764,27 @@ def main():
                 entry_qty=entry_qty,
                 entry_configs=entry_configs
             )
-            # --- Always initialize regime to a safe default ---
             regime = None
             if USE_REGIME_ENTRY:
                 regime_raw = detect_regime(prices, sizes_series)
-                regime = _smooth_regime(symbol, regime_raw)
+                regime, regime_conf = _smooth_regime(symbol, regime_raw)
                 CONFIG_SESSION = overlay_by_session(CONFIG, ts_val, regime)
                 accept, reason, score, stack = evaluate_entry(
                     symbol,
-                    price,                           # price
-                    size,                            # single tick size
-                    prices,                          # pandas Series of prices
-                    sizes_series,                    # pandas Series of sizes
-                    ts_val,                          # timestamp value
+                    price,
+                    size,
+                    prices,
+                    sizes_series,
+                    ts_val,
                     positions_map,
                     inflight_orders,
                     pending_entries,
-                    last_exit_time[symbol],          # last_exit
-                    last_buy_time,                   # last_buy_time dict
-                    CONFIG_SESSION,                  # config profile
-                    regime,                          # regime classification
+                    last_exit_time[symbol],
+                    last_buy_time,
+                    CONFIG_SESSION,
+                    regime,
                     bias=day_bias,
-                    log_stack=True                   # optional keyword        
+                    log_stack=True
                 )
 
                 log_entry_attempt(
@@ -4077,23 +3804,24 @@ def main():
                 
                 buy = accept
             else:
-                # Fallback regime if entry detection is disabled
                 regime = "UNKNOWN"
+                regime_conf = REGIME_CONFIDENCE_MIN
             
-            # --- SELL evaluation (regime guaranteed to exist) ---
             has_entry = (symbol in entry_times) and (symbol in entry_prices) and (symbol in entry_configs)
             if has_entry:
                 accept_exit, reason_exit = evaluate_sell(
                     symbol,
-                    price,                           # last_price
-                    entry_prices.get(symbol),        # ref_entry
-                    price_deques[symbol],            # price_deque
-                    size_deques[symbol],             # size_deque
-                    entry_times,                     # full entry_times dict
-                    entry_configs[symbol],           # CONFIG for this entry
-                    current_time=ts_val,             # keyword
-                    regime=regime,                   # keyword
-                    log_stack=True                   # keyword
+                    price,
+                    entry_prices.get(symbol),
+                    price_deques[symbol],
+                    size_deques[symbol],
+                    entry_times,
+                    entry_configs[symbol],
+                    current_time=ts_val,
+                    regime=regime,
+                    log_stack=True,
+                    entry_config=entry_configs.get(symbol),
+                    regime_confidence=regime_conf
                 )    
             else:
                 accept_exit, reason_exit = (False, None)
@@ -4103,7 +3831,6 @@ def main():
                 symbol, has_entry, accept_exit, reason_exit, regime, price, entry_prices.get(symbol, price)
             )
 
-            # Diagnostic: log evaluate_sell result (SIM only)
             logging.debug("[SIM] evaluate_sell (early) -> accept_exit=%s reason=%s ts=%s",
                           accept_exit, reason_exit, ts_val.strftime("%H:%M:%S"))
             if accept_exit:
@@ -4130,7 +3857,6 @@ def main():
                     "vwap": round(vwap_val, 4)
                 })
 
-                # --- ALSO write to exec_rows (exec log for NVDA_AGG_SIM_exec.csv) ---
                 exec_rows.append({
                     "timestamp": ts_val.strftime("%Y-%m-%d %H:%M:%S"),
                     "symbol": symbol,
@@ -4142,12 +3868,10 @@ def main():
                     "ema_slow": round(ema_slow, 4),
                     "rsi": round(rsi_val, 2),
                     "vwap": round(vwap_val, 4),
-                    "regime": regime # or regime_at_sell if you prefer recomputing
+                    "regime": regime
                 })
-                # Immediate persistence for SIM
                 write_exec_row_immediate(exec_rows[-1], symbol, RUN_MODE)
                 
-                # State cleanup
                 in_position = False
                 in_position_map[symbol] = False
                 last_buy_time[symbol] = None
@@ -4157,17 +3881,14 @@ def main():
                 highest_price_since_entry.pop(symbol, None)
                 entry_configs.pop(symbol, None)
 
-                # Important: skip entry logic on the same bar after a SELL
                 continue
 
-            # === SIM cooldown guard ===
             if last_buy_time[symbol] is not None and \
                (ts_val - last_buy_time[symbol]).total_seconds() < COOLDOWN_SECONDS:
                 continue
             else:
-                # Regime-aware entry (SIM): strict parity with LIVE
                 regime_raw = detect_regime(prices, sizes_series)
-                regime = _smooth_regime(symbol, regime_raw)
+                regime, regime_conf = _smooth_regime(symbol, regime_raw)
                 CONFIG_SESSION = overlay_by_session(CONFIG, ts_val, regime)
                 accept, reason, score, stack = evaluate_entry(
                     symbol, price, size, prices, sizes_series, ts_val,
@@ -4178,16 +3899,13 @@ def main():
                 buy = accept
 
                 if buy:
-                    # Already in position? Skip duplicate BUY.
                     if in_position_map[symbol]:
                         continue
                     
-                    # Bought very recently? Skip duplicate BUY.
                     last_ts = last_buy_time.get(symbol)
                     if last_ts is not None and (ts_val - last_ts).total_seconds() < 1:
                         continue
 
-                    # --- Proceed with real entry ---
                     est_price = price
                     qty = int((max_loop_budget * BUY_CASH_BUFFER) // est_price)
                     if regime == "HIGH_VOL":
@@ -4199,7 +3917,6 @@ def main():
                     entry_prices[symbol] = price
                     entry_qty[symbol] = qty
 
-                    # Mark symbol as in position
                     in_position_map[symbol] = True
                     last_buy_time[symbol] = ts_val
                     logging.info("[TRADE] %s [%s] BUY @ %.4f | %s",
@@ -4230,10 +3947,12 @@ def main():
                     
                 sell, reason = evaluate_sell(
                     symbol, price, entry_prices[symbol],
-                    price_deques[symbol], size_deques[symbol], entry_times, entry_configs[symbol], current_time=ts_val
+                    price_deques[symbol], size_deques[symbol], entry_times, entry_configs[symbol],
+                    current_time=ts_val,
+                    entry_config=entry_configs.get(symbol),
+                    regime_confidence=regime_conf
                 )
 
-                # Diagnostic: log evaluate_sell result (SIM only, late branch)
                 logging.debug("[SIM] evaluate_sell (late) -> sell=%s reason=%s ts=%s",
                               sell, reason, ts_val.strftime("%H:%M:%S"))
                 
@@ -4241,13 +3960,11 @@ def main():
                     sell_decisions += 1
                     qty = entry_qty.get(symbol, 1)
                     pnl = (price - entry_price) * qty
-                    # --- Audit trail update (SIM) ---
                     regime_at_sell = detect_regime(pd.Series(price_deques[symbol]), pd.Series(size_deques[symbol]))
                     regime_pnl[regime_at_sell] += float(pnl)
                     regime_trades[regime_at_sell] += 1
                     exit_reason_count[regime_at_sell][reason] += 1
 
-                    # --- Regime performance snapshot (logs every N sells) ---
                     regime_perf_snapshot()
                                         
                                                            
@@ -4284,9 +4001,7 @@ def main():
                     rsi_fail_counter[symbol] = 0
     
                             
-            # Write audit/entry evaluation log
             logging.info("%s replay finished for %s", RUN_MODE, symbol)
-            # Write trade execution log
             exec_filename = f"{symbol}_{RUN_MODE}_exec.csv"
             exec_fields = ["timestamp", "symbol", "action", "price", "reason", "pnl", "ema_fast", "ema_slow", "rsi", "vwap", "regime"]
             try:
@@ -4296,11 +4011,9 @@ def main():
                     writer.writeheader()
                     writer.writerows(exec_rows)
                                                                     
-                # after writer.writerows(exec_rows)
                 logging.info("[SIM DIAG] wrote exec file %s rows=%d", exec_filename, len(exec_rows))
                 logging.info("[SIM DIAG] sell_decisions=%d exec_rows_len=%d", sell_decisions, len(exec_rows))            
                                                 
-                # Optional: log first few exec_rows for quick inspection
                 for i, r in enumerate(exec_rows[:8]):
                     logging.info("[SIM DIAG] exec_rows[%d]=%s", i, r)
                     
@@ -4323,18 +4036,13 @@ def main():
 
         return
     # === END SIMULATION BRANCH ===
-   
 
-    # === END SIMULATION BRANCH ===
-    # (the return statement above means SIM never reaches here)
-
-    # === WARMUP: pre-fill deques with historical bars ===
     if RUN_MODE == "LIVE":
         warmup_deques(symbols, price_deques, size_deques, time_deques, lookback_minutes=60)
         _wait_for_935_et()
         day_regime = classify_day_regime(stock_data_client, price_deques["SPY"])
         globals()["day_regime"] = day_regime
-        globals()["today_open_spy"] = None  # will be set on first SPY tick
+        globals()["today_open_spy"] = None
         logging.warning("[DAY_REGIME] *** Session classified as: %s ***", day_regime)
   
     def input_listener():
@@ -4373,14 +4081,12 @@ def main():
         except Exception as e:
             logging.exception("sell_all_positions error: %s", e)
 
-    # Start input listener thread
     threading.Thread(target=input_listener, daemon=True).start()
 
     logging.info("Starting main loop with symbols: %s", symbols)
 
     last_bias = None
 
-    # === LIVE LOOP (fully aligned with SIM logic) ===
     logging.info("LIVE mode: starting unified loop with full indicator + gating pipeline")
 
     while not stop_event.is_set():
@@ -4388,23 +4094,18 @@ def main():
         try:
             loop_start = datetime.now(timezone.utc)
 
-            # --- Risk governor update ---
             _risk_governor_update()
 
-            # --- Refresh positions ---
             positions_map = get_positions_map(trading_client)
             spent_this_loop = 0.0
             max_loop_budget = calculate_buying_power_limit(
                 trade_client_local=trade_client,
                 limit_fraction=BUY_POWER_LIMIT
             )
-            # Hard cap: never allow more than N simultaneous positions
-            # regardless of buying power calculation
             MAX_CONCURRENT_POSITIONS = 3
             current_open_positions = len([s for s in entry_prices if entry_prices.get(s) is not None])
             
 
-            # --- Fetch latest trades for all symbols ---
             for symbol in symbols:
                 try:
                     req = StockLatestTradeRequest(symbol_or_symbols=symbol)
@@ -4418,7 +4119,6 @@ def main():
                     continue
 
                
-                # --- Update deques (1-second aggregation) ---
                 bucket_ts = ts_val.replace(microsecond=0)
 
                 if len(time_deques[symbol]) > 0 and time_deques[symbol][-1] == bucket_ts:
@@ -4429,14 +4129,12 @@ def main():
                     size_deques[symbol].append(size)
                     time_deques[symbol].append(bucket_ts)
 
-                # --- Build series ---
                 prices_series = pd.Series(price_deques[symbol])
                 sizes_series = pd.Series(size_deques[symbol])
 
                 if len(prices_series) < 5:
                     continue
 
-                # --- Compute indicators ---
                 ema_fast_val = _safe_last(compute_ema_from_series(prices_series, EMA_FAST))
                 ema_slow_val = _safe_last(compute_ema_from_series(prices_series, EMA_SLOW))
                 rsi_series = compute_rsi_from_series(prices_series, RSI_PERIOD)
@@ -4456,7 +4154,6 @@ def main():
                         symbol
                     )
 
-                # --- Update market trend when SPY ticks ---
                 if symbol == "SPY":
                     try:
                         market_series = pd.Series(price_deques["SPY"])
@@ -4464,18 +4161,15 @@ def main():
                         globals()["market_trend_state"] = market_trend_state
                         logging.debug(f"[MARKET] trend_state={market_trend_state}")
 
-                        # --- Store SPY open price and session low on first tick ---
                         if globals().get("today_open_spy") is None:
                             globals()["today_open_spy"] = price
                             globals()["today_low_spy"] = price
                             logging.info("[DAY_REGIME] SPY open price captured: %.4f", price)
                         else:
-                            # Track session low continuously
                             globals()["today_low_spy"] = min(
                                 globals().get("today_low_spy", price), price
                             )
 
-                        # --- Mid-session override: if SPY moves >1% from open ---
                         _today_open = globals().get("today_open_spy")
                         _today_low = globals().get("today_low_spy", _today_open)
                         _current_day_regime = globals().get("day_regime", "NEUTRAL_DAY")
@@ -4495,7 +4189,6 @@ def main():
                                         "(SPY move=%.2f%% from open)", _spy_move * 100
                                     )
                                     globals()["day_regime"] = "BULL_DAY"
-                                # --- Cancel BEAR_DAY if market recovers 0.6% from session low ---
                                 elif (_current_day_regime == "BEAR_DAY" and
                                         _today_low is not None and
                                         _today_low > 0):
@@ -4512,9 +4205,8 @@ def main():
 
                 # --- Detect regime ---
                 regime_raw = detect_regime(prices_series, sizes_series)
-                regime = _smooth_regime(symbol, regime_raw)
+                regime, regime_conf = _smooth_regime(symbol, regime_raw)
 
-                # --- Regime audit ---
                 upper, ma, lower, bandwidth = compute_bollinger(prices_series, period=20, std=2.0)
                 atr_val = compute_atr_from_series(prices_series, period=ATR_PERIOD)
                 ema_slope_val = ema_slope(prices_series, period=EMA_SLOW)
@@ -4522,7 +4214,6 @@ def main():
                 log_regime_state(ts_val, symbol, regime, bandwidth, atr_val, ema_slope_val, vwap_dist)
 
 
-                # --- Detect day bias ---
                 day_bias = detect_day_bias(
                     prices_series,
                     compute_ema_from_series(prices_series, EMA_FAST),
@@ -4533,7 +4224,6 @@ def main():
                 CONFIG = BULLISH_CONFIG if day_bias == "bullish" else BEARISH_CONFIG
                 CONFIG_SESSION = overlay_by_session(CONFIG, ts_val, regime)
 
-                # === SHORT EXIT EVALUATION ===
                 has_short = (
                     symbol in short_entry_prices and
                     short_entry_prices.get(symbol) is not None and
@@ -4558,7 +4248,6 @@ def main():
                     if should_cover:
                         short_qty = short_entry_qty.get(symbol, 0)
 
-                        # Clear state before submitting cover
                         _snap_short_qty   = short_entry_qty.pop(symbol, 0)
                         _snap_short_price = short_entry_prices.pop(symbol, None)
                         _snap_short_time  = short_entry_times.pop(symbol, None)
@@ -4584,16 +4273,13 @@ def main():
                                 lowest_price_since_short[symbol] = _snap_short_price
 
                         last_exit_time[symbol] = ts_val
-                        continue  # skip BUY/SHORT on same tick after cover
+                        continue
                 
-                # --- SELL evaluation ---
-                # Step 1: Reattach orphan if needed
                 reattach_orphan_if_needed(
                     symbol, positions_map, entry_times, entry_prices,
                     entry_qty, entry_configs, CONFIG_SESSION
                 )
 
-                # Step 2: Check has_entry AFTER reattach
                 has_entry = (
                     symbol in entry_prices and
                     entry_prices.get(symbol) is not None and
@@ -4619,17 +4305,15 @@ def main():
                         active_config,
                         current_time=ts_val,
                         regime=entry_regime,
-                        log_stack=True
+                        log_stack=True,
+                        entry_config=entry_configs.get(symbol),
+                        regime_confidence=_regime_confidence.get(symbol, REGIME_CONFIDENCE_MIN)
                     )
 
                     if accept_exit:
                         qty = entry_qty.get(symbol, 0)
                         pnl = (price - ref_entry) * qty if ref_entry else 0.0
 
-                        # === DOUBLE-SELL GUARD: clear local state BEFORE submitting sell ===
-                        # This means reconcile_positions will see no entry context
-                        # for this symbol and will skip it, even if it runs between
-                        # the sell submission and fill confirmation.
                         _pending_sells.add(symbol)
                         _snap_qty   = entry_qty.pop(symbol, 0)
                         _snap_price = entry_prices.pop(symbol, None)
@@ -4648,7 +4332,6 @@ def main():
                                 size_deques=size_deques
                             )
                         except Exception as _sell_err:
-                            # If sell fails, restore state so next tick can retry
                             logging.error("[SELL_GUARD][%s] safe_market_sell raised: %s — restoring state", symbol, _sell_err)
                             if _snap_price is not None:
                                 entry_qty[symbol]    = _snap_qty
@@ -4684,19 +4367,16 @@ def main():
                         highest_price_since_entry.pop(symbol, None)
                         trailing_active[symbol] = False
 
-                        continue  # skip BUY on same tick
+                        continue
 
                 budget_exhausted = (len([s for s in entry_prices if entry_prices.get(s) is not None]) >= MAX_CONCURRENT_POSITIONS)
-                # === BUDGET / POSITION LIMIT GATE (entries only) ===
                 if budget_exhausted:
                     logging.debug("[BUDGET] %s skipped — max positions reached", symbol)
                     continue
 
-                # === DAY REGIME MASTER GATE ===
                 _day_regime = globals().get("day_regime", "NEUTRAL_DAY")
 
                 if _day_regime != "BEAR_DAY":
-                    # --- BUY evaluation (BULL_DAY and NEUTRAL_DAY only) ---
                     accept, reason, score, stack = evaluate_entry(
                         symbol,
                         price,
@@ -4717,7 +4397,6 @@ def main():
 
                     budget_exhausted = (len([s for s in entry_prices if entry_prices.get(s) is not None]) >= MAX_CONCURRENT_POSITIONS)
                     if accept:
-                        # === HARD DUPLICATE BUY GUARD ===
                         if symbol in entry_prices and entry_prices.get(symbol) is not None:
                             logging.info("[SKIP] %s already in position — skipping duplicate BUY", symbol)
                             continue
@@ -4726,16 +4405,13 @@ def main():
                             logging.info("[SKIP] %s already pending — skipping duplicate BUY", symbol)
                             continue
 
-                        # Mark as pending BEFORE submitting
                         pending_entries.add(symbol)
                         try:
-                            # === BUDGET GUARD ===
                             if spent_this_loop + (price * 10) > max_loop_budget:
                                 logging.info("[BUDGET] %s skipped — spent_this_loop=%.2f would exceed max=%.2f",
                                              symbol, spent_this_loop, max_loop_budget)
                                 continue
 
-                            # === CONCURRENT POSITION GUARD ===
                             current_open_positions = len([s for s in entry_prices if entry_prices.get(s) is not None])
                             budget_exhausted = (current_open_positions >= MAX_CONCURRENT_POSITIONS)
                             if budget_exhausted:
@@ -4763,11 +4439,8 @@ def main():
                             pending_entries.discard(symbol)
 
                 else:
-                    # === BEAR_DAY: log that BUY is skipped ===
                     logging.debug("[DAY_REGIME] BEAR_DAY active — skipping BUY for %s", symbol)
 
-                # === SHORT ENTRY EVALUATION (BEAR_DAY only) ===
-                # Runs regardless of the if/else above — no continue blocks it
                 if _day_regime == "BEAR_DAY":
                     short_accept, short_reason, short_score, short_stack = evaluate_short_entry(
                         symbol,
@@ -4838,7 +4511,6 @@ def main():
 
                                      
                    
-            # --- Loop pacing ---
             elapsed = (datetime.now(timezone.utc) - loop_start).total_seconds()
             if elapsed < LOOP_SLEEP:
                 time.sleep(LOOP_SLEEP - elapsed)
@@ -4849,4 +4521,5 @@ def main():
          
 if __name__ == "__main__":
     main()
+
            
