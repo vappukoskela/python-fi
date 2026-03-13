@@ -4497,13 +4497,16 @@ def main():
                         logging.debug("[SHORT_BLOCK] %s | %s score=%.2f",
                                       symbol, short_reason, short_score)
                     
-        
-                    
-                    
-                    
+                           
+                  
+                  
+                                    
+                 
+            # === EOD FORCED LIQUIDATION ===
+            # Runs every loop tick after 22:55 EET (= 15:55 ET, 5 min before close)
+            # Closes all positions and saves SPY prev_close for tomorrow's day_regime
+            force_liquidation_at_cutoff(trading_client, symbols)
 
-                                     
-                   
             elapsed = (datetime.now(timezone.utc) - loop_start).total_seconds()
             if elapsed < LOOP_SLEEP:
                 time.sleep(LOOP_SLEEP - elapsed)
