@@ -1790,7 +1790,7 @@ def safe_market_cover(trade_client_local, symbol, intended_qty, order_lock):
 
 def force_liquidation_at_cutoff(trade_client_local, symbols, cutoff_hour_eet=23, cutoff_min_eet=55):
     now_utc = datetime.now(timezone.utc)
-    now_eet = now_utc - timedelta(hours=2)
+    now_eet = now_utc + timedelta(hours=2)  # EET = UTC+2
 
     if now_eet.hour > cutoff_hour_eet or (now_eet.hour == cutoff_hour_eet and now_eet.minute >= cutoff_min_eet):
         try:
