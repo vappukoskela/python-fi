@@ -1146,10 +1146,12 @@ def safe_market_buy(
                     "order_id": order_id,
                     "est_price": est_price,
                     "fill_inferred": True,
-                    "TP_PCT": TP_PCT,
+                    "TP_PCT": TREND_CONFIG["TP_PCT"] if regime_at_entry == "TREND" else TP_PCT,
                     "TS_ACTIVATION_BUFFER": TS_ACTIVATION_BUFFER,
                     "TRAILING_STOP_PCT": TRAILING_STOP_PCT,
-                    "EMERGENCY_SL_PCT": EMERGENCY_SL_PCT,
+                    "EMERGENCY_SL_PCT": TREND_CONFIG.get("EMERGENCY_SL_PCT", 0.005)
+                                        if regime_at_entry == "TREND"
+                                        else RANGE_CONFIG.get("EMERGENCY_SL_PCT", 0.004),
                     "HARD_SL_PCT": HARD_SL_PCT,
                     "SL_MULTIPLIER": SL_MULTIPLIER,
                 }
