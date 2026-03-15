@@ -214,7 +214,7 @@ DRIFT_CONFIG = {
 
 
 TREND_CONFIG = {
-    "TP_PCT": 0.0020,
+    "TP_PCT": 0.0030,          # changed from 0.0020
     "SL_MULTIPLIER": 0.9,
     "TS_ACTIVATION_BUFFER": 0.003,
     "TRAILING_STOP_PCT": 0.005,
@@ -236,11 +236,11 @@ TREND_CONFIG = {
     },
     # pullback tolerances (distance normalized by price)
     "PULLBACK_TOL": 0.0015,
-    "EMERGENCY_SL_PCT": 0.0045 # ~0.45% hard stop
+    "EMERGENCY_SL_PCT": 0.005, # changed from 0.0045
 }
 
 RANGE_CONFIG = {
-    "TP_PCT": 0.0020,
+    "TP_PCT": 0.0022,          # changed from 0.0020
     "SL_MULTIPLIER": 0.6,
     "TS_ACTIVATION_BUFFER": 0.003,
     "TRAILING_STOP_PCT": 0.004,
@@ -263,6 +263,7 @@ RANGE_CONFIG = {
     "BOLL_STD": 2.0,
     "BANDWIDTH_MAX": 0.012,  # max relative bandwidth to still count as range
     "BANDWIDTH_MIN": 0.002  # avoid ultra-tight no-move
+    "EMERGENCY_SL_PCT": 0.004,   # add this — tighter SL for range trades
 }
 
 HIGH_VOL_CONFIG = {
