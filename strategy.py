@@ -3000,7 +3000,10 @@ def evaluate_sell(
         vwap_val = compute_vwap_from_ticks(prices_series, sizes_series).iloc[-1]
 
         regime_local = regime or detect_regime(prices_series, sizes_series)
-        CONFIG_E = overlay_exit_params_by_regime(CONFIG, regime_local)
+        entry_regime_locked = (
+            entry_config.get("regime") if entry_config else None
+        ) or regime_local
+        CONFIG_E = overlay_exit_params_by_regime(CONFIG, entry_regime_locked)
 
         soft_exits_allowed = elapsed >= MIN_HOLD_SECONDS
 
