@@ -262,7 +262,7 @@ RANGE_CONFIG = {
     "BOLL_PERIOD": 20,
     "BOLL_STD": 2.0,
     "BANDWIDTH_MAX": 0.012,  # max relative bandwidth to still count as range
-    "BANDWIDTH_MIN": 0.002  # avoid ultra-tight no-move
+    "BANDWIDTH_MIN": 0.002,  # avoid ultra-tight no-move
     "EMERGENCY_SL_PCT": 0.004,   # add this — tighter SL for range trades
 }
 
