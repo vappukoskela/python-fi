@@ -3720,6 +3720,15 @@ def main():
                 price_deques[symbol].append(price)
                 size_deques[symbol].append(size)
                 time_deques[symbol].append(bucket_ts)
+
+            # === UPDATE SESSION HIGH/LOW/OPEN TRACKING ===
+            if session_open_price[symbol] is None:
+                session_open_price[symbol] = price
+                session_high_price[symbol] = price
+                session_low_price[symbol]  = price
+            else:
+                session_high_price[symbol] = max(session_high_price[symbol], price)
+                session_low_price[symbol]  = min(session_low_price[symbol],  price)
     
             prices = pd.Series(price_deques[symbol])
             sizes_series = pd.Series(size_deques[symbol])
