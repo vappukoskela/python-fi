@@ -1141,6 +1141,24 @@ def safe_market_buy(
                 logging.info("[BUY_SUBMITTED] %s order_id=%s qty=%d est_price=%.4f",
                              symbol, order_id, qty, est_price)
 
+                # === SESSION POSITION METRICS AT ENTRY ===
+                s_open = session_open_price.get(symbol)
+                s_high = session_high_price.get(symbol)
+                s_low  = session_low_price.get(symbol)
+                
+                dist_from_session_high = (
+                    (s_high - est_price) / s_high
+                    if s_high and s_high > 0 else float("nan")
+                )
+                move_from_open = (
+                    (est_price - s_open) / s_open
+                    if s_open and s_open > 0 else float("nan")
+                )
+                range_position = (
+                    (est_price - s_low) / (s_high - s_low)
+                    if s_high and s_low and s_high != s_low else float("nan")
+                )
+
                 entry_config_dict = {
                     "regime": regime_at_entry,
                     "bias": bias_val,
@@ -1159,6 +1177,12 @@ def safe_market_buy(
                                         else RANGE_CONFIG.get("EMERGENCY_SL_PCT", 0.004),
                     "HARD_SL_PCT": HARD_SL_PCT,
                     "SL_MULTIPLIER": SL_MULTIPLIER,
+                    "dist_from_session_high": round(dist_from_session_high, 6)
+                              if not pd.isna(dist_from_session_high) else None,
+                    "move_from_open": round(move_from_open, 6)
+                                      if not pd.isna(move_from_open) else None,
+                    "range_position": round(range_position, 4)
+                                      if not pd.isna(range_position) else None,
                 }
                 if config_session:
                     entry_config_dict.update(config_session)
@@ -1190,7 +1214,10 @@ def safe_market_buy(
                     "rsi": rsi_val,
                     "vwap": vwap_val,
                     "regime": regime_at_entry,
-                    "code_version": CODE_VERSION
+                    "code_version": CODE_VERSION,
+                    "dist_from_session_high": entry_config_dict["dist_from_session_high"],
+                    "move_from_open": entry_config_dict["move_from_open"],
+                    "range_position": entry_config_dict["range_position"],
                 }
                 exec_rows.append(buy_row)
                 write_exec_row_immediate(buy_row, symbol, RUN_MODE)
@@ -1198,7 +1225,8 @@ def safe_market_buy(
                 if EXEC_AUDIT_ENABLED:
                     try:
                         fieldnames = ["timestamp","symbol","action","price","reason","bias","pnl",
-                                      "ema_fast","ema_slow","rsi","vwap","regime","code_version"]
+                                      "ema_fast","ema_slow","rsi","vwap","regime","code_version",
+                                      "dist_from_session_high","move_from_open","range_position"]
                         with open(EXEC_AUDIT_FILE, "a", newline="") as f:
                             writer = csv.DictWriter(f, fieldnames=fieldnames)
                             if f.tell() == 0:
@@ -1216,7 +1244,10 @@ def safe_market_buy(
                                 "rsi": round(rsi_val, 2) if not pd.isna(rsi_val) else None,
                                 "vwap": round(vwap_val, 6) if not pd.isna(vwap_val) else None,
                                 "regime": regime_at_entry,
-                                "code_version": CODE_VERSION
+                                "code_version": CODE_VERSION,
+                                "dist_from_session_high": entry_config_dict["dist_from_session_high"],
+                                "move_from_open": entry_config_dict["move_from_open"],
+                                "range_position": entry_config_dict["range_position"],
                             })
                     except Exception as e:
                         logging.warning("Failed to write BUY to audit file: %s", e)
@@ -1291,7 +1322,10 @@ def safe_market_buy(
                         "rsi": rsi_val,
                         "vwap": vwap_val,
                         "regime": regime_at_entry,
-                        "code_version": CODE_VERSION
+                        "code_version": CODE_VERSION,
+                        "dist_from_session_high": entry_config_dict["dist_from_session_high"],
+                        "move_from_open": entry_config_dict["move_from_open"],
+                        "range_position": entry_config_dict["range_position"],
                     }
                     exec_rows.append(fill_row)
                     write_exec_row_immediate(fill_row, symbol, RUN_MODE)
