@@ -2561,7 +2561,7 @@ def evaluate_entry(sym, price, size, prices_series, sizes_series, ts_val,
     chop_val = _choppiness_proxy(prices_series) if CHOP_ENABLED else float('nan')
 
     REGIME_RSI_BANDS = {
-        "TREND": (32, 80),
+        "TREND": (32, 70),
         "RANGE": (28, 70),
         "LOW_VOL": (30, 75),
     }
@@ -2606,10 +2606,12 @@ def evaluate_entry(sym, price, size, prices_series, sizes_series, ts_val,
         logging.debug("[BLOCK] %s rejected | Reason=RSI invalid (rsi=%.2f)", sym, rsi_val if rsi_val else -1)
         return False, "RSI invalid", 0.0, {}
 
-    # === STEP 2 PATCH: RSI overbought hard block ===
-    if rsi_val > 82:
-        logging.debug("[BLOCK] %s rejected | Reason=RSI overbought at entry (rsi=%.2f)", sym, rsi_val)
-        return False, "RSI overbought block", 0.0, {}
+    # === RSI CEILING BLOCK — lowered from 82 to 70 based on audit evidence ===
+    RSI_ENTRY_CEILING = 70
+    if rsi_val > RSI_ENTRY_CEILING:
+        logging.debug("[BLOCK] %s rejected | Reason=RSI overbought at entry (rsi=%.2f > %d)",
+                      sym, rsi_val, RSI_ENTRY_CEILING)
+        return False, f"RSI overbought block (rsi={rsi_val:.1f})", 0.0, {}
 
     market_trend = globals().get("market_trend_state", "unknown")
     gate_ok, gate_reason = gate_entry(
