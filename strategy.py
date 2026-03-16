@@ -104,6 +104,11 @@ highest_price_since_entry = defaultdict(float)
 # Trailing stop aktivoinnin tila (symbol -> bool)
 trailing_active = defaultdict(bool)
 
+# === SESSION PRICE TRACKING (per symbol) ===
+session_open_price = defaultdict(lambda: None)
+session_high_price = defaultdict(lambda: None)
+session_low_price  = defaultdict(lambda: None)
+
 # === AUDIT TRAIL COUNTERS ===
 regime_pnl = defaultdict(float)                     # net PnL per regime
 regime_trades = defaultdict(int)                    # trade count per regime
