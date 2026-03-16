@@ -1824,6 +1824,14 @@ def force_liquidation_at_cutoff(trade_client_local, symbols, cutoff_hour_eet=23,
                 except Exception as e:
                     logging.exception("%s - EOD forced sell error: %s", s, e)
 
+        # === RESET SESSION TRACKING FOR TOMORROW ===
+        for sym in symbols:
+            session_open_price[sym] = None
+            session_high_price[sym] = None
+            session_low_price[sym]  = None
+        logging.warning("[SESSION_RESET] Session high/low/open tracking cleared for %d symbols",
+                        len(symbols))
+
 
 def reattach_orphan_if_needed(symbol, positions_map, entry_times, entry_prices,
                                entry_qty, entry_configs, CONFIG_SESSION):
