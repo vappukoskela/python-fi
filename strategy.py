@@ -4186,6 +4186,15 @@ def main():
                     size_deques[symbol].append(size)
                     time_deques[symbol].append(bucket_ts)
 
+                # Add this immediately after:
+                if session_open_price[symbol] is None:
+                    session_open_price[symbol] = price
+                    session_high_price[symbol] = price
+                    session_low_price[symbol]  = price
+                else:
+                    session_high_price[symbol] = max(session_high_price[symbol], price)
+                    session_low_price[symbol]  = min(session_low_price[symbol],  price)
+
                 prices_series = pd.Series(price_deques[symbol])
                 sizes_series = pd.Series(size_deques[symbol])
 
