@@ -1126,6 +1126,23 @@ def safe_market_buy(
                 regime_at_entry = detect_regime(prices_series, sizes_series)
                 bias_val = bias if bias is not None else globals().get("day_bias", "unknown")
 
+                # === SESSION POSITION METRICS AT ENTRY ===
+                s_open = session_open_price.get(symbol)
+                s_high = session_high_price.get(symbol)
+                s_low  = session_low_price.get(symbol)
+                
+                dist_from_session_high = (
+                    (s_high - est_price) / s_high
+                    if s_high and s_high > 0 else float("nan")
+                )
+                move_from_open = (
+                    (est_price - s_open) / s_open
+                    if s_open and s_open > 0 else float("nan")
+                )
+                range_position = (
+                    (est_price - s_low) / (s_high - s_low)
+                    if s_high and s_low and s_high != s_low else float("nan")
+                )
                 # === SESSION POSITION ENTRY FILTERS ===
                 # Block entries near the session high or when move from open is already too large
                 RANGE_POSITION_MAX = 0.75   # block if in top 25% of today's range
@@ -1156,23 +1173,7 @@ def safe_market_buy(
                 logging.info("[BUY_SUBMITTED] %s order_id=%s qty=%d est_price=%.4f",
                              symbol, order_id, qty, est_price)
 
-                # === SESSION POSITION METRICS AT ENTRY ===
-                s_open = session_open_price.get(symbol)
-                s_high = session_high_price.get(symbol)
-                s_low  = session_low_price.get(symbol)
                 
-                dist_from_session_high = (
-                    (s_high - est_price) / s_high
-                    if s_high and s_high > 0 else float("nan")
-                )
-                move_from_open = (
-                    (est_price - s_open) / s_open
-                    if s_open and s_open > 0 else float("nan")
-                )
-                range_position = (
-                    (est_price - s_low) / (s_high - s_low)
-                    if s_high and s_low and s_high != s_low else float("nan")
-                )
                           
                            
                 entry_config_dict = {
