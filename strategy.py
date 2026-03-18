@@ -1159,6 +1159,24 @@ def safe_market_buy(
                     if s_high and s_low and s_high != s_low else float("nan")
                 )
 
+                           
+            # === SESSION POSITION ENTRY FILTERS ===
+            # Block entries near the session high or when move from open is already too large
+            RANGE_POSITION_MAX = 0.75   # block if in top 25% of today's range
+            MOVE_FROM_OPEN_MAX = 0.003  # block if price already moved 0.3% from open
+            
+            if not pd.isna(range_position) and range_position > RANGE_POSITION_MAX:
+                logging.info("[BUY_BLOCK] %s blocked | range_position=%.3f > %.2f (near session high)",
+                             symbol, range_position, RANGE_POSITION_MAX)
+                return None
+            
+            if not pd.isna(move_from_open) and move_from_open > MOVE_FROM_OPEN_MAX:
+                logging.info("[BUY_BLOCK] %s blocked | move_from_open=%.4f > %.4f (extended from open)",
+                             symbol, move_from_open, MOVE_FROM_OPEN_MAX)
+                return None
+
+
+                
                 entry_config_dict = {
                     "regime": regime_at_entry,
                     "bias": bias_val,
