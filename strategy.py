@@ -2128,6 +2128,13 @@ def reconcile_positions(
 
         if sell:
             try:
+                # === ACCIDENTAL SHORT GUARD IN RECONCILE ===
+                recon_available = get_position_qty(trade_client_local, sym)
+                if recon_available <= 0:
+                    logging.warning("[RECON_GUARD] %s no position available (qty=%d) — skipping reconcile sell",
+                                    sym, recon_available)
+                    continue
+
                 order = MarketOrderRequest(
                     symbol=sym, qty=qty_open, side=OrderSide.SELL,
                     type=OrderType.MARKET, time_in_force=TimeInForce.DAY
