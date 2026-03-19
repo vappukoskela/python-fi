@@ -1161,9 +1161,15 @@ def safe_market_buy(
                     if s_high and s_low and s_high != s_low else float("nan")
                 )
                 # === SESSION POSITION ENTRY FILTERS ===
-                # Block entries near the session high or when move from open is already too large
-                RANGE_POSITION_MAX = 0.75   # block if in top 25% of today's range
-                MOVE_FROM_OPEN_MAX = 0.002  # block if price already moved 0.2% from open
+                RANGE_POSITION_MAX = 0.75
+                # Tighten move_from_open threshold if SPY is negative on the day
+                _spy_open = globals().get("today_open_spy")
+                _spy_deque = globals().get("price_deques", {}).get("SPY")
+                _spy_now = float(_spy_deque[-1]) if _spy_deque and len(_spy_deque) > 0 else None
+                if _spy_open and _spy_now and _spy_open > 0 and (_spy_now - _spy_open) / _spy_open <= -0.0015:
+                    MOVE_FROM_OPEN_MAX = 0.0015  # tighter on bearish SPY days
+                else:
+                    MOVE_FROM_OPEN_MAX = 0.002   # standard threshold
                 
                 if not pd.isna(range_position) and range_position > RANGE_POSITION_MAX:
                     logging.info("[BUY_BLOCK] %s blocked | range_position=%.3f > %.2f (near session high)",
