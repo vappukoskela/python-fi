@@ -766,23 +766,40 @@ def overlay_by_session(CONFIG, ts, regime):
     if not SESSION_OVERLAYS_ENABLED:
         return CONFIG
     minutes = _session_minutes(ts)
-    adj = dict(CONFIG)  # shallow copy
+    adj = dict(CONFIG)
+
+    # === SPY MARKET PRESSURE OVERLAY ===
+    # If SPY has moved negatively from session open, tighten entry thresholds
+    spy_open = globals().get("today_open_spy")
+    spy_current = None
+    try:
+        spy_deque = globals().get("price_deques", {}).get("SPY")
+        if spy_deque and len(spy_deque) > 0:
+            spy_current = float(spy_deque[-1])
+    except Exception:
+        pass
+
+    spy_pressure = 0.0
+    if spy_open and spy_current and spy_open > 0:
+        spy_move = (spy_current - spy_open) / spy_open
+        if spy_move <= -0.0015:   # SPY down 0.15% or more from open
+            spy_pressure = 0.4    # add 0.4 to all entry thresholds
+            logging.debug("[SPY_PRESSURE] SPY move=%.3f%% — tightening entry thresholds by %.1f",
+                          spy_move * 100, spy_pressure)
 
     # OPEN session stricter entries, tighter SL, slightly higher TP
     if 0 <= minutes < 30:
-        adj["ENTRY_SCORE_THRESHOLD"] = CONFIG.get("ENTRY_SCORE_THRESHOLD", 3.0) + 0.15
+        adj["ENTRY_SCORE_THRESHOLD"] = CONFIG.get("ENTRY_SCORE_THRESHOLD", 3.0) + 0.15 + spy_pressure
         adj["SL_MULTIPLIER"] = max(0.8, CONFIG["SL_MULTIPLIER"] * 0.9)
         adj["TP_PCT"] = min(CONFIG["TP_PCT"] * 1.1, CONFIG["TP_PCT"] + 0.0003)
-
-    # MID session: allow RANGE/LOW_VOL slightly easier entries
     else:
         if regime == "TREND":
-            adj["ENTRY_SCORE_THRESHOLD"] = max(2.4, CONFIG.get("ENTRY_SCORE_THRESHOLD", 3.0) - 0.2)
+            adj["ENTRY_SCORE_THRESHOLD"] = max(2.4, CONFIG.get("ENTRY_SCORE_THRESHOLD", 3.0) - 0.2) + spy_pressure
         elif regime == "RANGE":
-            adj["ENTRY_SCORE_THRESHOLD"] = max(1.4, CONFIG.get("ENTRY_SCORE_THRESHOLD", 3.0) - 0.2)
+            adj["ENTRY_SCORE_THRESHOLD"] = max(1.4, CONFIG.get("ENTRY_SCORE_THRESHOLD", 3.0) - 0.2) + spy_pressure
         elif regime == "LOW_VOL":
-            adj["ENTRY_SCORE_THRESHOLD"] = max(1.6, CONFIG.get("ENTRY_SCORE_THRESHOLD", 3.0) - 0.2)
-            
+            adj["ENTRY_SCORE_THRESHOLD"] = max(1.6, CONFIG.get("ENTRY_SCORE_THRESHOLD", 3.0) - 0.2) + spy_pressure
+
     return adj
 
 # === PATCH 4: ADX and Choppiness proxies ===
