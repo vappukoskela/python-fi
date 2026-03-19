@@ -1620,6 +1620,13 @@ def safe_market_sell(trade_client_local, symbol, intended_qty, order_lock, price
             logging.info("safe_market_sell: nothing to sell for %s (available=%d intended=%s)",
                          symbol, available, intended_qty)
             return None
+
+        # === ACCIDENTAL SHORT GUARD ===
+        # If available is negative Alpaca already has a short position — never sell further
+        if available < 0:
+            logging.warning("[SELL_GUARD] %s available qty is NEGATIVE (%d) — refusing sell to prevent deepening short",
+                            symbol, available)
+            return None
         try:
             order = MarketOrderRequest(
                 symbol=symbol, qty=qty_to_sell, side=OrderSide.SELL,
