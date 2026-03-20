@@ -1880,40 +1880,50 @@ def safe_market_cover(trade_client_local, symbol, intended_qty, order_lock):
             return None
 
 def force_liquidation_at_cutoff(trade_client_local, symbols, cutoff_hour_eet=23, cutoff_min_eet=55):
+    global _eod_liquidation_fired
+
     now_utc = datetime.now(timezone.utc)
     now_eet = now_utc + timedelta(hours=2)  # EET = UTC+2
 
-    if now_eet.hour > cutoff_hour_eet or (now_eet.hour == cutoff_hour_eet and now_eet.minute >= cutoff_min_eet):
-        try:
-            resp = stock_data_client.get_stock_latest_trade(
-                StockLatestTradeRequest(symbol_or_symbols="SPY")
-            )
-            spy_close = float(resp["SPY"].price)
-            _save_prev_close(spy_close)
-            logging.warning("[DAY_REGIME] EOD: saved SPY close=%.4f for tomorrow", spy_close)
-        except Exception as e:
-            logging.warning("[DAY_REGIME] EOD: could not save SPY close: %s", e)
+    if not (now_eet.hour > cutoff_hour_eet or
+            (now_eet.hour == cutoff_hour_eet and now_eet.minute >= cutoff_min_eet)):
+        return
 
-        positions = trade_client_local.get_all_positions()
-        for p in positions:
-            s = p.symbol
-            q = int(float(p.qty))
-            if q > 0:
-                try:
-                    order = MarketOrderRequest(symbol=s, qty=q, side=OrderSide.SELL,
-                                               type=OrderType.MARKET, time_in_force=TimeInForce.DAY)
-                    trade_client_local.submit_order(order)
-                    logging.warning("%s - EOD forced SELL qty=%d", s, q)
-                except Exception as e:
-                    logging.exception("%s - EOD forced sell error: %s", s, e)
+    if _eod_liquidation_fired:
+        return  # already ran this session — do not run again
 
-        # === RESET SESSION TRACKING FOR TOMORROW ===
-        for sym in symbols:
-            session_open_price[sym] = None
-            session_high_price[sym] = None
-            session_low_price[sym]  = None
-        logging.warning("[SESSION_RESET] Session high/low/open tracking cleared for %d symbols",
-                        len(symbols))
+    _eod_liquidation_fired = True
+    logging.warning("[EOD] force_liquidation_at_cutoff firing (once-only guard active)")
+
+    try:
+        resp = stock_data_client.get_stock_latest_trade(
+            StockLatestTradeRequest(symbol_or_symbols="SPY")
+        )
+        spy_close = float(resp["SPY"].price)
+        _save_prev_close(spy_close)
+        logging.warning("[DAY_REGIME] EOD: saved SPY close=%.4f for tomorrow", spy_close)
+    except Exception as e:
+        logging.warning("[DAY_REGIME] EOD: could not save SPY close: %s", e)
+
+    positions = trade_client_local.get_all_positions()
+    for p in positions:
+        s = p.symbol
+        q = int(float(p.qty))
+        if q > 0:
+            try:
+                order = MarketOrderRequest(symbol=s, qty=q, side=OrderSide.SELL,
+                                           type=OrderType.MARKET, time_in_force=TimeInForce.DAY)
+                trade_client_local.submit_order(order)
+                logging.warning("%s - EOD forced SELL qty=%d", s, q)
+            except Exception as e:
+                logging.exception("%s - EOD forced sell error: %s", s, e)
+
+    for sym in symbols:
+        session_open_price[sym] = None
+        session_high_price[sym] = None
+        session_low_price[sym]  = None
+    logging.warning("[SESSION_RESET] Session high/low/open tracking cleared for %d symbols",
+                    len(symbols))
 
 
 def reattach_orphan_if_needed(symbol, positions_map, entry_times, entry_prices,
