@@ -3581,7 +3581,10 @@ MIN_RSI_FOR_ENTRY = 30
 MAX_RSI_FOR_ENTRY = 85
 MIN_TRADE_USD = 25
 MARKET_DATA_CHUNK = 5
-MAX_INFLIGHT_PER_SYMBOL = 1      
+MAX_INFLIGHT_PER_SYMBOL = 1  
+
+global stock_data_client, trade_client, entry_times, entry_prices, entry_qty, last_exit_time
+
 def main():
     load_dotenv()
     global stock_data_client, trade_client, entry_times, entry_prices, entry_qty, last_exit_time
@@ -3632,7 +3635,10 @@ def main():
     time_deques = {s: deque(maxlen=TICKS_WINDOW) for s in symbols}
     
     from datetime import datetime, timezone
-    last_exit_time = {s: None for s in symbols}
+    global last_exit_time
+    last_exit_time = defaultdict(lambda: None)
+    for s in symbols:
+        last_exit_time[s] = None
     last_buy_time = {s: None for s in symbols}
 
     order_lock = threading.Lock()
