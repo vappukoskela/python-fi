@@ -3583,7 +3583,6 @@ MIN_TRADE_USD = 25
 MARKET_DATA_CHUNK = 5
 MAX_INFLIGHT_PER_SYMBOL = 1  
 
-global stock_data_client, trade_client, entry_times, entry_prices, entry_qty, last_exit_time
 
 def main():
     load_dotenv()
