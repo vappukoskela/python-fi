@@ -2156,6 +2156,11 @@ def reconcile_positions(
                 if recon_available <= 0:
                     logging.warning("[RECON_GUARD] %s no position available (qty=%d) — skipping reconcile sell",
                                     sym, recon_available)
+                    last_exit_time[sym] = now_ts  # ADD THIS
+                    entry_times.pop(sym, None)
+                    entry_prices.pop(sym, None)
+                    entry_qty.pop(sym, None)
+                    entry_configs.pop(sym, None)
                     continue
 
                 order = MarketOrderRequest(
@@ -4441,6 +4446,8 @@ def main():
                         _snap_cfg   = entry_configs.pop(symbol, None)
                         highest_price_since_entry.pop(symbol, None)
                         trailing_active[symbol] = False
+                        last_exit_time[symbol] = ts_val        # ADD THIS
+                        last_exit_reason[symbol] = reason_exit  # ADD THIS
 
                         try:
                             safe_market_sell(
@@ -4478,14 +4485,7 @@ def main():
                         })
                         write_exec_row_immediate(exec_rows[-1], symbol, RUN_MODE)
 
-                        entry_times.pop(symbol, None)
-                        entry_prices.pop(symbol, None)
-                        entry_qty.pop(symbol, None)
-                        entry_configs.pop(symbol, None)
-                        last_exit_time[symbol] = ts_val
-                        last_exit_reason[symbol] = reason_exit
-                        highest_price_since_entry.pop(symbol, None)
-                        trailing_active[symbol] = False
+                       
 
                         continue
 
