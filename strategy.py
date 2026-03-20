@@ -1928,6 +1928,19 @@ def reattach_orphan_if_needed(symbol, positions_map, entry_times, entry_prices,
     )
 
     if onchain_qty > 0 and not has_local_context:
+        # === REATTACH COOLDOWN GUARD ===
+        # If we recently sold this symbol, the Alpaca position map may be stale.
+        # Do NOT reattach for 30 seconds after a known exit to prevent double-sell shorts.
+        _last_exit = last_exit_time.get(symbol)
+        if _last_exit is not None:
+            _secs_since_exit = (datetime.now(timezone.utc) - _last_exit).total_seconds()
+            if _secs_since_exit < 30:
+                logging.debug(
+                    "[ORPHAN_GUARD][%s] Skipping reattach — exit was %.1fs ago (stale positions_map)",
+                    symbol, _secs_since_exit
+                )
+                return False
+
         logging.warning(
             "[ORPHAN_REATTACH][%s] Position qty=%d avg=%.4f on Alpaca but no local context. "
             "Reattaching with conservative config.",
