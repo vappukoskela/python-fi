@@ -15,6 +15,8 @@ CODE_VERSION = "PATCH7_2026-03-12"
 
 rsi_fail_counter = defaultdict(int)
 
+_eod_liquidation_fired = False
+
 import pandas as pd
 import numpy as np
 from dateutil import parser
