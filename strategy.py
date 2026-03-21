@@ -4739,12 +4739,31 @@ def main():
                   
                   
                                     
-                 
+            # === ENTRY DIAGNOSTIC — silent monitoring to detect blocked entries ===
+            _spy_open_diag = globals().get("today_open_spy")
+            _spy_deque_diag = globals().get("price_deques", {}).get("SPY")
+            _spy_move_pct = 0.0
+            if _spy_open_diag and _spy_deque_diag and len(_spy_deque_diag) > 0:
+                _spy_move_pct = (float(_spy_deque_diag[-1]) - _spy_open_diag) / _spy_open_diag * 100
+            _open_longs = len([s for s in entry_prices if entry_prices.get(s) is not None])
+            _open_shorts = len([s for s in short_entry_prices if short_entry_prices.get(s) is not None])
+            logging.debug(
+                "[ENTRY_DIAG] SPY_move=%.2f%% | day_regime=%s | longs=%d | shorts=%d | "
+                "longs_blocked=%s | shorts_available=%s",
+                _spy_move_pct,
+                globals().get("day_regime", "UNKNOWN"),
+                _open_longs,
+                _open_shorts,
+                "YES" if _spy_move_pct <= -0.5 else "NO",
+                "YES" if _spy_move_pct <= -0.5 else "NO"
+            )
+
             # === EOD FORCED LIQUIDATION ===
             # Runs every loop tick after 22:55 EET (= 15:55 ET, 5 min before close)
             # Closes all positions and saves SPY prev_close for tomorrow's day_regime
             force_liquidation_at_cutoff(trading_client, symbols)
-
+            
+           
             elapsed = (datetime.now(timezone.utc) - loop_start).total_seconds()
             if elapsed < LOOP_SLEEP:
                 time.sleep(LOOP_SLEEP - elapsed)
