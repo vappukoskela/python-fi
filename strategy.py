@@ -2697,6 +2697,20 @@ def evaluate_entry(sym, price, size, prices_series, sizes_series, ts_val,
                       sym, rsi_val, RSI_ENTRY_CEILING)
         return False, f"RSI overbought block (rsi={rsi_val:.1f})", 0.0, {}
 
+    # === SPY SESSION BEARISH OVERRIDE ===
+    # Block all long entries when SPY has dropped 0.5% or more from session open
+    _spy_open = globals().get("today_open_spy")
+    _spy_deque = globals().get("price_deques", {}).get("SPY")
+    _spy_now = float(_spy_deque[-1]) if _spy_deque and len(_spy_deque) > 0 else None
+    if _spy_open and _spy_now and _spy_open > 0:
+        _spy_session_move = (_spy_now - _spy_open) / _spy_open
+        if _spy_session_move <= -0.005:
+            logging.debug(
+                "[BLOCK] %s blocked | SPY session move=%.3f%% — bearish override",
+                sym, _spy_session_move * 100
+            )
+            return False, "SPY session bearish override", 0.0, {}
+
     market_trend = globals().get("market_trend_state", "unknown")
     gate_ok, gate_reason = gate_entry(
         sym, regime, prices_series, sizes_series, vwap_val,
