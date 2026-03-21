@@ -4188,7 +4188,32 @@ def main():
         _wait_for_935_et()
         day_regime = classify_day_regime(stock_data_client, price_deques["SPY"])
         globals()["day_regime"] = day_regime
-        globals()["today_open_spy"] = None
+        # === FETCH TRUE 9:30 SPY OPEN PRICE ===
+        try:
+            from alpaca.data.requests import StockBarsRequest
+            from alpaca.data.timeframe import TimeFrame, TimeFrameUnit
+            _today = datetime.now(ZoneInfo("America/New_York")).date()
+            _open_start = datetime(_today.year, _today.month, _today.day,
+                                   9, 30, 0, tzinfo=ZoneInfo("America/New_York"))
+            _open_end   = datetime(_today.year, _today.month, _today.day,
+                                   9, 31, 0, tzinfo=ZoneInfo("America/New_York"))
+            _bars_req = StockBarsRequest(
+                symbol_or_symbols="SPY",
+                start=_open_start,
+                end=_open_end,
+                timeframe=TimeFrame(1, TimeFrameUnit.Minute)
+            )
+            _bars = stock_data_client.get_stock_bars(_bars_req).df
+            if _bars is not None and not _bars.empty:
+                _spy_open_price = float(_bars["open"].iloc[0])
+                globals()["today_open_spy"] = _spy_open_price
+                logging.warning("[DAY_REGIME] True 9:30 SPY open fetched: %.4f", _spy_open_price)
+            else:
+                globals()["today_open_spy"] = None
+                logging.warning("[DAY_REGIME] Could not fetch 9:30 SPY bar — today_open_spy unset")
+        except Exception as e:
+            globals()["today_open_spy"] = None
+            logging.warning("[DAY_REGIME] SPY open fetch failed: %s", e)
         logging.warning("[DAY_REGIME] *** Session classified as: %s ***", day_regime)
   
     def input_listener():
