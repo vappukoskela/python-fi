@@ -2737,6 +2737,32 @@ def evaluate_entry(sym, price, size, prices_series, sizes_series, ts_val,
         logging.debug("[BLOCK] %s rejected by gate_entry | Reason=%s", sym, gate_reason)
         return False, gate_reason, 0.0, {}
 
+    # === TREND AND DRIFT ONLY — block RANGE, HIGH_VOL, LOW_VOL entries ===
+    if regime not in ("TREND", "DRIFT"):
+        logging.debug(
+            "[BLOCK] %s blocked | regime=%s — only TREND and DRIFT entries allowed",
+            sym, regime
+        )
+        return False, f"Regime {regime} blocked — TREND/DRIFT only", 0.0, {}
+
+    # === VWAP PROXIMITY GUARDS for TREND and DRIFT ===
+    # Price must be above VWAP — below VWAP contradicts bullish momentum
+    if not pd.isna(vwap_val) and vwap_val > 0:
+        if price <= vwap_val:
+            logging.debug(
+                "[BLOCK] %s blocked | price=%.4f <= vwap=%.4f — below VWAP on TREND/DRIFT entry",
+                sym, price, vwap_val
+            )
+            return False, "TREND/DRIFT entry blocked — price below VWAP", 0.0, {}
+        # Price must not be too extended above VWAP — move already run
+        _vwap_extension = (price - vwap_val) / vwap_val
+        if _vwap_extension > 0.003:
+            logging.debug(
+                "[BLOCK] %s blocked | vwap_extension=%.4f > 0.003 — price too extended above VWAP",
+                sym, _vwap_extension
+            )
+            return False, "TREND/DRIFT entry blocked — price too extended above VWAP", 0.0, {}
+
     if bias == "bearish":
         logging.debug(
             "[BLOCK] %s rejected | Reason=Bearish bias hard block (rsi=%.2f)",
