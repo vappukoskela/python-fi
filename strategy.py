@@ -2448,9 +2448,25 @@ def evaluate_short_entry(sym, price, size, prices_series, sizes_series, ts_val,
                          positions_map, inflight_orders, pending_entries,
                          last_exit, last_buy_time, CONFIG, regime,
                          log_stack=False):
-    _day_regime = globals().get("day_regime", "NEUTRAL_DAY")
-    if _day_regime != "BEAR_DAY":
-        return False, "not_bear_day", 0.0, {}
+    # === SPY SESSION MOVE GATE FOR SHORTS ===
+    # Mirrors the long entry block — shorts available when SPY drops 0.5%+ from open
+    # No gap between long block and short availability
+    _spy_open = globals().get("today_open_spy")
+    _spy_deque = globals().get("price_deques", {}).get("SPY")
+    _spy_now = float(_spy_deque[-1]) if _spy_deque and len(_spy_deque) > 0 else None
+    if _spy_open and _spy_now and _spy_open > 0:
+        _spy_session_move = (_spy_now - _spy_open) / _spy_open
+        if _spy_session_move > -0.005:
+            logging.debug(
+                "[SHORT_BLOCK] %s blocked | SPY session move=%.3f%% — not bearish enough",
+                sym, _spy_session_move * 100
+            )
+            return False, "SPY not bearish enough for shorts", 0.0, {}
+    else:
+        # SPY data not yet available — fall back to day_regime classification
+        _day_regime = globals().get("day_regime", "NEUTRAL_DAY")
+        if _day_regime != "BEAR_DAY":
+            return False, "not_bear_day", 0.0, {}
         
     ema_fast = compute_ema_from_series(prices_series, EMA_FAST).iloc[-1] \
                if len(prices_series) >= 2 else float('nan')
