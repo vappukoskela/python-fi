@@ -3361,7 +3361,7 @@ def evaluate_sell(
                 return True, "VWAP fail"
 
         # --- EMA fail ---
-        EMA_DELTA = CONFIG.get("EMA_DELTA", 0.001)
+        EMA_DELTA = CONFIG.get("EMA_DELTA", 0.001) * _vol_multiplier
         ema_fail = soft_exits_allowed and (
             ema_fast < ema_slow and
             last_price < ema_slow * (1 - EMA_DELTA)
