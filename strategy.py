@@ -808,6 +808,47 @@ def overlay_by_session(CONFIG, ts, regime):
 ADX_ENABLED = True
 CHOP_ENABLED = True
 
+# === SPY REALIZED VOLATILITY STATE ===
+# Compares current SPY ATR against its own rolling baseline
+# Returns one of: "NORMAL", "ELEVATED", "EXTREME"
+SPY_VOL_ATR_WINDOW = 20       # ticks for current ATR
+SPY_VOL_BASELINE_WINDOW = 100 # ticks for baseline ATR
+SPY_VOL_ELEVATED_MULT = 1.5   # current > 1.5x baseline = ELEVATED
+SPY_VOL_EXTREME_MULT = 2.5    # current > 2.5x baseline = EXTREME
+
+def get_spy_volatility_state():
+    try:
+        spy_deque = globals().get("price_deques", {}).get("SPY")
+        if spy_deque is None or len(spy_deque) < SPY_VOL_BASELINE_WINDOW + SPY_VOL_ATR_WINDOW:
+            return "NORMAL"  # not enough data yet — default to normal
+        spy_series = pd.Series(spy_deque)
+        # Current ATR — last 20 ticks
+        current_atr = compute_atr_from_series(spy_series, SPY_VOL_ATR_WINDOW)
+        # Baseline ATR — rolling mean over last 100 ticks
+        atr_series = spy_series.diff().abs().rolling(SPY_VOL_ATR_WINDOW).mean()
+        baseline_atr = atr_series.iloc[-SPY_VOL_BASELINE_WINDOW:].mean()
+        if pd.isna(current_atr) or pd.isna(baseline_atr) or baseline_atr == 0:
+            return "NORMAL"
+        ratio = current_atr / baseline_atr
+        if ratio >= SPY_VOL_EXTREME_MULT:
+            logging.debug(
+                "[VOL_STATE] SPY volatility EXTREME | current_atr=%.4f baseline=%.4f ratio=%.2f",
+                current_atr, baseline_atr, ratio
+            )
+            return "EXTREME"
+        elif ratio >= SPY_VOL_ELEVATED_MULT:
+            logging.debug(
+                "[VOL_STATE] SPY volatility ELEVATED | current_atr=%.4f baseline=%.4f ratio=%.2f",
+                current_atr, baseline_atr, ratio
+            )
+            return "ELEVATED"
+        else:
+            return "NORMAL"
+    except Exception as e:
+        logging.debug("[VOL_STATE] get_spy_volatility_state failed: %s", e)
+        return "NORMAL"
+
+
 def _adx_proxy(series, period=14):
     # simple directional movement proxy from closes
     if len(series) < period + 2:
