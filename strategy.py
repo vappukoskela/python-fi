@@ -2768,6 +2768,26 @@ def evaluate_entry(sym, price, size, prices_series, sizes_series, ts_val,
             )
             return False, "SPY session bearish override", 0.0, {}
 
+    # === SPY REALIZED VOLATILITY ENTRY FILTER ===
+    _vol_state = get_spy_volatility_state()
+    if _vol_state == "EXTREME":
+        logging.debug(
+            "[BLOCK] %s blocked | SPY volatility EXTREME — no entries in chaotic market",
+            sym
+        )
+        return False, "SPY volatility EXTREME — entries blocked", 0.0, {}
+    if _vol_state == "ELEVATED":
+        # In elevated volatility only allow entry if price is very close to VWAP
+        # Tighten the VWAP extension limit from 0.3% to 0.1%
+        if not pd.isna(vwap_val) and vwap_val > 0:
+            _tight_extension = (price - vwap_val) / vwap_val
+            if _tight_extension > 0.001:
+                logging.debug(
+                    "[BLOCK] %s blocked | SPY volatility ELEVATED + price too extended (%.4f > 0.001)",
+                    sym, _tight_extension
+                )
+                return False, "SPY volatility ELEVATED — tight VWAP extension block", 0.0, {}
+
     market_trend = globals().get("market_trend_state", "unknown")
     gate_ok, gate_reason = gate_entry(
         sym, regime, prices_series, sizes_series, vwap_val,
