@@ -3343,7 +3343,7 @@ def evaluate_sell(
             return result
 
         # --- VWAP fail ---
-        VWAP_DELTA = CONFIG.get("VWAP_DELTA", 0.0015)
+        VWAP_DELTA = CONFIG.get("VWAP_DELTA", 0.0015) * _vol_multiplier
         vwap_fail = soft_exits_allowed and last_price < vwap_val * (1 - VWAP_DELTA)
 
         if vwap_fail:
