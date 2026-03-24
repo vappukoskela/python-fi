@@ -3240,6 +3240,18 @@ def evaluate_sell(
                          sym, last_price, ref_entry)
             return True, "Emergency SL"
 
+        # === SPY REALIZED VOLATILITY EXIT ADJUSTMENT ===
+        # In high volatility widen soft exit thresholds so normal pullbacks
+        # do not trigger premature exits
+        _vol_state_exit = get_spy_volatility_state()
+        _vol_multiplier = 1.0
+        if _vol_state_exit == "ELEVATED":
+            _vol_multiplier = 1.5  # widen VWAP/EMA thresholds by 50%
+            logging.debug("[VOL_EXIT][%s] ELEVATED volatility — widening exit thresholds x1.5", sym)
+        elif _vol_state_exit == "EXTREME":
+            _vol_multiplier = 2.0  # widen by 100% in extreme conditions
+            logging.debug("[VOL_EXIT][%s] EXTREME volatility — widening exit thresholds x2.0", sym)
+
         # ============================================================
         # 3. INDICATORS
         # ============================================================
