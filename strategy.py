@@ -123,7 +123,7 @@ trend_paused = defaultdict(bool)
 # === RECONCILIATION CONFIG ===
 RECONCILIATION_ENABLED = True
 RECON_MAX_STALE_MIN = 3              # consider context stale if older than N minutes without sell
-RECON_FORCE_SELL_IF_ORPHAN = True    # force sell if position has no local entry context
+RECON_FORCE_SELL_IF_ORPHAN = False   # force sell if position has no local entry context
 RECON_POLL_RETRIES = 30              # extended polling for sell fill confirmation
 RECON_POLL_SLEEP = 2.0               # seconds between polls
 RECON_LOG_STACK = True               # extra logs for reconciliation decisions
