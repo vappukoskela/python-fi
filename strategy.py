@@ -1982,10 +1982,14 @@ def force_liquidation_at_cutoff(trade_client_local, symbols, cutoff_hour_eet=23,
         logging.warning("[DAY_REGIME] EOD: could not save SPY close: %s", e)
 
     positions = trade_client_local.get_all_positions()
+    positions = trade_client_local.get_all_positions()
     for p in positions:
         s = p.symbol
         q = int(float(p.qty))
-        if q > 0:
+        if q <= 0:
+            if q < 0:
+                logging.warning("[EOD_GUARD] %s has negative qty=%d — skipping to avoid deepening short", s, q)
+            continue
             try:
                 order = MarketOrderRequest(symbol=s, qty=q, side=OrderSide.SELL,
                                            type=OrderType.MARKET, time_in_force=TimeInForce.DAY)
