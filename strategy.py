@@ -1,3 +1,4 @@
+
 import logging
 
 
@@ -848,7 +849,37 @@ def get_spy_volatility_state():
         logging.debug("[VOL_STATE] get_spy_volatility_state failed: %s", e)
         return "NORMAL"
 
+# === SPY DIRECTIONAL SLOPE — detects sustained intraday fade ===
+# Returns "FALLING", "FLAT", or "RISING" based on recent SPY price slope
+# Uses short window (20 ticks) to detect current momentum direction
+SPY_SLOPE_WINDOW = 20          # ticks for slope calculation
+SPY_SLOPE_FALL_THRESH = -0.0003  # SPY falling faster than -0.03% per tick = FALLING
+SPY_SLOPE_RISE_THRESH = 0.0003   # SPY rising faster than +0.03% per tick = RISING
 
+def get_spy_direction():
+    try:
+        spy_deque = globals().get("price_deques", {}).get("SPY")
+        if spy_deque is None or len(spy_deque) < SPY_SLOPE_WINDOW + 2:
+            return "FLAT"
+        spy_series = pd.Series(spy_deque)
+        # Use EMA slope over last N ticks — smoother than raw price difference
+        ema = spy_series.ewm(span=SPY_SLOPE_WINDOW, adjust=False).mean()
+        # Normalize slope by price so it is comparable across SPY price levels
+        slope_norm = (ema.iloc[-1] - ema.iloc[-SPY_SLOPE_WINDOW]) / ema.iloc[-SPY_SLOPE_WINDOW]
+        if slope_norm <= SPY_SLOPE_FALL_THRESH:
+            logging.debug(
+                "[SPY_DIR] SPY direction FALLING | slope_norm=%.5f threshold=%.5f",
+                slope_norm, SPY_SLOPE_FALL_THRESH
+            )
+            return "FALLING"
+        elif slope_norm >= SPY_SLOPE_RISE_THRESH:
+            return "RISING"
+        else:
+            return "FLAT"
+    except Exception as e:
+        logging.debug("[SPY_DIR] get_spy_direction failed: %s", e)
+        return "FLAT"
+    
 def _adx_proxy(series, period=14):
     # simple directional movement proxy from closes
     if len(series) < period + 2:
