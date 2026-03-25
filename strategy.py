@@ -2819,6 +2819,18 @@ def evaluate_entry(sym, price, size, prices_series, sizes_series, ts_val,
                 )
                 return False, "SPY volatility ELEVATED — tight VWAP extension block", 0.0, {}
 
+    # === SPY DIRECTIONAL FADE BLOCK ===
+    # Block new entries when SPY is in a sustained intraday downtrend
+    # This catches afternoon weakness even on positive SPY days
+    # Different from ATR volatility — this measures direction not choppiness
+    _spy_direction = get_spy_direction()
+    if _spy_direction == "FALLING":
+        logging.debug(
+            "[BLOCK] %s blocked | SPY direction FALLING — no new longs during sustained fade",
+            sym
+        )
+        return False, "SPY direction falling — entry blocked", 0.0, {}
+                       
     market_trend = globals().get("market_trend_state", "unknown")
     gate_ok, gate_reason = gate_entry(
         sym, regime, prices_series, sizes_series, vwap_val,
