@@ -1955,7 +1955,11 @@ def force_liquidation_at_cutoff(trade_client_local, symbols, cutoff_hour_eet=23,
     global _eod_liquidation_fired
 
     now_utc = datetime.now(timezone.utc)
-    now_eet = now_utc + timedelta(hours=2)  # EET = UTC+2
+    now_local = now_utc.astimezone(ZoneInfo("America/New_York"))
+    # Use NYSE close time directly — 16:00 ET = reliable market close
+    # EOD fires at 15:55 ET (5 minutes before close)
+    if not (now_local.hour > 15 or (now_local.hour == 15 and now_local.minute >= 55)):
+        return
 
     if not (now_eet.hour > cutoff_hour_eet or
             (now_eet.hour == cutoff_hour_eet and now_eet.minute >= cutoff_min_eet)):
