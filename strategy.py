@@ -4763,8 +4763,8 @@ def main():
                             logging.warning("[SELL_GUARD] %s already in _pending_sells — skipping duplicate sell", symbol)
                             continue
 
-                    qty = entry_qty.get(symbol, 0)
-                        pnl = (price - ref_entry) * qty if ref_entry else 0.0
+                        qty = entry_qty.get(symbol, 0)
+                            pnl = (price - ref_entry) * qty if ref_entry else 0.0
 
                         _pending_sells.add(symbol)
                         _snap_qty   = entry_qty.pop(symbol, 0)
