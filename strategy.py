@@ -3825,6 +3825,62 @@ def main():
     except Exception as e:
         logging.error("[RESTORE] Failed to restore positions: %s", e)
 
+    # === STARTUP SHORT CLEANUP ===
+    try:
+        all_positions = trading_client.get_all_positions()
+        for p in all_positions:
+            sym = p.symbol.upper()
+            q = int(float(p.qty))
+            if q < 0:
+                cover_qty = abs(q)
+                logging.warning(
+                    "[STARTUP_COVER] Found short %s qty=%d at startup — covering immediately",
+                    sym, cover_qty
+                )
+                try:
+                    order = MarketOrderRequest(
+                        symbol=sym,
+                        qty=cover_qty,
+                        side=OrderSide.BUY,
+                        type=OrderType.MARKET,
+                        time_in_force=TimeInForce.DAY
+                    )
+                    trading_client.submit_order(order)
+                    logging.warning("[STARTUP_COVER] %s cover order submitted qty=%d", sym, cover_qty)
+                    time.sleep(2.0)
+                except Exception as cover_err:
+                    logging.error("[STARTUP_COVER] Failed to cover %s: %s", sym, cover_err)
+    except Exception as e:
+        logging.error("[STARTUP_COVER] Failed to check shorts at startup: %s", e)
+
+    # === STARTUP SHORT CLEANUP ===
+    try:
+        all_positions = trading_client.get_all_positions()
+        for p in all_positions:
+            sym = p.symbol.upper()
+            q = int(float(p.qty))
+            if q < 0:
+                cover_qty = abs(q)
+                logging.warning(
+                    "[STARTUP_COVER] Found short %s qty=%d at startup — covering immediately",
+                    sym, cover_qty
+                )
+                try:
+                    order = MarketOrderRequest(
+                        symbol=sym,
+                        qty=cover_qty,
+                        side=OrderSide.BUY,
+                        type=OrderType.MARKET,
+                        time_in_force=TimeInForce.DAY
+                    )
+                    trading_client.submit_order(order)
+                    logging.warning("[STARTUP_COVER] %s cover order submitted qty=%d", sym, cover_qty)
+                    time.sleep(2.0)
+                except Exception as cover_err:
+                    logging.error("[STARTUP_COVER] Failed to cover %s: %s", sym, cover_err)
+    except Exception as e:
+        logging.error("[STARTUP_COVER] Failed to check shorts at startup: %s", e)
+    
     inflight_orders = {}
                 
     symbols = ["AAPL", "MSFT", "MU", "QCOM", "NVDA", "V", "AMD", "GOOG", "C", "EBAY", "OKTA", "TSLA", "AMZN", "ADSK", "DELL",
