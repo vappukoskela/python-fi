@@ -3805,17 +3805,25 @@ def main():
         positions = trading_client.get_all_positions()
         for p in positions:
             sym = p.symbol.upper()
+            q = float(p.qty)
+
+            if q <= 0:
+                logging.warning(
+                    "[RESTORE_GUARD] %s has qty=%.2f on Alpaca at startup — "
+                    "skipping restore to prevent short amplification",
+                    sym, q
+                )
+                continue
+
             entry_prices[sym] = float(p.avg_entry_price)
-            entry_qty[sym] = float(p.qty)
+            entry_qty[sym] = q
             entry_times[sym] = datetime.now(timezone.utc)
             entry_configs[sym] = {"restored": True}
-
             highest_price_since_entry[sym] = entry_prices[sym]
             trailing_active[sym] = False
-            
-            logging.warning(f"[RESTORE] Restored {sym}: qty={entry_qty[sym]}, entry={entry_prices[sym]}")
+            logging.warning("[RESTORE] Restored %s: qty=%.2f entry=%.4f", sym, q, entry_prices[sym])
     except Exception as e:
-        logging.error(f"[RESTORE] Failed to restore positions: {e}")
+        logging.error("[RESTORE] Failed to restore positions: %s", e)
 
     inflight_orders = {}
                 
