@@ -4759,7 +4759,11 @@ def main():
                     )
 
                     if accept_exit:
-                        qty = entry_qty.get(symbol, 0)
+                        if symbol in _pending_sells:
+                            logging.warning("[SELL_GUARD] %s already in _pending_sells — skipping duplicate sell", symbol)
+                            continue
+
+                    qty = entry_qty.get(symbol, 0)
                         pnl = (price - ref_entry) * qty if ref_entry else 0.0
 
                         _pending_sells.add(symbol)
