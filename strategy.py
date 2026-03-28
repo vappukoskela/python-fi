@@ -4605,7 +4605,7 @@ def main():
                                         "(SPY move=%.2f%% from open — longs blocked by SPY filter)", _spy_move * 100
                                     )
                                     globals()["day_regime"] = "NEUTRAL_DAY"
-                                    globals()["day_regime"] = "BEAR_DAY"
+                                    
                                 elif _spy_move >= 0.010 and _current_day_regime != "BULL_DAY":
                                     logging.warning(
                                         "[DAY_REGIME] OVERRIDE → BULL_DAY "
@@ -4812,9 +4812,6 @@ def main():
             # === ENTRY DIAGNOSTIC — silent monitoring to detect blocked entries ===
                 
 
-                  
-                                    
-            # === ENTRY DIAGNOSTIC — silent monitoring to detect blocked entries ===
             _spy_open_diag = globals().get("today_open_spy")
             _spy_deque_diag = globals().get("price_deques", {}).get("SPY")
             _spy_move_pct = 0.0
