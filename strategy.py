@@ -4657,51 +4657,7 @@ def main():
                     symbol in short_entry_times
                 )
 
-                if has_short:
-                    ref_short  = short_entry_prices.get(symbol)
-                    short_cfg  = {
-                        "TP_PCT": 0.002,
-                        "TS_ACTIVATION_BUFFER": 0.003,
-                        "TRAILING_STOP_PCT": 0.004,
-                        "EMERGENCY_SL_PCT": 0.005,
-                    }
-                    should_cover, cover_reason = evaluate_short_exit(
-                        symbol, price, ref_short,
-                        short_cfg,
-                        current_time=ts_val,
-                        regime=regime
-                    )
-
-                    if should_cover:
-                        short_qty = short_entry_qty.get(symbol, 0)
-
-                        _snap_short_qty   = short_entry_qty.pop(symbol, 0)
-                        _snap_short_price = short_entry_prices.pop(symbol, None)
-                        _snap_short_time  = short_entry_times.pop(symbol, None)
-                        lowest_price_since_short.pop(symbol, None)
-                        short_trailing_active[symbol] = False
-
-                        try:
-                            safe_market_cover(
-                                trade_client_local=trading_client,
-                                symbol=symbol,
-                                intended_qty=short_qty,
-                                order_lock=order_lock
-                            )
-                        except Exception as _cover_err:
-                            logging.error(
-                                "[COVER_GUARD][%s] safe_market_cover raised: %s — restoring state",
-                                symbol, _cover_err
-                            )
-                            if _snap_short_price is not None:
-                                short_entry_qty[symbol]    = _snap_short_qty
-                                short_entry_prices[symbol] = _snap_short_price
-                                short_entry_times[symbol]  = _snap_short_time
-                                lowest_price_since_short[symbol] = _snap_short_price
-
-                        last_exit_time[symbol] = ts_val
-                        continue
-                
+                                
                 reattach_orphan_if_needed(
                     symbol, positions_map, entry_times, entry_prices,
                     entry_qty, entry_configs, CONFIG_SESSION
