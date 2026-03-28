@@ -4599,11 +4599,12 @@ def main():
                             _spy_move = (price - _today_open) / _today_open
                             _session_min = _session_minutes(ts_val)
                             if _session_min > 30 and _session_min % 5 == 0:
-                                if _spy_move <= -0.010 and _current_day_regime != "BEAR_DAY":
+                                if _spy_move <= -0.010 and _current_day_regime not in ("BEAR_DAY", "NEUTRAL_DAY"):
                                     logging.warning(
-                                        "[DAY_REGIME] OVERRIDE → BEAR_DAY "
-                                        "(SPY move=%.2f%% from open)", _spy_move * 100
+                                        "[DAY_REGIME] OVERRIDE → NEUTRAL_DAY "
+                                        "(SPY move=%.2f%% from open — longs blocked by SPY filter)", _spy_move * 100
                                     )
+                                    globals()["day_regime"] = "NEUTRAL_DAY"
                                     globals()["day_regime"] = "BEAR_DAY"
                                 elif _spy_move >= 0.010 and _current_day_regime != "BULL_DAY":
                                     logging.warning(
