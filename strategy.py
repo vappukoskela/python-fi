@@ -4646,13 +4646,7 @@ def main():
                 CONFIG = BULLISH_CONFIG if day_bias == "bullish" else BEARISH_CONFIG
                 CONFIG_SESSION = overlay_by_session(CONFIG, ts_val, regime)
 
-                has_short = (
-                    symbol in short_entry_prices and
-                    short_entry_prices.get(symbol) is not None and
-                    symbol in short_entry_times
-                )
-
-                                
+                                                
                 reattach_orphan_if_needed(
                     symbol, positions_map, entry_times, entry_prices,
                     entry_qty, entry_configs, CONFIG_SESSION
@@ -4752,6 +4746,70 @@ def main():
                     continue
 
                 _day_regime = globals().get("day_regime", "NEUTRAL_DAY")
+
+                accept, reason, score, stack = evaluate_entry(
+                    symbol,
+                    price,
+                    size,
+                    prices_series,
+                    sizes_series,
+                    ts_val,
+                    positions_map,
+                    inflight_orders,
+                    pending_entries,
+                    last_exit_time[symbol],
+                    last_buy_time,
+                    CONFIG_SESSION,
+                    regime,
+                    bias=day_bias,
+                    log_stack=True
+                )
+
+                budget_exhausted = (len([s for s in entry_prices if entry_prices.get(s) is not None]) >= MAX_CONCURRENT_POSITIONS)
+                if accept:
+                    if symbol in entry_prices and entry_prices.get(symbol) is not None:
+                        logging.info("[SKIP] %s already in position — skipping duplicate BUY", symbol)
+                        continue
+
+                    if symbol in pending_entries:
+                        logging.info("[SKIP] %s already pending — skipping duplicate BUY", symbol)
+                        continue
+
+                    pending_entries.add(symbol)
+                    try:
+                        if spent_this_loop + (price * 10) > max_loop_budget:
+                            logging.info("[BUDGET] %s skipped — spent_this_loop=%.2f would exceed max=%.2f",
+                                         symbol, spent_this_loop, max_loop_budget)
+                            continue
+
+                        current_open_positions = len([s for s in entry_prices if entry_prices.get(s) is not None])
+                        budget_exhausted = (current_open_positions >= MAX_CONCURRENT_POSITIONS)
+                        if budget_exhausted:
+                            logging.debug("[BUDGET] Max concurrent positions reached (%d) — entries blocked this loop",
+                                         current_open_positions)
+                        else:
+                            estimated_cost = price * int((max_loop_budget * BUY_CASH_BUFFER) // price)
+                            spent_this_loop += estimated_cost
+
+                            safe_market_buy(
+                                trade_client_local=trading_client,
+                                symbol=symbol,
+                                cash_for_buy=max_loop_budget,
+                                order_lock=order_lock,
+                                price_deques=price_deques,
+                                size_deques=size_deques,
+                                entry_times=entry_times,
+                                entry_prices=entry_prices,
+                                entry_qty=entry_qty,
+                                entry_configs=entry_configs,
+                                bias=day_bias,
+                                config_session=CONFIG_SESSION
+                            )
+                    finally:
+                        pending_entries.discard(symbol)
+
+            # === ENTRY DIAGNOSTIC — silent monitoring to detect blocked entries ===
+                
 
                   
                                     
