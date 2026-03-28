@@ -3751,7 +3751,7 @@ def classify_day_regime(stock_data_client_local, spy_deque):
             elif spy_rsi >= 55:
                 result = "BULL_DAY"
             elif spy_rsi <= 45:
-                result = "BEAR_DAY"
+                result = "NEUTRAL_DAY"
             else:
                 result = "NEUTRAL_DAY"
 
