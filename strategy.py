@@ -4831,7 +4831,7 @@ def main():
             )
 
             # === EOD FORCED LIQUIDATION ===
-            # Runs every loop tick after 22:55 EET (= 15:55 ET, 5 min before close)
+            # Runs at 15:55 ET
             # Closes all positions and saves SPY prev_close for tomorrow's day_regime
             force_liquidation_at_cutoff(trading_client, symbols)
             
