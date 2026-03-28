@@ -3736,14 +3736,9 @@ def classify_day_regime(stock_data_client_local, spy_deque):
         )
 
         if gap_pct <= -0.005:
-            # Only allow RSI to override bearish gap if we have enough ticks
-            # to trust the reading — warmup gives only 24 ticks which is
-            # insufficient for a reliable RSI on a volatile day
-            _spy_deque_len = len(spy_deque) if spy_deque else 0
-            if rsi_available and spy_rsi > 55 and _spy_deque_len >= 100:
-                result = "NEUTRAL_DAY"
-            else:
-                result = "BEAR_DAY"
+            # No shorting — treat bear gaps as neutral, entries blocked
+            # by SPY session bearish override in evaluate_entry
+            result = "NEUTRAL_DAY"
         elif gap_pct >= 0.005:
             _spy_deque_len = len(spy_deque) if spy_deque else 0
             if rsi_available and spy_rsi < 40 and _spy_deque_len >= 100:
