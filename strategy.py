@@ -1,36 +1,50 @@
-import os
+import yfinance as yf
 import pandas as pd
-from dotenv import load_dotenv
-from alpaca.data.historical.stock import StockHistoricalDataClient
-from alpaca.data.requests import StockBarsRequest
-from alpaca.data.timeframe import TimeFrame, TimeFrameUnit
-from datetime import datetime
 from zoneinfo import ZoneInfo
 
-load_dotenv()
-API_KEY = os.getenv("ALPACA_PAPER_API_KEY")
-API_SECRET = os.getenv("ALPACA_PAPER_SECRET_KEY")
+# === FETCH SPY 1-MINUTE BARS FOR TODAY ===
+print("Fetching SPY 1-minute bars for 2026-03-30...")
 
-client = StockHistoricalDataClient(API_KEY, API_SECRET)
+spy = yf.download("SPY", start="2026-03-30", end="2026-03-31", interval="1m", progress=False)
 
-# Set the date you want — today is 2026-03-30
-today = datetime(2026, 3, 30, tzinfo=ZoneInfo("America/New_York"))
-market_open  = today.replace(hour=9,  minute=30)
-market_close = today.replace(hour=16, minute=0)
+if spy.empty:
+    print("ERROR: No data returned. Market may still be open or yfinance issue.")
+else:
+    # Flatten multi-level columns if present
+    if isinstance(spy.columns, pd.MultiIndex):
+        spy.columns = spy.columns.get_level_values(0)
 
-req = StockBarsRequest(
-    symbol_or_symbols="SPY",
-    start=market_open,
-    end=market_close,
-    timeframe=TimeFrame(1, TimeFrameUnit.Minute)
-)
+    # Convert index to proper timezone-aware timestamps
+    spy.index = pd.to_datetime(spy.index)
+    if spy.index.tz is None:
+        spy.index = spy.index.tz_localize("UTC")
 
-bars = client.get_stock_bars(req).df
-bars = bars.reset_index()
-bars["et_time"] = bars["timestamp"].dt.tz_convert("America/New_York")
-bars["helsinki_time"] = bars["timestamp"].dt.tz_convert("Europe/Helsinki")
-bars["move_from_open_pct"] = (bars["close"] - bars["close"].iloc[0]) / bars["close"].iloc[0] * 100
+    # Add ET and Helsinki time columns
+    spy["et_time"]       = spy.index.tz_convert("America/New_York")
+    spy["helsinki_time"] = spy.index.tz_convert("Europe/Helsinki")
 
-bars.to_csv("spy_session_2026-03-30.csv", index=False)
-print(bars[["et_time", "helsinki_time", "close", "move_from_open_pct"]].to_string())
+    # Only keep market hours 9:30 - 16:00 ET
+    spy_et = spy["et_time"]
+    spy = spy[(spy_et.dt.hour > 9) | ((spy_et.dt.hour == 9) & (spy_et.dt.minute >= 30))]
+    spy = spy[spy_et.dt.hour < 16]
+
+    # Calculate move from open
+    open_price = spy["Close"].iloc[0]
+    spy["move_from_open_pct"] = (spy["Close"] - open_price) / open_price * 100
+
+    # Calculate rolling high watermark — tracks peak SPY reached
+    spy["session_high_pct"] = spy["move_from_open_pct"].cummax()
+
+    # Save to CSV
+    output_file = "spy_session_2026-03-30.csv"
+    spy[["et_time", "helsinki_time", "Close", "move_from_open_pct", "session_high_pct"]].to_csv(output_file, index=False)
+    print(f"Saved to {output_file}")
+    print(f"\nOpen price: {open_price:.2f}")
+    print(f"Session high: {spy['Close'].max():.2f} ({spy['session_high_pct'].max():.2f}%)")
+    print(f"Session low:  {spy['Close'].min():.2f} ({spy['move_from_open_pct'].min():.2f}%)")
+    print(f"Close price:  {spy['Close'].iloc[-1]:.2f} ({spy['move_from_open_pct'].iloc[-1]:.2f}%)")
+    print(f"\nFirst 5 rows:")
+    print(spy[["et_time", "helsinki_time", "Close", "move_from_open_pct"]].head().to_string())
+    print(f"\nLast 5 rows:")
+    print(spy[["et_time", "helsinki_time", "Close", "move_from_open_pct"]].tail().to_string())
            
