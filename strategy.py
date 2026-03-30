@@ -1,4 +1,4 @@
-pip3 install yfinance
+C:\Python313\python.exe -m pip install yfinance
 import yfinance as yf
 import pandas as pd
 from zoneinfo import ZoneInfo
