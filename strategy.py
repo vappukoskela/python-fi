@@ -4568,14 +4568,16 @@ def main():
                         logging.debug(f"[MARKET] trend_state={market_trend_state}")
 
                         if globals().get("today_open_spy") is None:
+                            # prev_close was not available — use first live tick as fallback
+                            # This is imperfect but better than no reference at all
                             globals()["today_open_spy"] = price
                             globals()["today_low_spy"] = price
-                            logging.info("[DAY_REGIME] SPY open price captured: %.4f", price)
+                            logging.warning("[DAY_REGIME] No prev_close — using first live tick %.4f as SPY reference (imperfect fallback)", price)
                         else:
                             globals()["today_low_spy"] = min(
                                 globals().get("today_low_spy", price), price
                             )
-
+                        
                         _today_open = globals().get("today_open_spy")
                         _today_low = globals().get("today_low_spy", _today_open)
                         _current_day_regime = globals().get("day_regime", "NEUTRAL_DAY")
