@@ -6,7 +6,7 @@ from zoneinfo import ZoneInfo
 # === FETCH SPY 1-MINUTE BARS FOR TODAY ===
 print("Fetching SPY 1-minute bars for 2026-04-01...")
 
-spy = yf.download("SPY", start="2026-04-01", end="2026-04-01", interval="1m", progress=False)
+spy = yf.download("SPY", start="2026-04-01", end="2026-04-02", interval="1m", progress=False)
 
 if spy.empty:
     print("ERROR: No data returned. Market may still be open or yfinance issue.")
