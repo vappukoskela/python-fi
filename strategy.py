@@ -12,7 +12,7 @@ from collections import deque, defaultdict
 
 # === CODE VERSION TAG (for audit comparison) ===
 CODE_VERSION = "PATCH_EPOCH_5" # increment manually when you apply new patches
-CODE_VERSION = "PATCH10_2026-03-30"
+CODE_VERSION = "PATCH11_2026-04-01"
 
 rsi_fail_counter = defaultdict(int)
 
