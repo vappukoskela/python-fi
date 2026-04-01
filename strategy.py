@@ -3712,11 +3712,31 @@ def classify_day_regime(stock_data_client_local, spy_deque):
                     os.path.getmtime(PREV_CLOSE_FILE), tz=timezone.utc
                 )
             ).total_seconds() / 86400
-            if file_age_days > 4:
+
+            # Calculate how many weekend days are in the file age window
+            # so Monday startup does not falsely detect a stale file
+            file_mtime = datetime.fromtimestamp(
+                os.path.getmtime(PREV_CLOSE_FILE), tz=timezone.utc
+            ).astimezone(ZoneInfo("America/New_York"))
+            now_et = datetime.now(timezone.utc).astimezone(ZoneInfo("America/New_York"))
+            trading_days_elapsed = 0
+            check_day = file_mtime.date()
+            while check_day < now_et.date():
+                check_day_dt = datetime.combine(check_day, datetime.min.time())
+                if check_day_dt.weekday() < 5:  # 0=Mon 4=Fri
+                    trading_days_elapsed += 1
+                check_day += timedelta(days=1)
+
+            logging.debug(
+                "[DAY_REGIME] prev_close file age=%.1f calendar days, %d trading days elapsed",
+                file_age_days, trading_days_elapsed
+            )
+
+            if trading_days_elapsed > 1:
                 logging.warning(
-                    "[DAY_REGIME] prev_close file is %.1f days old — likely stale. "
-                    "Defaulting NEUTRAL_DAY and refreshing baseline.",
-                    file_age_days
+                    "[DAY_REGIME] prev_close file is %d trading days old — stale. "
+                    "Refreshing baseline with current SPY=%.4f and defaulting NEUTRAL_DAY.",
+                    trading_days_elapsed, spy_now
                 )
                 _save_prev_close(spy_now)
                 return "NEUTRAL_DAY"
