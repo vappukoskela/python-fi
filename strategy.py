@@ -3894,6 +3894,7 @@ def main():
     price_deques = {s: deque(maxlen=TICKS_WINDOW) for s in symbols}
     size_deques = {s: deque(maxlen=TICKS_WINDOW) for s in symbols}
     time_deques = {s: deque(maxlen=TICKS_WINDOW) for s in symbols}
+    globals()["price_deques"] = price_deques  # make accessible to evaluate_entry, SPY filters
     
     from datetime import datetime, timezone
     global last_exit_time
