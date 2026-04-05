@@ -3761,35 +3761,20 @@ def classify_day_regime(stock_data_client_local, spy_deque):
             return "NEUTRAL_DAY"
 
         try:
-            file_age_days = (
-                datetime.now(timezone.utc) -
-                datetime.fromtimestamp(
-                    os.path.getmtime(PREV_CLOSE_FILE), tz=timezone.utc
-                )
-            ).total_seconds() / 86400
-
-            # Calculate how many weekend days are in the file age window
-            # so Monday startup does not falsely detect a stale file
-            file_mtime = datetime.fromtimestamp(
+            file_mtime_dt = datetime.fromtimestamp(
                 os.path.getmtime(PREV_CLOSE_FILE), tz=timezone.utc
             ).astimezone(ZoneInfo("America/New_York"))
             now_et = datetime.now(timezone.utc).astimezone(ZoneInfo("America/New_York"))
-            trading_days_elapsed = 0
-            check_day = file_mtime.date()
-            while check_day < now_et.date():
-                check_day_dt = datetime.combine(check_day, datetime.min.time())
-                if check_day_dt.weekday() < 5:  # 0=Mon 4=Fri
-                    trading_days_elapsed += 1
-                check_day += timedelta(days=1)
-
-            logging.debug(
-                "[DAY_REGIME] prev_close file age=%.1f calendar days, %d trading days elapsed",
-                file_age_days, trading_days_elapsed
+            trading_days_elapsed = _count_trading_days_elapsed(
+                file_mtime_dt.date(), now_et.date()
             )
-
-            if trading_days_elapsed > 1:
+            logging.debug(
+                "[DAY_REGIME] prev_close file written=%s today=%s trading_days_elapsed=%d",
+                file_mtime_dt.date(), now_et.date(), trading_days_elapsed
+            )
+            if trading_days_elapsed >= 1:
                 logging.warning(
-                    "[DAY_REGIME] prev_close file is %d trading days old — stale. "
+                    "[DAY_REGIME] prev_close file is %d trading session(s) old — stale. "
                     "Refreshing baseline with current SPY=%.4f and defaulting NEUTRAL_DAY.",
                     trading_days_elapsed, spy_now
                 )
