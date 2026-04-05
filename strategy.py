@@ -2071,6 +2071,14 @@ def force_liquidation_at_cutoff(trade_client_local, symbols):
         session_low_price[sym] = None
     logging.warning("[SESSION_RESET] Session tracking cleared for %d symbols", len(symbols))
 
+    # Clear session open file at EOD so tomorrow starts fresh
+    try:
+        if os.path.exists(SESSION_OPEN_FILE):
+            os.remove(SESSION_OPEN_FILE)
+            logging.warning("[SESSION_STATE] EOD: cleared session_open file")
+    except Exception as e:
+        logging.warning("[SESSION_STATE] EOD: could not clear session_open file: %s", e)
+
 
 def reattach_orphan_if_needed(symbol, positions_map, entry_times, entry_prices,
                                entry_qty, entry_configs, CONFIG_SESSION):
