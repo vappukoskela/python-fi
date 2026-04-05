@@ -3736,6 +3736,87 @@ def _load_prev_close():
         logging.warning("[DAY_REGIME] Could not load prev_close: %s", e)
     return None
 
+def _save_session_open(price):
+    try:
+        with open(SESSION_OPEN_FILE, "w") as f:
+            f.write(f"{price:.4f}")
+        logging.info("[SESSION_STATE] Saved session_open=%.4f to %s", price, SESSION_OPEN_FILE)
+    except Exception as e:
+        logging.warning("[SESSION_STATE] Could not save session_open: %s", e)
+
+def _load_session_open():
+    try:
+        if os.path.exists(SESSION_OPEN_FILE):
+            file_age_hours = (
+                datetime.now(timezone.utc) -
+                datetime.fromtimestamp(
+                    os.path.getmtime(SESSION_OPEN_FILE), tz=timezone.utc
+                )
+            ).total_seconds() / 3600
+            if file_age_hours > 20:
+                logging.warning("[SESSION_STATE] session_open file is %.1f hours old — stale, ignoring",
+                                file_age_hours)
+                return None
+            with open(SESSION_OPEN_FILE, "r") as f:
+                val = float(f.read().strip())
+            logging.info("[SESSION_STATE] Loaded session_open=%.4f from %s", val, SESSION_OPEN_FILE)
+            return val
+    except Exception as e:
+        logging.warning("[SESSION_STATE] Could not load session_open: %s", e)
+    return None
+
+def get_session_state():
+    """
+    Determines current session aggressiveness state.
+    Returns: BULL_SESSION, NEUTRAL_SESSION, or BEAR_SESSION.
+    Called at startup and every 5 minutes intraday.
+    """
+    try:
+        spy_deque = globals().get("price_deques", {}).get("SPY")
+        spy_now = float(spy_deque[-1]) if spy_deque and len(spy_deque) > 0 else None
+        if spy_now is None:
+            return "NEUTRAL_SESSION"
+        session_open = globals().get("today_open_spy") or _load_session_open() or _load_prev_close()
+        if session_open is None:
+            return "NEUTRAL_SESSION"
+        spy_move = (spy_now - session_open) / session_open
+        spy_dir = get_spy_direction()
+        if spy_move >= 0.003 and spy_dir in ("RISING", "FLAT"):
+            state = "BULL_SESSION"
+        elif spy_move <= -0.005 or (spy_move <= -0.002 and spy_dir == "FALLING"):
+            state = "BEAR_SESSION"
+        elif spy_move < 0 and spy_dir == "FALLING":
+            state = "BEAR_SESSION"
+        elif spy_move >= 0.001 and spy_dir == "FALLING":
+            state = "NEUTRAL_SESSION"
+        else:
+            state = "NEUTRAL_SESSION"
+        logging.warning(
+            "[SESSION_STATE] state=%s | spy_move=%.3f%% | spy_dir=%s | "
+            "session_open=%.4f | spy_now=%.4f",
+            state, spy_move * 100, spy_dir, session_open, spy_now
+        )
+        return state
+    except Exception as e:
+        logging.warning("[SESSION_STATE] get_session_state failed: %s", e)
+        return "NEUTRAL_SESSION"
+
+def apply_session_exit_multipliers(CONFIG, session_state):
+    """Returns CONFIG copy with TP_PCT and EMERGENCY_SL_PCT adjusted by session state."""
+    adj = dict(CONFIG)
+    mults = SESSION_MULTIPLIERS.get(session_state, SESSION_MULTIPLIERS["NEUTRAL_SESSION"])
+    if "TP_PCT" in adj:
+        adj["TP_PCT"] = max(0.0008, adj["TP_PCT"] * mults["tp"])
+    if "EMERGENCY_SL_PCT" in adj:
+        adj["EMERGENCY_SL_PCT"] = max(0.002, adj["EMERGENCY_SL_PCT"] * mults["sl"])
+    if mults["tp"] != 1.0 or mults["sl"] != 1.0:
+        logging.debug(
+            "[SESSION_MULT] session=%s tp_mult=%.2f sl_mult=%.2f TP=%.4f SL=%.4f",
+            session_state, mults["tp"], mults["sl"],
+            adj.get("TP_PCT", 0), adj.get("EMERGENCY_SL_PCT", 0)
+        )
+    return adj
+
 def classify_day_regime(stock_data_client_local, spy_deque):
     try:
         try:
