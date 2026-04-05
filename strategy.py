@@ -5040,6 +5040,26 @@ def main():
             # === ENTRY DIAGNOSTIC — silent monitoring to detect blocked entries ===
                 
 
+            # === UPDATE SESSION STATE EVERY 5 MINUTES ===
+            _now_for_state = datetime.now(timezone.utc)
+            _last_state_update = globals().get("_session_state_last_update")
+            _should_update = (
+                _last_state_update is None or
+                (_now_for_state - _last_state_update).total_seconds() >= 300
+            )
+            if _should_update:
+                _new_state = get_session_state()
+                _old_state = globals().get("_current_session_state", "NEUTRAL_SESSION")
+                globals()["_current_session_state"] = _new_state
+                globals()["_session_state_last_update"] = _now_for_state
+                if _new_state != _old_state:
+                    logging.warning(
+                        "[SESSION_STATE] *** STATE CHANGED: %s → %s *** "
+                        "Exit thresholds updated for all open positions.",
+                        _old_state, _new_state
+                    )
+
+            # === ENTRY DIAGNOSTIC ===
             _spy_open_diag = globals().get("today_open_spy")
             _spy_deque_diag = globals().get("price_deques", {}).get("SPY")
             _spy_move_pct = 0.0
@@ -5047,15 +5067,19 @@ def main():
                 _spy_move_pct = (float(_spy_deque_diag[-1]) - _spy_open_diag) / _spy_open_diag * 100
             _open_longs = len([s for s in entry_prices if entry_prices.get(s) is not None])
             _open_shorts = len([s for s in short_entry_prices if short_entry_prices.get(s) is not None])
+            _active_rockets = [s for s in _rocket_mode_active if _rocket_mode_active.get(s)]
             logging.debug(
-                "[ENTRY_DIAG] SPY_move=%.2f%% | day_regime=%s | longs=%d | shorts=%d | "
-                "longs_blocked=%s | shorts_available=%s",
+                "[ENTRY_DIAG] SPY_move=%.2f%% | day_regime=%s | session=%s | "
+                "longs=%d | shorts=%d | longs_blocked=%s | shorts_available=%s | "
+                "rocket_active=%s",
                 _spy_move_pct,
                 globals().get("day_regime", "UNKNOWN"),
+                globals().get("_current_session_state", "NEUTRAL_SESSION"),
                 _open_longs,
                 _open_shorts,
                 "YES" if _spy_move_pct <= -0.5 else "NO",
-                "YES" if _spy_move_pct <= -0.5 else "NO"
+                "YES" if _spy_move_pct <= -0.5 else "NO",
+                ",".join(_active_rockets) if _active_rockets else "none"
             )
 
             # === EOD FORCED LIQUIDATION ===
