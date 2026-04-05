@@ -12,7 +12,62 @@ from collections import deque, defaultdict
 
 # === CODE VERSION TAG (for audit comparison) ===
 CODE_VERSION = "PATCH_EPOCH_5" # increment manually when you apply new patches
-CODE_VERSION = "PATCH11_2026-04-01"
+CODE_VERSION = "PATCH12_2026-04-03"
+
+# === NYSE HOLIDAY CALENDAR ===
+# Used by trading day stale detection to correctly handle market holidays
+from datetime import date as _date
+NYSE_HOLIDAYS = {
+    # 2025
+    _date(2025, 1, 1), _date(2025, 1, 20), _date(2025, 2, 17), _date(2025, 4, 18),
+    _date(2025, 5, 26), _date(2025, 6, 19), _date(2025, 7, 4),  _date(2025, 9, 1),
+    _date(2025, 11, 27), _date(2025, 12, 25),
+    # 2026
+    _date(2026, 1, 1),  _date(2026, 1, 19), _date(2026, 2, 16), _date(2026, 4, 3),
+    _date(2026, 5, 25), _date(2026, 6, 19), _date(2026, 7, 3),  _date(2026, 9, 7),
+    _date(2026, 11, 26), _date(2026, 12, 25),
+    # 2027
+    _date(2027, 1, 1),  _date(2027, 1, 18), _date(2027, 2, 15), _date(2027, 3, 26),
+    _date(2027, 5, 31), _date(2027, 6, 18), _date(2027, 7, 5),  _date(2027, 9, 6),
+    _date(2027, 11, 25), _date(2027, 12, 24),
+}
+
+def _is_nyse_trading_day(d):
+    """Returns True if d is a NYSE trading day (weekday and not a holiday)."""
+    return d.weekday() < 5 and d not in NYSE_HOLIDAYS
+
+def _count_trading_days_elapsed(file_date, today_date):
+    """
+    Counts trading sessions that elapsed after file_date up to (not including) today_date.
+    Returns 0 if file was written yesterday or today — file is fresh.
+    Returns 1+ if bot missed one or more sessions — file is stale.
+    Correctly handles weekends AND NYSE holidays (Good Friday, Thanksgiving etc).
+    """
+    count = 0
+    check = file_date + timedelta(days=1)
+    while check < today_date:
+        if _is_nyse_trading_day(check):
+            count += 1
+        check += timedelta(days=1)
+    return count
+
+# === SESSION STATE — drives exit aggressiveness ===
+SESSION_OPEN_FILE = "spy_session_open.txt"
+
+SESSION_MULTIPLIERS = {
+    "BULL_SESSION":    {"tp": 1.0,  "sl": 1.0},
+    "NEUTRAL_SESSION": {"tp": 0.85, "sl": 0.80},
+    "BEAR_SESSION":    {"tp": 0.70, "sl": 0.65},
+}
+
+_current_session_state = "NEUTRAL_SESSION"
+_session_state_last_update = None
+
+# Rocket mode tracking per symbol
+_rocket_mode_active = {}
+_rocket_mode_peak = {}
+_rocket_mode_floor_pct = 0.0015   # 0.15% trailing floor in rocket mode
+_rocket_tight_floor_pct = 0.0010  # 0.10% floor when SPY turns FALLING
 
 rsi_fail_counter = defaultdict(int)
 
