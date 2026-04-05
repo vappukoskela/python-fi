@@ -4591,6 +4591,27 @@ def main():
         else:
             globals()["today_open_spy"] = None
             logging.warning("[DAY_REGIME] No prev_close available — SPY bearish override will be inactive today")
+
+        # Save session open for late-start recovery
+        try:
+            _resp = stock_data_client.get_stock_latest_trade(
+                StockLatestTradeRequest(symbol_or_symbols="SPY")
+            )
+            _spy_open_now = float(_resp["SPY"].price)
+            _existing_open = _load_session_open()
+            if _existing_open is None:
+                _save_session_open(_spy_open_now)
+                logging.warning("[SESSION_STATE] Session open saved: %.4f", _spy_open_now)
+            else:
+                logging.warning("[SESSION_STATE] Session open already exists: %.4f — keeping original",
+                                _existing_open)
+        except Exception as e:
+            logging.warning("[SESSION_STATE] Could not save session open: %s", e)
+
+        # Initialize session state
+        globals()["_current_session_state"] = "NEUTRAL_SESSION"
+        globals()["_session_state_last_update"] = None
+        logging.warning("[SESSION_STATE] Initial state=NEUTRAL_SESSION (will update after warmup)")
   
     def input_listener():
         try:
