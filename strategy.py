@@ -3440,6 +3440,8 @@ def evaluate_sell(
             if drawdown_pct >= TRAILING_STOP_PCT:
                 logging.info("[%s] EXIT evaluate_sell | reason=Trailing stop | peak=%.4f | last=%.4f",
                              sym, peak, last_price)
+                _rocket_mode_active.pop(sym, None)
+                _rocket_mode_peak.pop(sym, None)
                 return True, "Trailing stop"
 
         # ============================================================
