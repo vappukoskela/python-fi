@@ -3352,17 +3352,28 @@ def evaluate_sell(
             return True, "EOD exit"
 
         # ============================================================
+        # 1b. APPLY SESSION STATE MULTIPLIERS
+        # ============================================================
+        _session_state = globals().get("_current_session_state", "NEUTRAL_SESSION")
+        CONFIG = apply_session_exit_multipliers(CONFIG, _session_state)
+
+        # ============================================================
         # 2. EMERGENCY EXITS (catastrophic SL)
         # ============================================================
         if last_price <= ref_entry * 0.95:
             logging.info("[%s] EXIT evaluate_sell | reason=5%% stop-loss | last=%.4f | ref=%.4f",
                          sym, last_price, ref_entry)
+            _rocket_mode_active.pop(sym, None)
+            _rocket_mode_peak.pop(sym, None)
             return True, "5% stop-loss"
 
         emergency_sl_pct = float(CONFIG.get("EMERGENCY_SL_PCT", 0.01))
         if last_price <= ref_entry * (1 - emergency_sl_pct):
-            logging.info("[%s] EXIT evaluate_sell | reason=Emergency SL | last=%.4f | ref=%.4f",
-                         sym, last_price, ref_entry)
+            logging.info("[%s] EXIT evaluate_sell | reason=Emergency SL (session=%s) | "
+                         "last=%.4f | ref=%.4f | sl_pct=%.4f",
+                         sym, _session_state, last_price, ref_entry, emergency_sl_pct)
+            _rocket_mode_active.pop(sym, None)
+            _rocket_mode_peak.pop(sym, None)
             return True, "Emergency SL"
 
         # === SPY REALIZED VOLATILITY EXIT ADJUSTMENT ===
