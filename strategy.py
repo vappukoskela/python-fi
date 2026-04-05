@@ -3443,14 +3443,74 @@ def evaluate_sell(
                 return True, "Trailing stop"
 
         # ============================================================
-        # 5. TAKE-PROFIT
+        # 5. TAKE-PROFIT + ROCKET MODE
         # ============================================================
         tp_pct = CONFIG_E.get("TP_PCT", TP_PCT)
         tp_price = ref_entry * (1 + tp_pct)
-        if last_price >= tp_price:
-            logging.info("[%s] EXIT evaluate_sell | reason=Take-profit | last=%.4f | ref=%.4f",
-                         sym, last_price, ref_entry)
-            return True, "Take-profit"
+        _spy_dir_rocket = get_spy_direction()
+        _profit_pct = (last_price - ref_entry) / ref_entry
+
+        # Activate rocket mode when 2/3 of TP reached + SPY rising + symbol rising
+        if not _rocket_mode_active.get(sym, False):
+            _rocket_activation_threshold = tp_pct * 0.67
+            _sym_ema_fast = _safe_last(compute_ema_from_series(prices_series, EMA_FAST))
+            _sym_ema_slow = _safe_last(compute_ema_from_series(prices_series, EMA_SLOW))
+            _sym_slope_ok = (not pd.isna(_sym_ema_fast) and not pd.isna(_sym_ema_slow)
+                             and _sym_ema_fast > _sym_ema_slow)
+            if (_profit_pct >= _rocket_activation_threshold
+                    and _spy_dir_rocket == "RISING"
+                    and _sym_slope_ok):
+                _rocket_mode_active[sym] = True
+                _rocket_mode_peak[sym] = last_price
+                logging.warning(
+                    "[ROCKET] %s activated | price=%.4f peak=%.4f floor=%.4f "
+                    "session=%s profit=%.3f%%",
+                    sym, last_price, last_price,
+                    last_price * (1 - _rocket_mode_floor_pct),
+                    _session_state, _profit_pct * 100
+                )
+
+        if _rocket_mode_active.get(sym, False):
+            # Update peak
+            if last_price > _rocket_mode_peak.get(sym, last_price):
+                _rocket_mode_peak[sym] = last_price
+                logging.warning(
+                    "[ROCKET] %s peak updated | price=%.4f new_peak=%.4f new_floor=%.4f",
+                    sym, last_price, last_price,
+                    last_price * (1 - _rocket_mode_floor_pct)
+                )
+            # Tighten floor if SPY turns FALLING
+            _active_floor_pct = (_rocket_tight_floor_pct
+                                  if _spy_dir_rocket == "FALLING"
+                                  else _rocket_mode_floor_pct)
+            peak = _rocket_mode_peak.get(sym, last_price)
+            drawdown_from_peak = (peak - last_price) / peak if peak > 0 else 0
+            if drawdown_from_peak >= _active_floor_pct:
+                logging.warning(
+                    "[ROCKET] %s exit triggered | price=%.4f peak=%.4f "
+                    "drawdown=%.3f%% floor=%.3f%% spy_dir=%s",
+                    sym, last_price, peak,
+                    drawdown_from_peak * 100, _active_floor_pct * 100,
+                    _spy_dir_rocket
+                )
+                _rocket_mode_active.pop(sym, None)
+                _rocket_mode_peak.pop(sym, None)
+                return True, "Rocket trailing exit"
+            # Still in rocket mode — do NOT exit at normal TP
+            logging.debug(
+                "[ROCKET] %s holding | price=%.4f peak=%.4f drawdown=%.3f%% floor=%.3f%%",
+                sym, last_price, peak,
+                drawdown_from_peak * 100, _active_floor_pct * 100
+            )
+        else:
+            # Normal TP — not in rocket mode
+            if last_price >= tp_price:
+                logging.info(
+                    "[%s] EXIT evaluate_sell | reason=Take-profit (session=%s) | "
+                    "last=%.4f | ref=%.4f | tp_pct=%.4f",
+                    sym, _session_state, last_price, ref_entry, tp_pct
+                )
+                return True, "Take-profit"
 
         # ============================================================
         # 6. TREND FAILURE EXITS (VWAP, EMA, RSI) with Option B + C suppression
