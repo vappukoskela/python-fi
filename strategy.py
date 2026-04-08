@@ -2962,7 +2962,36 @@ def evaluate_entry(sym, price, size, prices_series, sizes_series, ts_val,
     obv_slope = _obv_slope_proxy(prices_series, sizes_series, window=20)                   
     if regime == "TREND":
         w = TREND_CONFIG["WEIGHTS"]
-        ema_trend_ok = (ema_fast > ema_slow) and (slope > 0)
+        # PATCH14: 5-bar breakout as primary trigger, EMA as filter not trigger
+        _BREAKOUT_BARS = 5
+        _BREAKOUT_MIN_PCT = 0.0005  # price must be at least 0.05% above 5-bar high
+        _five_bar_high = prices_series.iloc[-(_BREAKOUT_BARS + 1):-1].max() \
+            if len(prices_series) >= _BREAKOUT_BARS + 1 else float('nan')
+        breakout_5bar = (
+            not pd.isna(_five_bar_high) and
+            price > _five_bar_high * (1 + _BREAKOUT_MIN_PCT)
+        )
+        # Momentum guard: last 2 bars must both be rising
+        _momentum_ok = (
+            len(prices_series) >= 3 and
+            prices_series.iloc[-1] > prices_series.iloc[-2] > prices_series.iloc[-3]
+        ) if len(prices_series) >= 3 else False
+        # EMA remains as filter: trend must be up, not trigger
+        ema_filter_ok = (ema_fast > ema_slow)
+        # Entry requires breakout + momentum + EMA filter
+        ema_trend_ok = breakout_5bar and _momentum_ok and ema_filter_ok
+        signal_stack["breakout_5bar"] = breakout_5bar
+        signal_stack["momentum_ok"] = _momentum_ok
+        signal_stack["ema_filter_ok"] = ema_filter_ok
+        logging.debug(
+            "[PATCH14][%s] breakout_5bar=%s 5bar_high=%.4f price=%.4f "
+            "momentum_ok=%s ema_filter=%s",
+            sym, breakout_5bar,
+            _five_bar_high if not pd.isna(_five_bar_high) else -1,
+            price, _momentum_ok, ema_filter_ok
+        )
+        strong_trend = (not pd.isna(slope) and slope > 0) and \
+                       (not pd.isna(adx_val) and adx_val >= 25)
         
         strong_trend = (not pd.isna(slope) and slope > 0) and (not pd.isna(adx_val) and adx_val >= 25)
         vwap_above_ok = (price > vwap_val) and (
