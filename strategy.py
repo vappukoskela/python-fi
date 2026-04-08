@@ -2032,7 +2032,19 @@ def force_liquidation_at_cutoff(trade_client_local, symbols):
     except Exception as e:
         logging.warning("[DAY_REGIME] EOD: could not save SPY close: %s", e)
 
-    positions = trade_client_local.get_all_positions()
+    positions = None
+    for attempt in range(3):
+        try:
+            positions = trade_client_local.get_all_positions()
+            break
+        except Exception as e:
+            logging.warning("[EOD_LIQ] get_all_positions attempt %d/3 failed: %s",
+                            attempt + 1, e)
+            if attempt < 2:
+                time.sleep(3.0)
+    if positions is None:
+        logging.error("[EOD_LIQ] Cannot liquidate — get_all_positions failed")
+        return
     for p in positions:
         s = p.symbol
         q = int(float(p.qty))
