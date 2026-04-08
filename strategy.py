@@ -4812,9 +4812,43 @@ def main():
                         logging.debug(f"[MARKET] trend_state={market_trend_state}")
 
                         if globals().get("today_open_spy") is None:
-                            globals()["today_open_spy"] = price
-                            globals()["today_low_spy"] = price
-                            logging.warning("[DAY_REGIME] No prev_close — using first live tick %.4f as SPY reference (imperfect fallback)", price)
+                            # PATCH13: Use true 9:30 open bar price instead of first tick price
+                            # First tick can arrive minutes into session on fast-moving days
+                            _true_open = None
+                            try:
+                                from alpaca.data.requests import StockBarsRequest
+                                from alpaca.data.timeframe import TimeFrame
+                                import datetime as _dt
+                                _today = ts_val.date()
+                                _open_start = datetime(
+                                    _today.year, _today.month, _today.day,
+                                    13, 30, 0, tzinfo=timezone.utc
+                                )  # 9:30 ET = 13:30 UTC
+                                _open_end = _open_start + timedelta(minutes=2)
+                                _bars_req = StockBarsRequest(
+                                    symbol_or_symbols="SPY",
+                                    start=_open_start,
+                                    end=_open_end,
+                                    timeframe=TimeFrame.Minute
+                                )
+                                _bars = stock_data_client.get_stock_bars(_bars_req).df
+                                if _bars is not None and not _bars.empty:
+                                    _true_open = float(_bars["open"].iloc[0])
+                                    logging.info(
+                                        "[DAY_REGIME] PATCH13: True 9:30 open bar fetched: %.4f", 
+                                        _true_open
+                                    )
+                            except Exception as _e:
+                                logging.warning(
+                                    "[DAY_REGIME] PATCH13: Could not fetch true open bar: %s "
+                                    "— falling back to first tick %.4f", _e, price
+                                )
+                            globals()["today_open_spy"] = _true_open if _true_open is not None else price
+                            globals()["today_low_spy"] = globals()["today_open_spy"]
+                            logging.info(
+                                "[DAY_REGIME] SPY open price captured: %.4f", 
+                                globals()["today_open_spy"]
+                            )
                         else:
                             globals()["today_low_spy"] = min(
                                 globals().get("today_low_spy", price), price
