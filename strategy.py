@@ -4745,49 +4745,49 @@ def main():
             stop_event.set()
 
     def sell_all_positions(trade_client_local, order_lock_local):
-    try:
-        positions = None
-        for attempt in range(3):
-            try:
-                positions = trade_client_local.get_all_positions()
-                break
-            except Exception as e:
-                logging.warning(
-                    "[EOD] get_all_positions attempt %d/3 failed: %s",
-                    attempt + 1, e
-                )
-                if attempt < 2:
-                    time.sleep(3.0)
-        if positions is None:
-            logging.error("[EOD] get_all_positions failed all 3 attempts — cannot sell")
-            return
-        for p in positions:
-            s = p.symbol
-            q = int(float(p.qty))
-            if q > 0:
-                for sell_attempt in range(3):
-                    try:
-                        order = MarketOrderRequest(
-                            symbol=s, qty=q,
-                            side=OrderSide.SELL,
-                            type=OrderType.MARKET,
-                            time_in_force=TimeInForce.DAY
-                        )
-                        trade_client_local.submit_order(order)
-                        logging.info(
-                            "[EOD] %s forced SELL qty=%d attempt %d",
-                            s, q, sell_attempt + 1
-                        )
-                        break
-                    except Exception as e:
-                        logging.warning(
-                            "[EOD] sell %s attempt %d/3 failed: %s",
-                            s, sell_attempt + 1, e
-                        )
-                        if sell_attempt < 2:
-                            time.sleep(3.0)
-    except Exception as e:
-        logging.exception("sell_all_positions error: %s", e)
+        try:
+            positions = None
+            for attempt in range(3):
+                try:
+                    positions = trade_client_local.get_all_positions()
+                    break
+                except Exception as e:
+                    logging.warning(
+                        "[EOD] get_all_positions attempt %d/3 failed: %s",
+                        attempt + 1, e
+                    )
+                    if attempt < 2:
+                        time.sleep(3.0)
+            if positions is None:
+                logging.error("[EOD] get_all_positions failed all 3 attempts — cannot sell")
+                return
+            for p in positions:
+                s = p.symbol
+                q = int(float(p.qty))
+                if q > 0:
+                    for sell_attempt in range(3):
+                        try:
+                            order = MarketOrderRequest(
+                                symbol=s, qty=q,
+                                side=OrderSide.SELL,
+                                type=OrderType.MARKET,
+                                time_in_force=TimeInForce.DAY
+                            )
+                            trade_client_local.submit_order(order)
+                            logging.info(
+                                "[EOD] %s forced SELL qty=%d attempt %d",
+                                s, q, sell_attempt + 1
+                            )
+                            break
+                        except Exception as e:
+                            logging.warning(
+                                "[EOD] sell %s attempt %d/3 failed: %s",
+                                s, sell_attempt + 1, e
+                            )
+                            if sell_attempt < 2:
+                                time.sleep(3.0)
+        except Exception as e:
+            logging.exception("sell_all_positions error: %s", e)
 
     threading.Thread(target=input_listener, daemon=True).start()
 
