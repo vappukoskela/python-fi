@@ -911,6 +911,11 @@ SPY_SLOPE_WINDOW = 20          # ticks for slope calculation
 SPY_SLOPE_FALL_THRESH = -0.0003  # SPY falling faster than -0.03% per tick = FALLING
 SPY_SLOPE_RISE_THRESH = 0.0003   # SPY rising faster than +0.03% per tick = RISING
 
+# PATCH15: Regime-aware SPY direction thresholds
+# On BULL_DAY with SPY >1% from open, relax the FALLING threshold significantly
+# so brief pullbacks do not block all entries during a genuine bull session
+SPY_SLOPE_FALL_THRESH_BULL = -0.0008  # much steeper decline required on bull days
+
 def get_spy_direction():
     try:
         spy_deque = globals().get("price_deques", {}).get("SPY")
