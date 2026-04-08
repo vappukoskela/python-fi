@@ -2891,7 +2891,23 @@ def evaluate_entry(sym, price, size, prices_series, sizes_series, ts_val,
         return False, "RSI invalid", 0.0, {}
 
     # === RSI CEILING BLOCK — lowered from 82 to 70 based on audit evidence ===
-    RSI_ENTRY_CEILING = 70
+    # === PATCH15: Regime-aware RSI ceiling ===
+    # On BULL_DAY with strong SPY move, RSI can legitimately stay high
+    # Fixed ceiling of 70 blocks genuine momentum entries on strong days
+    _rsi_day_regime = globals().get("day_regime", "NEUTRAL_DAY")
+    _rsi_spy_open = globals().get("today_open_spy")
+    _rsi_spy_deque = globals().get("price_deques", {}).get("SPY")
+    _rsi_spy_now = float(_rsi_spy_deque[-1]) if _rsi_spy_deque and len(_rsi_spy_deque) > 0 else None
+    if _rsi_day_regime == "BULL_DAY" and _rsi_spy_open and _rsi_spy_now:
+        _rsi_spy_move = (_rsi_spy_now - _rsi_spy_open) / _rsi_spy_open
+        if _rsi_spy_move >= 0.010:
+            RSI_ENTRY_CEILING = 88  # very strong bull day — allow high RSI momentum entries
+        elif _rsi_spy_move >= 0.005:
+            RSI_ENTRY_CEILING = 82  # mild bull day — moderate relaxation
+        else:
+            RSI_ENTRY_CEILING = 75  # early bull day — slight relaxation
+    else:
+        RSI_ENTRY_CEILING = 70  # neutral or bear day — keep strict ceiling
     if rsi_val > RSI_ENTRY_CEILING:
         logging.debug("[BLOCK] %s rejected | Reason=RSI overbought at entry (rsi=%.2f > %d)",
                       sym, rsi_val, RSI_ENTRY_CEILING)
