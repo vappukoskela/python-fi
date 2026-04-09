@@ -72,6 +72,10 @@ _rocket_tight_floor_pct = 0.0010  # 0.10% floor when SPY turns FALLING
 rsi_fail_counter = defaultdict(int)
 
 _eod_liquidation_fired = False
+# PATCH16: Per-session symbol loss tracking
+_session_loss_count = defaultdict(int)   # how many losses per symbol this session
+_session_blacklist = set()               # symbols blocked for rest of session after 2 losses
+SESSION_LOSS_BLACKLIST_THRESHOLD = 2     # block after this many losses
 
 import pandas as pd
 import numpy as np
@@ -5285,6 +5289,16 @@ def main():
                         trailing_active[symbol] = False
                         last_exit_time[symbol] = ts_val        # ADD THIS
                         last_exit_reason[symbol] = reason_exit  # ADD THIS
+                        # PATCH16: track session losses per symbol
+                        if pnl < 0:
+                            _session_loss_count[symbol] += 1
+                            if _session_loss_count[symbol] >= SESSION_LOSS_BLACKLIST_THRESHOLD:
+                                _session_blacklist.add(symbol)
+                                logging.warning(
+                                    "[PATCH16] %s added to session blacklist "
+                                    "after %d losses (pnl=%.2f)",
+                                    symbol, _session_loss_count[symbol], pnl
+                                )
 
                         try:
                             safe_market_sell(
