@@ -1622,9 +1622,9 @@ def safe_market_buy(
 
                 # Write to exec log immediately (as inferred)
                 buy_row = {
-                    "timestamp": submit_ts.strftime("%Y-%m-%d %H:%M:%S"),
+                    "timestamp": _audit_ts(submit_ts),
                     "symbol": symbol,
-                    "action": "BUY",
+                    "action": "BUY_CONFIRMED",
                     "price": est_price,
                     "reason": "entry_pre_fill",
                     "bias": bias_val,
@@ -2064,7 +2064,7 @@ def safe_market_sell(trade_client_local, symbol, intended_qty, order_lock, price
                 sell_reason = "exit"
                 
                 sell_row = {
-                    "timestamp": datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M:%S"),
+                    "timestamp": _audit_ts(),
                     "symbol": symbol,
                     "action": "SELL",
                     "price": last_price,
@@ -2122,7 +2122,7 @@ def safe_market_sell(trade_client_local, symbol, intended_qty, order_lock, price
                             bias_moment = "bullish" if ema_fast_val > ema_slow_val else "bearish"
                             sell_reason = "exit"
                             sell_row = {
-                                "timestamp": datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M:%S"),
+                                "timestamp": _audit_ts(),
                                 "symbol": symbol,
                                 "action": "SELL",
                                 "price": last_price,
@@ -2222,7 +2222,7 @@ def safe_market_cover(trade_client_local, symbol, intended_qty, order_lock):
                          ref_short if ref_short else 0, pnl)
 
             cover_row = {
-                "timestamp": datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M:%S"),
+                "timestamp": _audit_ts(),
                 "symbol": symbol,
                 "action": "COVER",
                 "price": cover_price,
@@ -2652,7 +2652,7 @@ def reconcile_positions(
                             vwap_val = compute_vwap_from_ticks(prices_series, sizes_series).iloc[-1]
 
                             sell_row = {
-                                "timestamp": now_ts.strftime("%Y-%m-%d %H:%M:%S"),
+                                "timestamp": _audit_ts(now_ts),
                                 "symbol": sym,
                                 "action": "SELL",
                                 "price": round(last_price, 6),
@@ -5420,7 +5420,7 @@ def main():
                             _pending_sells.discard(symbol)
 
                         exec_rows.append({
-                            "timestamp": ts_val.strftime("%Y-%m-%d %H:%M:%S"),
+                            "timestamp": _audit_ts(ts_val),
                             "symbol": symbol,
                             "action": "SELL",
                             "price": price,
