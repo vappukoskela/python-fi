@@ -3721,7 +3721,21 @@ def evaluate_sell(
         # ============================================================
         # 5. TAKE-PROFIT + ROCKET MODE
         # ============================================================
-        tp_pct = CONFIG_E.get("TP_PCT", TP_PCT)
+        # PATCH15: Dynamic TP based on market character
+        _tp_base = CONFIG_E.get("TP_PCT", TP_PCT)
+        _tp_market_char = globals().get("_market_character", "NEUTRAL")
+        _tp_spy_open = globals().get("today_open_spy")
+        _tp_spy_deque = globals().get("price_deques", {}).get("SPY")
+        _tp_spy_now = float(_tp_spy_deque[-1]) \
+            if _tp_spy_deque and len(_tp_spy_deque) > 0 else None
+        _tp_spy_move = (_tp_spy_now - _tp_spy_open) / _tp_spy_open \
+            if _tp_spy_open and _tp_spy_now else 0.0
+        tp_pct = _get_dynamic_tp(_tp_base, _tp_market_char, _tp_spy_move)
+        if tp_pct != _tp_base:
+            logging.debug(
+                "[PATCH15][TP] %s dynamic_tp=%.4f base_tp=%.4f char=%s spy_move=%.2f%%",
+                sym, tp_pct, _tp_base, _tp_market_char, _tp_spy_move * 100
+            )
         tp_price = ref_entry * (1 + tp_pct)
         _spy_dir_rocket = get_spy_direction()
         _profit_pct = (last_price - ref_entry) / ref_entry
@@ -5075,6 +5089,10 @@ def main():
                     session_open_price[symbol] = price
                     session_high_price[symbol] = price
                     session_low_price[symbol]  = price
+                    # PATCH15: capture per-symbol session open for relative strength
+                    if globals().get(f"today_open_{symbol}") is None:
+                        globals()[f"today_open_{symbol}"] = price
+                        logging.debug("[PATCH15] %s session open: %.4f", symbol, price)
                 else:
                     session_high_price[symbol] = max(session_high_price[symbol], price)
                     session_low_price[symbol]  = min(session_low_price[symbol],  price)
@@ -5110,6 +5128,11 @@ def main():
                         market_trend_state = market_trend_filter(market_series)
                         globals()["market_trend_state"] = market_trend_state
                         logging.debug(f"[MARKET] trend_state={market_trend_state}")
+                        # PATCH15: update intraday market character
+                        _spy_open_char = globals().get("today_open_spy")
+                        if _spy_open_char is not None:
+                            _spy_move_char = (price - _spy_open_char) / _spy_open_char
+                            _update_market_character(_spy_move_char, ts_val)
 
                         if globals().get("today_open_spy") is None:
                             # PATCH13: Use true 9:30 open bar price instead of first tick price
