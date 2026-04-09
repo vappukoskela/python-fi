@@ -916,6 +916,16 @@ SPY_SLOPE_RISE_THRESH = 0.0003   # SPY rising faster than +0.03% per tick = RISI
 # so brief pullbacks do not block all entries during a genuine bull session
 SPY_SLOPE_FALL_THRESH_BULL = -0.0008  # much steeper decline required on bull days
 
+# === PATCH15: Market character state ===
+# Five-state intraday character updated continuously
+# STRONG_BULL / MILD_BULL / NEUTRAL / RECOVERING / BEAR
+_market_character = "NEUTRAL"
+_market_char_candidate = None
+_market_char_candidate_since = None
+
+# === PATCH15: Williams %R period ===
+WILLIAMS_R_PERIOD = 14
+
 def get_spy_direction():
     try:
         spy_deque = globals().get("price_deques", {}).get("SPY")
