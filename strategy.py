@@ -926,6 +926,195 @@ _market_char_candidate_since = None
 # === PATCH15: Williams %R period ===
 WILLIAMS_R_PERIOD = 14
 
+def compute_williams_r(prices_series, period=14):
+    """
+    Williams %R = (Highest High - Close) / (Highest High - Lowest Low) * -100
+    Values between -100 and 0.
+    Oversold below -80. Overbought above -20.
+    """
+    if len(prices_series) < period:
+        return pd.Series([float('nan')] * len(prices_series))
+    highest_high = prices_series.rolling(period).max()
+    lowest_low = prices_series.rolling(period).min()
+    hl_range = highest_high - lowest_low
+    hl_range = hl_range.replace(0, float('nan'))
+    wr = (highest_high - prices_series) / hl_range * -100
+    return wr
+
+
+def _update_market_character(spy_move, ts_val):
+    """
+    PATCH15: Continuously updates intraday market character.
+    Requires 5 minutes of sustained new state before switching.
+    spy_move: float, fractional move from today_open_spy (e.g. 0.015 = +1.5%)
+    """
+    global _market_character, _market_char_candidate, _market_char_candidate_since
+
+    # Determine candidate character from SPY move
+    if spy_move >= 0.010:
+        candidate = "STRONG_BULL"
+    elif spy_move >= 0.003:
+        candidate = "MILD_BULL"
+    elif spy_move >= -0.003:
+        candidate = "NEUTRAL"
+    elif spy_move >= -0.008:
+        candidate = "RECOVERING"
+    else:
+        candidate = "BEAR"
+
+    # Same as current — reset candidate
+    if candidate == _market_character:
+        _market_char_candidate = None
+        _market_char_candidate_since = None
+        return
+
+    # New candidate — start timer
+    if candidate != _market_char_candidate:
+        _market_char_candidate = candidate
+        _market_char_candidate_since = ts_val
+        return
+
+    # Candidate sustained for 5 minutes — confirm switch
+    elapsed = (ts_val - _market_char_candidate_since).total_seconds()
+    if elapsed >= 300:
+        old = _market_character
+        _market_character = candidate
+        _market_char_candidate = None
+        _market_char_candidate_since = None
+        globals()["_market_character"] = _market_character
+        logging.warning(
+            "[PATCH15] Market character: %s -> %s "
+            "(SPY_move=%.2f%% sustained %.0fs)",
+            old, _market_character, spy_move * 100, elapsed
+        )
+
+
+def _get_dynamic_tp(base_tp, market_char, spy_move):
+    """
+    PATCH15: Returns TP_PCT adjusted for market character and SPY move strength.
+    """
+    if market_char == "STRONG_BULL" and spy_move >= 0.015:
+        return base_tp * 3.0    # 0.90% on very strong bull days
+    elif market_char == "STRONG_BULL" and spy_move >= 0.010:
+        return base_tp * 2.3    # 0.69% on strong bull days
+    elif market_char == "MILD_BULL" and spy_move >= 0.005:
+        return base_tp * 1.7    # 0.51% on mild bull days
+    elif market_char == "MILD_BULL":
+        return base_tp * 1.3    # 0.39% on early mild bull
+    elif market_char == "NEUTRAL":
+        return base_tp * 0.85   # 0.255% — current NEUTRAL behavior
+    elif market_char == "RECOVERING":
+        return base_tp * 0.70   # 0.21% — tight on recovering days
+    elif market_char == "BEAR":
+        return base_tp * 0.60   # 0.18% — very tight on bear days
+    return base_tp
+
+
+def _get_symbol_mode(sym, prices_series, spy_move_from_open):
+    """
+    PATCH15: Returns MODE1 (conservative recovery) or MODE2 (aggressive momentum)
+    based on symbol relative strength versus SPY.
+    """
+    if len(prices_series) < 2:
+        return "MODE1"
+
+    sym_open = globals().get(f"today_open_{sym}")
+    if sym_open is None or sym_open == 0:
+        return "MODE1"
+
+    current_price = float(prices_series.iloc[-1])
+    sym_move = (current_price - sym_open) / sym_open
+    relative_strength = sym_move - spy_move_from_open
+
+    market_char = globals().get("_market_character", "NEUTRAL")
+
+    if market_char in ("STRONG_BULL", "MILD_BULL"):
+        if relative_strength >= -0.002:
+            return "MODE2"
+        else:
+            return "MODE1"
+
+    if market_char in ("NEUTRAL", "RECOVERING", "BEAR"):
+        if relative_strength >= 0.005:
+            return "MODE2"
+        else:
+            return "MODE1"
+
+    return "MODE1"
+
+
+def evaluate_recovery_entry(sym, price, prices_series, sizes_series,
+                             ts_val, positions_map, inflight_orders,
+                             pending_entries, last_exit, last_buy_time):
+    """
+    PATCH15 Mode 1 entry — oversold recovery using Williams %R.
+    Fires when WR crosses up through -80 from oversold with momentum and volume.
+    """
+    since_last_exit = (ts_val - last_exit).total_seconds() \
+        if last_exit is not None else float("inf")
+    since_last_buy = (ts_val - last_buy_time[sym]).total_seconds() \
+        if last_buy_time[sym] is not None else float("inf")
+    if since_last_exit < COOLDOWN_SECONDS or since_last_buy < COOLDOWN_SECONDS:
+        return False, "Cooldown", 0.0, {}
+    if inflight_orders.get(sym) is not None or sym in pending_entries:
+        return False, "Order flow block", 0.0, {}
+    if len(prices_series) < WILLIAMS_R_PERIOD + 2:
+        return False, "Insufficient data", 0.0, {}
+
+    wr_series = compute_williams_r(prices_series, period=WILLIAMS_R_PERIOD)
+    if len(wr_series) < 2:
+        return False, "WR insufficient", 0.0, {}
+
+    wr_now  = wr_series.iloc[-1]
+    wr_prev = wr_series.iloc[-2]
+
+    if pd.isna(wr_now) or pd.isna(wr_prev):
+        return False, "WR nan", 0.0, {}
+
+    # Core signal: WR crossing up through -80 from oversold
+    wr_cross_up = (wr_prev <= -80) and (wr_now > -80)
+    if not wr_cross_up:
+        return False, "WR no cross", 0.0, {}
+
+    # Momentum confirmation: last 2 ticks rising
+    momentum_ok = (
+        len(prices_series) >= 3 and
+        prices_series.iloc[-1] > prices_series.iloc[-2] > prices_series.iloc[-3]
+    )
+    if not momentum_ok:
+        return False, "MODE1 momentum fail", 0.0, {}
+
+    # Volume confirmation
+    sizes_series_pd = pd.Series(sizes_series) if not isinstance(sizes_series, pd.Series) \
+        else sizes_series
+    median_vol = sizes_series_pd.median() if len(sizes_series_pd) > 0 else float('nan')
+    current_vol = sizes_series_pd.iloc[-1] if len(sizes_series_pd) > 0 else float('nan')
+    vol_ok = (not pd.isna(median_vol) and not pd.isna(current_vol)
+              and current_vol > median_vol * 1.2)
+    if not vol_ok:
+        return False, "MODE1 volume fail", 0.0, {}
+
+    # SPY not in active decline
+    spy_prices_deque = globals().get("price_deques", {}).get("SPY")
+    if spy_prices_deque and len(spy_prices_deque) >= 5:
+        spy_prices = pd.Series(spy_prices_deque)
+        if float(spy_prices.iloc[-1]) < float(spy_prices.iloc[-5]):
+            return False, "MODE1 SPY declining", 0.0, {}
+
+    signal_stack = {
+        "wr_now": round(float(wr_now), 2),
+        "wr_prev": round(float(wr_prev), 2),
+        "wr_cross_up": wr_cross_up,
+        "momentum_ok": momentum_ok,
+        "vol_ok": vol_ok,
+    }
+
+    logging.info(
+        "[PATCH15][MODE1][%s] Recovery entry | WR=%.1f->%.1f price=%.4f",
+        sym, float(wr_prev), float(wr_now), price
+    )
+    return True, "MODE1_recovery", 1.0, signal_stack
+
 def get_spy_direction():
     try:
         spy_deque = globals().get("price_deques", {}).get("SPY")
