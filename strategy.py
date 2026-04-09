@@ -12,7 +12,7 @@ from collections import deque, defaultdict
 
 # === CODE VERSION TAG (for audit comparison) ===
 CODE_VERSION = "PATCH_EPOCH_5" # increment manually when you apply new patches
-CODE_VERSION = "PATCH15_2026-04-09"
+CODE_VERSION = "PATCH16_2026-04-10"
 
 # === NYSE HOLIDAY CALENDAR ===
 # Used by trading day stale detection to correctly handle market holidays
@@ -76,6 +76,11 @@ _eod_liquidation_fired = False
 _session_loss_count = defaultdict(int)   # how many losses per symbol this session
 _session_blacklist = set()               # symbols blocked for rest of session after 2 losses
 SESSION_LOSS_BLACKLIST_THRESHOLD = 2     # block after this many losses
+
+# PATCH16: Adaptive stop loss
+ADAPTIVE_SL_TIGHT_PCT = 0.0025       # 0.25% tight stop in adverse conditions
+ADAPTIVE_SL_CONSECUTIVE_LOSSES = 2   # tighten after this many consecutive losses
+_consecutive_losses = 0              # rolling counter reset on any win
 
 import pandas as pd
 import numpy as np
@@ -495,6 +500,19 @@ def write_exec_row_immediate(exec_row, symbol, run_mode):
         logging.debug("[IO] write_exec_row_immediate failed for %s: %s", filename, e)
 
 from zoneinfo import ZoneInfo
+
+# PATCH16: Finnish local time for all audit logging
+AUDIT_TZ = ZoneInfo("Europe/Helsinki")
+
+def _audit_ts(dt=None):
+    """Returns current time in Finnish timezone as formatted string."""
+    t = dt or datetime.now(timezone.utc)
+    return t.astimezone(AUDIT_TZ).strftime("%Y-%m-%d %H:%M:%S")
+
+def _session_minutes_from_ts(dt=None):
+    """Returns minutes since NYSE market open for any timestamp."""
+    t = dt or datetime.now(timezone.utc)
+    return _session_minutes(t)
 
 def _session_minutes(ts):
     # Convert timestamp to US Eastern Time (market timezone)
@@ -1473,7 +1491,19 @@ def safe_market_buy(
                     logging.warning("[BUY_SKIP] %s est_price invalid: %s", symbol, est_price)
                     return None
 
-                qty = int((cash_for_buy * BUY_CASH_BUFFER) // est_price)
+                # PATCH16: risk scaling — reduce size in adverse conditions
+                _market_char_size = globals().get("_market_character", "NEUTRAL")
+                _day_regime_size = globals().get("day_regime", "NEUTRAL_DAY")
+                _size_multiplier = 1.0
+                if _day_regime_size != "BULL_DAY" and \
+                        _market_char_size in ("NEUTRAL", "RECOVERING", "BEAR"):
+                    _size_multiplier = 0.6
+                    logging.debug(
+                        "[PATCH16][SIZE] Reducing position size to 60%% | "
+                        "char=%s regime=%s",
+                        _market_char_size, _day_regime_size
+                    )
+                qty = int((cash_for_buy * BUY_CASH_BUFFER * _size_multiplier) // est_price)
                 if qty <= 0 or qty * est_price < MIN_TRADE_USD:
                     logging.info("[BUY_SKIP] %s qty too small: qty=%d est_price=%.4f", symbol, qty, est_price)
                     return None
@@ -1616,7 +1646,8 @@ def safe_market_buy(
                     try:
                         fieldnames = ["timestamp","symbol","action","price","reason","bias","pnl",
                                       "ema_fast","ema_slow","rsi","vwap","regime","code_version",
-                                      "dist_from_session_high","move_from_open","range_position"]
+                                      "dist_from_session_high","move_from_open","range_position",
+                                      "session_minutes"]
                         with open(EXEC_AUDIT_FILE, "a", newline="") as f:
                             writer = csv.DictWriter(f, fieldnames=fieldnames)
                             if f.tell() == 0:
@@ -1638,6 +1669,7 @@ def safe_market_buy(
                                 "dist_from_session_high": entry_config_dict["dist_from_session_high"],
                                 "move_from_open": entry_config_dict["move_from_open"],
                                 "range_position": entry_config_dict["range_position"],
+                                "session_minutes": _session_minutes_from_ts(submit_ts),
                             })
                     except Exception as e:
                         logging.warning("Failed to write BUY to audit file: %s", e)
@@ -2303,6 +2335,12 @@ def force_liquidation_at_cutoff(trade_client_local, symbols):
         session_high_price[sym] = None
         session_low_price[sym] = None
     logging.warning("[SESSION_RESET] Session tracking cleared for %d symbols", len(symbols))
+
+    # PATCH16: clear session loss tracking for new day
+    _session_loss_count.clear()
+    _session_blacklist.clear()
+    globals()["_consecutive_losses"] = 0
+    logging.warning("[PATCH16] Session loss tracking cleared for new day")
 
     # Clear session open file at EOD so tomorrow starts fresh
     try:
@@ -3008,6 +3046,11 @@ def evaluate_entry(sym, price, size, prices_series, sizes_series, ts_val,
     if regime == "HIGH_VOL":
         logging.debug(f"[BLOCK] {sym} rejected | Reason=HIGH_VOL regime blocked for entries")
         return False, "HIGH_VOL blocked", 0.0, {}
+        
+    # PATCH16: session blacklist — block symbols that lost twice today
+    if sym in _session_blacklist:
+        logging.debug("[BLOCK] %s blocked — session blacklist (2+ losses today)", sym)
+        return False, "Session blacklist", 0.0, {}
             
     if regime_trades[regime] >= 5:
         sls = exit_reason_count[regime].get("Stop-loss", 0)
@@ -3197,6 +3240,14 @@ def evaluate_entry(sym, price, size, prices_series, sizes_series, ts_val,
                 sym, _vwap_extension
             )
             return False, "TREND/DRIFT entry blocked — price too extended above VWAP", 0.0, {}
+
+    # PATCH16: bearish bias + RANGE is a falling knife — hard block
+    if bias == "bearish" and regime == "RANGE":
+        logging.debug(
+            "[BLOCK] %s rejected | Reason=Bearish bias + RANGE hard block (rsi=%.2f)",
+            sym, rsi_val
+        )
+        return False, "Bearish+RANGE hard block", 0.0, {}
 
     if bias == "bearish":
         logging.debug(
@@ -3645,7 +3696,22 @@ def evaluate_sell(
             _rocket_mode_peak.pop(sym, None)
             return True, "5% stop-loss"
 
-        emergency_sl_pct = float(CONFIG.get("EMERGENCY_SL_PCT", 0.01))
+        # PATCH16: adaptive stop — tighter in adverse market conditions
+        _market_char_sl = globals().get("_market_character", "NEUTRAL")
+        _day_regime_sl = globals().get("day_regime", "NEUTRAL_DAY")
+        _consec_losses = globals().get("_consecutive_losses", 0)
+        _use_tight_sl = (
+            _market_char_sl in ("NEUTRAL", "RECOVERING", "BEAR") or
+            _day_regime_sl != "BULL_DAY" and _consec_losses >= ADAPTIVE_SL_CONSECUTIVE_LOSSES
+        )
+        if _use_tight_sl:
+            emergency_sl_pct = ADAPTIVE_SL_TIGHT_PCT
+            logging.debug(
+                "[PATCH16][SL] %s using tight stop %.4f | char=%s regime=%s consec=%d",
+                sym, emergency_sl_pct, _market_char_sl, _day_regime_sl, _consec_losses
+            )
+        else:
+            emergency_sl_pct = float(CONFIG.get("EMERGENCY_SL_PCT", 0.01))
         if last_price <= ref_entry * (1 - emergency_sl_pct):
             logging.info("[%s] EXIT evaluate_sell | reason=Emergency SL (session=%s) | "
                          "last=%.4f | ref=%.4f | sl_pct=%.4f",
@@ -4382,9 +4448,20 @@ def main():
     
     inflight_orders = {}
                 
-    symbols = ["AAPL", "MSFT", "MU", "QCOM", "NVDA", "V", "AMD", "GOOG", "C", "EBAY", "OKTA", "TSLA", "AMZN", "ADSK", "DELL",
-               "SPY", "QQQ", "IWM", "XLK", "NFLX", "COST", "CRM", "ORCL", "DIA", "XLF", "XLE", "XLV", "AVGO", "INTC", "PEP",
-               "KO", "CSCO", "PLTR", "SMCI", "SHOP", "UBER", "SQ", "XOM", "JPM"]
+    symbols = [
+        # Core tech momentum — highest priority
+        "NVDA", "AMD", "TSLA", "AAPL", "MSFT", "AMZN", "GOOG", "META",
+        # Semiconductors
+        "MU", "QCOM", "AVGO", "SMCI",
+        # Software and cloud
+        "CRM", "ORCL", "ADSK", "NFLX", "PLTR", "SHOP",
+        # Financials
+        "V", "JPM", "C",
+        # Other high beta
+        "UBER", "SQ",
+        # ETFs — SPY must stay as reference
+        "SPY", "QQQ", "IWM", "XLK", "XLF",
+    ]
     price_deques = {s: deque(maxlen=TICKS_WINDOW) for s in symbols}
     size_deques = {s: deque(maxlen=TICKS_WINDOW) for s in symbols}
     time_deques = {s: deque(maxlen=TICKS_WINDOW) for s in symbols}
@@ -5066,16 +5143,34 @@ def main():
             
 
             for symbol in symbols:
-                try:
-                    req = StockLatestTradeRequest(symbol_or_symbols=symbol)
-                    resp = stock_data_client.get_stock_latest_trade(req)
-                    trade = resp[symbol]
-                    price = float(trade.price)
-                    size = float(trade.size) if hasattr(trade, "size") else 1.0
-                    ts_val = datetime.now(timezone.utc)
-                except Exception as e:
-                    logging.debug(f"[LIVE] Failed to fetch trade for {symbol}: {e}")
+                # PATCH16: retry fetch up to 3 times on connection errors
+                _fetch_price = None
+                _fetch_size = 1.0
+                for _fetch_attempt in range(3):
+                    try:
+                        req = StockLatestTradeRequest(symbol_or_symbols=symbol)
+                        resp = stock_data_client.get_stock_latest_trade(req)
+                        trade = resp[symbol]
+                        _fetch_price = float(trade.price)
+                        _fetch_size = float(trade.size) if hasattr(trade, "size") else 1.0
+                        break
+                    except Exception as e:
+                        if _fetch_attempt < 2:
+                            logging.debug(
+                                "[LIVE] Fetch retry %d/3 for %s: %s",
+                                _fetch_attempt + 1, symbol, e
+                            )
+                            time.sleep(0.3)
+                        else:
+                            logging.debug(
+                                "[LIVE] Failed to fetch trade for %s after 3 attempts: %s",
+                                symbol, e
+                            )
+                if _fetch_price is None:
                     continue
+                price = _fetch_price
+                size = _fetch_size
+                ts_val = datetime.now(timezone.utc)
 
                
                 bucket_ts = ts_val.replace(microsecond=0)
@@ -5289,9 +5384,11 @@ def main():
                         trailing_active[symbol] = False
                         last_exit_time[symbol] = ts_val        # ADD THIS
                         last_exit_reason[symbol] = reason_exit  # ADD THIS
-                        # PATCH16: track session losses per symbol
+                        # PATCH16: track session losses and consecutive losses
                         if pnl < 0:
                             _session_loss_count[symbol] += 1
+                            globals()["_consecutive_losses"] = \
+                                globals().get("_consecutive_losses", 0) + 1
                             if _session_loss_count[symbol] >= SESSION_LOSS_BLACKLIST_THRESHOLD:
                                 _session_blacklist.add(symbol)
                                 logging.warning(
@@ -5299,6 +5396,8 @@ def main():
                                     "after %d losses (pnl=%.2f)",
                                     symbol, _session_loss_count[symbol], pnl
                                 )
+                        else:
+                            globals()["_consecutive_losses"] = 0
 
                         try:
                             safe_market_sell(
