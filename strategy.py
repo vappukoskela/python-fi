@@ -1653,7 +1653,7 @@ def safe_market_buy(
                             if f.tell() == 0:
                                 writer.writeheader()
                             writer.writerow({
-                                "timestamp": submit_ts.strftime("%Y-%m-%d %H:%M:%S"),
+                                "timestamp": _audit_ts(submit_ts),
                                 "symbol": symbol,
                                 "action": "BUY",
                                 "price": round(est_price, 6),
@@ -1732,7 +1732,7 @@ def safe_market_buy(
                                  symbol, filled_price, filled_qty)
 
                     fill_row = {
-                        "timestamp": fill_ts.strftime("%Y-%m-%d %H:%M:%S"),
+                        "timestamp": _audit_ts(fill_ts),
                         "symbol": symbol,
                         "action": "BUY_CONFIRMED",
                         "price": filled_price,
