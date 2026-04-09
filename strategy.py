@@ -5379,6 +5379,12 @@ def main():
                 )
 
                 budget_exhausted = (len([s for s in entry_prices if entry_prices.get(s) is not None]) >= MAX_CONCURRENT_POSITIONS)
+                # PATCH15: combine MODE1 recovery and MODE2 evaluate_entry signals
+                if not accept and _rec_accept:
+                    accept = True
+                    reason = _rec_reason
+                    stack = _rec_stack
+
                 if accept:
                     if symbol in entry_prices and entry_prices.get(symbol) is not None:
                         logging.info("[SKIP] %s already in position — skipping duplicate BUY", symbol)
