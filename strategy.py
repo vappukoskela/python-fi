@@ -5332,7 +5332,34 @@ def main():
                     continue
 
                 _day_regime = globals().get("day_regime", "NEUTRAL_DAY")
+                
+                # PATCH15: per-symbol mode selection
+                _spy_open_mode = globals().get("today_open_spy")
+                _spy_deque_mode = globals().get("price_deques", {}).get("SPY")
+                _spy_now_mode = float(_spy_deque_mode[-1]) \
+                    if _spy_deque_mode and len(_spy_deque_mode) > 0 else None
+                _spy_move_mode = (_spy_now_mode - _spy_open_mode) / _spy_open_mode \
+                    if _spy_open_mode and _spy_now_mode else 0.0
+                _symbol_mode = _get_symbol_mode(symbol, prices_series, _spy_move_mode)
 
+                # PATCH15: MODE1 recovery entry check
+                _rec_accept = False
+                _rec_reason = None
+                _rec_stack = {}
+                if (_symbol_mode == "MODE1" and
+                        (symbol not in entry_prices or entry_prices.get(symbol) is None)):
+                    _rec_accept, _rec_reason, _, _rec_stack = evaluate_recovery_entry(
+                        symbol, price, prices_series, sizes_series,
+                        ts_val, positions_map, inflight_orders,
+                        pending_entries, last_exit_time[symbol], last_buy_time
+                    )
+                    if _rec_accept:
+                        logging.info(
+                            "[PATCH15][MODE1] %s recovery entry | price=%.4f | %s",
+                            symbol, price, _rec_stack
+                        )
+
+                
                 accept, reason, score, stack = evaluate_entry(
                     symbol,
                     price,
