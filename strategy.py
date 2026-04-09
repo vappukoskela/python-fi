@@ -5459,11 +5459,12 @@ def main():
             _open_shorts = len([s for s in short_entry_prices if short_entry_prices.get(s) is not None])
             _active_rockets = [s for s in _rocket_mode_active if _rocket_mode_active.get(s)]
             logging.debug(
-                "[ENTRY_DIAG] SPY_move=%.2f%% | day_regime=%s | session=%s | "
-                "longs=%d | shorts=%d | longs_blocked=%s | shorts_available=%s | "
-                "rocket_active=%s",
+                "[ENTRY_DIAG] SPY_move=%.2f%% | day_regime=%s | market_char=%s | "
+                "session=%s | longs=%d | shorts=%d | longs_blocked=%s | "
+                "shorts_available=%s | rocket_active=%s",
                 _spy_move_pct,
                 globals().get("day_regime", "UNKNOWN"),
+                globals().get("_market_character", "NEUTRAL"),
                 globals().get("_current_session_state", "NEUTRAL_SESSION"),
                 _open_longs,
                 _open_shorts,
