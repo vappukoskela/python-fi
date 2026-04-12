@@ -419,7 +419,10 @@ EXEC_AUDIT_ENABLED = True
 EXEC_AUDIT_FILE = "audit_trades_live.csv"
 
 # === Adaptive entry threshold (per symbol, per regime) ===
-ADAPTIVE_ENTRY_ENABLED = True
+# PATCH17: Disabled — broken in 3 ways (wrong regime labels, wrong TP/SL targets,
+# state persists across sessions). TREND restored to true 1.8 minimum.
+# Infrastructure kept for future proper rebuild.
+ADAPTIVE_ENTRY_ENABLED = False
 ADAPTIVE_BOUNDS = (-0.3, 0.3)
 _adaptive_entry_shift = defaultdict(lambda: defaultdict(float))  # sym -> regime -> shift
 
