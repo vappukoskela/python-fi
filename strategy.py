@@ -3069,10 +3069,43 @@ def evaluate_entry(sym, price, size, prices_series, sizes_series, ts_val,
         logging.debug(f"[BLOCK] {sym} rejected | Reason=HIGH_VOL regime blocked for entries")
         return False, "HIGH_VOL blocked", 0.0, {}
         
-    # PATCH16: session blacklist — block symbols that lost twice today
+    # PATCH17: session blacklist with condition-gated unblock
     if sym in _session_blacklist:
-        logging.debug("[BLOCK] %s blocked — session blacklist (2+ losses today)", sym)
-        return False, "Session blacklist", 0.0, {}
+        _spy_at_block = _session_blacklist_spy_level.get(sym)
+        _time_at_block = _session_blacklist_time.get(sym)
+        _spy_bl_deque = globals().get("price_deques", {}).get("SPY")
+        _spy_now_bl = float(_spy_bl_deque[-1]) if _spy_bl_deque and len(_spy_bl_deque) > 0 else None
+        _elapsed_block = (ts_val - _time_at_block).total_seconds() if _time_at_block else 0
+
+        _spy_recovered = (
+            _spy_at_block is not None and _spy_now_bl is not None and
+            (_spy_now_bl - _spy_at_block) / _spy_at_block >= BLACKLIST_UNBLOCK_SPY_RECOVERY_PCT
+        )
+        _time_ok = _elapsed_block >= BLACKLIST_UNBLOCK_MIN_SECONDS
+
+        if _spy_recovered and _time_ok:
+            _session_blacklist.discard(sym)
+            _session_loss_count[sym] = 0
+            _session_blacklist_spy_level.pop(sym, None)
+            _session_blacklist_time.pop(sym, None)
+            logging.warning(
+                "[PATCH17] %s removed from session blacklist | "
+                "SPY recovered %.2f%% from block level | elapsed %.0f min",
+                sym,
+                (_spy_now_bl - _spy_at_block) / _spy_at_block * 100,
+                _elapsed_block / 60
+            )
+            # fall through to normal entry evaluation
+        else:
+            logging.debug(
+                "[BLOCK] %s session blacklist | spy_recovered=%s (need +%.1f%%) "
+                "time_ok=%s (elapsed %.0f/%.0f min)",
+                sym, _spy_recovered,
+                BLACKLIST_UNBLOCK_SPY_RECOVERY_PCT * 100,
+                _time_ok, _elapsed_block / 60,
+                BLACKLIST_UNBLOCK_MIN_SECONDS / 60
+            )
+            return False, "Session blacklist", 0.0, {}
             
     if regime_trades[regime] >= 5:
         sls = exit_reason_count[regime].get("Stop-loss", 0)
