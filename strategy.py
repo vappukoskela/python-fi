@@ -3279,13 +3279,14 @@ def evaluate_entry(sym, price, size, prices_series, sizes_series, ts_val,
         logging.debug("[BLOCK] %s rejected by gate_entry | Reason=%s", sym, gate_reason)
         return False, gate_reason, 0.0, {}
 
-    # === TREND AND DRIFT ONLY — block RANGE, HIGH_VOL, LOW_VOL entries ===
-    if regime not in ("TREND", "DRIFT"):
+    # === PATCH17: TREND/DRIFT gate with DRIFT_ENABLED toggle ===
+    _allowed_entry_regimes = ("TREND", "DRIFT") if DRIFT_ENABLED else ("TREND",)
+    if regime not in _allowed_entry_regimes:
         logging.debug(
-            "[BLOCK] %s blocked | regime=%s — only TREND and DRIFT entries allowed",
-            sym, regime
+            "[BLOCK] %s blocked | regime=%s — only %s entries allowed",
+            sym, regime, "/".join(_allowed_entry_regimes)
         )
-        return False, f"Regime {regime} blocked — TREND/DRIFT only", 0.0, {}
+        return False, f"Regime {regime} blocked — only {'/'.join(_allowed_entry_regimes)}", 0.0, {}
 
     # === VWAP PROXIMITY GUARDS for TREND and DRIFT ===
     # Price must be above VWAP — below VWAP contradicts bullish momentum
