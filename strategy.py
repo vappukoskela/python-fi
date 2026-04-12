@@ -2360,11 +2360,14 @@ def force_liquidation_at_cutoff(trade_client_local, symbols):
         session_low_price[sym] = None
     logging.warning("[SESSION_RESET] Session tracking cleared for %d symbols", len(symbols))
 
-    # PATCH16: clear session loss tracking for new day
+    # PATCH16+PATCH17: clear session loss tracking for new day
     _session_loss_count.clear()
     _session_blacklist.clear()
+    _session_blacklist_spy_level.clear()
+    _session_blacklist_time.clear()
+    _last_sell_fill_price.clear()
     globals()["_consecutive_losses"] = 0
-    logging.warning("[PATCH16] Session loss tracking cleared for new day")
+    logging.warning("[PATCH17] Session loss tracking and blacklist state cleared for new day")
 
     # Clear session open file at EOD so tomorrow starts fresh
     try:
