@@ -3181,19 +3181,28 @@ def evaluate_entry(sym, price, size, prices_series, sizes_series, ts_val,
                       sym, rsi_val, RSI_ENTRY_CEILING)
         return False, f"RSI overbought block (rsi={rsi_val:.1f})", 0.0, {}
 
-    # === SPY SESSION BEARISH OVERRIDE ===
-    # Block all long entries when SPY has dropped 0.5% or more from session open
+    # === PATCH17: Dynamic SPY bearish override — two-condition logic ===
+    # Replaces the single -0.50% static gate which missed sustained soft declines.
+    # Condition 1 (hard): SPY below -0.40% from open — block regardless of direction.
+    # Condition 2 (dynamic): SPY below -0.20% AND direction FALLING — sustained fade block.
     _spy_open = globals().get("today_open_spy")
     _spy_deque = globals().get("price_deques", {}).get("SPY")
     _spy_now = float(_spy_deque[-1]) if _spy_deque and len(_spy_deque) > 0 else None
     if _spy_open and _spy_now and _spy_open > 0:
         _spy_session_move = (_spy_now - _spy_open) / _spy_open
-        if _spy_session_move <= -0.005:
+        _spy_dir_entry = get_spy_direction()
+        if _spy_session_move <= SPY_BEARISH_HARD_THRESHOLD:
             logging.debug(
-                "[BLOCK] %s blocked | SPY session move=%.3f%% — bearish override",
-                sym, _spy_session_move * 100
+                "[BLOCK] %s blocked | SPY move=%.3f%% <= %.1f%% — hard bearish override",
+                sym, _spy_session_move * 100, SPY_BEARISH_HARD_THRESHOLD * 100
             )
             return False, "SPY session bearish override", 0.0, {}
+        if _spy_session_move <= SPY_BEARISH_DIRECTION_THRESHOLD and _spy_dir_entry == "FALLING":
+            logging.debug(
+                "[BLOCK] %s blocked | SPY move=%.3f%% AND direction=FALLING — dynamic bearish override",
+                sym, _spy_session_move * 100
+            )
+            return False, "SPY dynamic bearish override", 0.0, {}
 
     # === SPY REALIZED VOLATILITY ENTRY FILTER ===
     _vol_state = get_spy_volatility_state()
