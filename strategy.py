@@ -5474,9 +5474,6 @@ def main():
                             logging.warning("[SELL_GUARD] %s already in _pending_sells — skipping duplicate sell", symbol)
                             continue
 
-                        qty = entry_qty.get(symbol, 0)
-                        pnl = (price - ref_entry) * qty if ref_entry else 0.0
-
                         _pending_sells.add(symbol)
                         _snap_qty   = entry_qty.pop(symbol, 0)
                         _snap_price = entry_prices.pop(symbol, None)
@@ -5484,28 +5481,16 @@ def main():
                         _snap_cfg   = entry_configs.pop(symbol, None)
                         highest_price_since_entry.pop(symbol, None)
                         trailing_active[symbol] = False
-                        last_exit_time[symbol] = ts_val        # ADD THIS
-                        last_exit_reason[symbol] = reason_exit  # ADD THIS
-                        # PATCH16: track session losses and consecutive losses
-                        if pnl < 0:
-                            _session_loss_count[symbol] += 1
-                            globals()["_consecutive_losses"] = \
-                                globals().get("_consecutive_losses", 0) + 1
-                            if _session_loss_count[symbol] >= SESSION_LOSS_BLACKLIST_THRESHOLD:
-                                _session_blacklist.add(symbol)
-                                logging.warning(
-                                    "[PATCH16] %s added to session blacklist "
-                                    "after %d losses (pnl=%.2f)",
-                                    symbol, _session_loss_count[symbol], pnl
-                                )
-                        else:
-                            globals()["_consecutive_losses"] = 0
+                        last_exit_time[symbol] = ts_val
+                        last_exit_reason[symbol] = reason_exit
+                        # Clear stale fill price before sell so we can detect if new one arrives
+                        _last_sell_fill_price.pop(symbol, None)
 
                         try:
                             safe_market_sell(
                                 trade_client_local=trading_client,
                                 symbol=symbol,
-                                intended_qty=qty,
+                                intended_qty=_snap_qty,
                                 order_lock=order_lock,
                                 price_deques=price_deques,
                                 size_deques=size_deques
@@ -5518,8 +5503,49 @@ def main():
                                 entry_times[symbol]  = _snap_time
                                 entry_configs[symbol] = _snap_cfg
                                 highest_price_since_entry[symbol] = _snap_price
+                            _pending_sells.discard(symbol)
+                            continue
                         finally:
                             _pending_sells.discard(symbol)
+
+                        # PATCH17: use confirmed fill price for accurate loss accounting
+                        # Falls back to deque snapshot price if fill not yet confirmed
+                        _fill_price = _last_sell_fill_price.get(symbol)
+                        _price_for_pnl = _fill_price if _fill_price else price
+                        pnl = (_price_for_pnl - _snap_price) * _snap_qty if _snap_price else 0.0
+                        if _fill_price:
+                            logging.debug(
+                                "[PATCH17][PNL] %s using fill_price=%.4f (not deque=%.4f) pnl=%.2f",
+                                symbol, _fill_price, price, pnl
+                            )
+                        else:
+                            logging.debug(
+                                "[PATCH17][PNL] %s fill_price not available — using deque=%.4f pnl=%.2f",
+                                symbol, price, pnl
+                            )
+
+                        if pnl < 0:
+                            _session_loss_count[symbol] += 1
+                            globals()["_consecutive_losses"] = \
+                                globals().get("_consecutive_losses", 0) + 1
+                            if _session_loss_count[symbol] >= SESSION_LOSS_BLACKLIST_THRESHOLD:
+                                _session_blacklist.add(symbol)
+                                # PATCH17: record SPY level and timestamp at blacklist moment
+                                _bl_spy_dq = price_deques.get("SPY")
+                                _session_blacklist_spy_level[symbol] = float(_bl_spy_dq[-1]) \
+                                    if _bl_spy_dq and len(_bl_spy_dq) > 0 else None
+                                _session_blacklist_time[symbol] = ts_val
+                                logging.warning(
+                                    "[PATCH17] %s added to session blacklist after %d losses "
+                                    "(pnl=%.2f fill=%.4f spy_at_block=%s)",
+                                    symbol, _session_loss_count[symbol], pnl, _price_for_pnl,
+                                    f"{_session_blacklist_spy_level.get(symbol):.4f}"
+                                    if _session_blacklist_spy_level.get(symbol) else "N/A"
+                                )
+                        else:
+                            globals()["_consecutive_losses"] = 0
+
+                        qty = _snap_qty  # restore for audit row below
 
                         exec_rows.append({
                             "timestamp": _audit_ts(ts_val),
