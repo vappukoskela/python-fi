@@ -82,6 +82,22 @@ ADAPTIVE_SL_TIGHT_PCT = 0.0025       # 0.25% tight stop in adverse conditions
 ADAPTIVE_SL_CONSECUTIVE_LOSSES = 2   # tighten after this many consecutive losses
 _consecutive_losses = 0              # rolling counter reset on any win
 
+# PATCH17: Dynamic SPY bearish override thresholds
+SPY_BEARISH_DIRECTION_THRESHOLD = -0.0020  # block if SPY below -0.20% AND direction FALLING
+SPY_BEARISH_HARD_THRESHOLD = -0.0040       # block if SPY below -0.40% regardless of direction
+
+# PATCH17: Condition-gated blacklist unblock
+BLACKLIST_UNBLOCK_SPY_RECOVERY_PCT = 0.0030  # SPY must recover +0.30% from blacklist level
+BLACKLIST_UNBLOCK_MIN_SECONDS = 3600         # 60 minutes minimum before unblock allowed
+_session_blacklist_spy_level = {}            # SPY price when symbol was blacklisted
+_session_blacklist_time = {}                 # timestamp when symbol was blacklisted
+
+# PATCH17: Fill price tracking for accurate PnL accounting
+_last_sell_fill_price = {}  # symbol -> confirmed fill price from safe_market_sell
+
+# PATCH17: DRIFT regime toggle for controlled comparison sessions
+DRIFT_ENABLED = True  # set False to run TREND-only sessions without code changes
+
 import pandas as pd
 import numpy as np
 from dateutil import parser
