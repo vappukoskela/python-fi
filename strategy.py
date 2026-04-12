@@ -438,7 +438,7 @@ def adaptive_entry_update(sym, regime, outcome_label):
 def adaptive_entry_threshold(CONFIG, sym, regime):
     # Use regime-native base thresholds, not the outer CONFIG profile
     if regime == "TREND":
-        base = TREND_CONFIG.get("ENTRY_SCORE_THRESHOLD", 2.8)
+        base = TREND_CONFIG.get("ENTRY_SCORE_THRESHOLD", 1.8)
     elif regime == "RANGE":
         base = RANGE_CONFIG.get("ENTRY_SCORE_THRESHOLD", 1.4)
     elif regime == "LOW_VOL":
@@ -446,12 +446,15 @@ def adaptive_entry_threshold(CONFIG, sym, regime):
         if sym in _adaptive_entry_shift and "bias" in _adaptive_entry_shift[sym]:
             bias = _adaptive_entry_shift[sym]["bias"]
             base = LOW_VOL_CONFIG_BULL["ENTRY_SCORE_THRESHOLD"] if bias == "bullish" else LOW_VOL_CONFIG_BEAR["ENTRY_SCORE_THRESHOLD"]
-        else:    
+        else:
             base = LOW_VOL_CONFIG.get("ENTRY_SCORE_THRESHOLD", 1.8)
     elif regime == "DRIFT":
         base = DRIFT_CONFIG.get("ENTRY_SCORE_THRESHOLD", 1.6)
     else:
         base = HIGH_VOL_CONFIG.get("ENTRY_SCORE_THRESHOLD", 3.6)
+    # PATCH17: when adaptive system is disabled, return base threshold directly — no shift
+    if not ADAPTIVE_ENTRY_ENABLED:
+        return base
     shift = _adaptive_entry_shift[sym][regime]
     return max(0.8, base + shift)
 
