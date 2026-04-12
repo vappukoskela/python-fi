@@ -2132,6 +2132,8 @@ def safe_market_sell(trade_client_local, symbol, intended_qty, order_lock, price
                             ref_entry = entry_prices.get(symbol, float("nan"))
                             last_price = float(getattr(confirmed, "filled_avg_price", getattr(confirmed, "price", 0.0)))
                             pnl = (last_price - ref_entry) * qty_to_sell if ref_entry else 0.0
+                            # PATCH17: store confirmed fill price for accurate blacklist PnL accounting
+                            _last_sell_fill_price[symbol] = last_price
                             
                             prices_series = pd.Series(price_deques[symbol])
                             sizes_series = pd.Series(size_deques[symbol])
