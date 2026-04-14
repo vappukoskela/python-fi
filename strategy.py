@@ -2141,7 +2141,9 @@ def safe_market_sell(trade_client_local, symbol, intended_qty, order_lock, price
                         logging.info("%s - SELL order %s status=%s (attempt %d/%d)",
                                     symbol, order_id, status, attempt+1, max_retries)
                         if _status_is(status, "filled"):
-                            ref_entry = entry_prices.get(symbol, float("nan"))
+                            # PATCH18 I1: use snap_entry_price if provided (entry_prices already cleared)
+                            ref_entry = snap_entry_price if snap_entry_price is not None \
+                                        else entry_prices.get(symbol, float("nan"))
                             last_price = float(getattr(confirmed, "filled_avg_price", getattr(confirmed, "price", 0.0)))
                             pnl = (last_price - ref_entry) * qty_to_sell if ref_entry else 0.0
                             # PATCH17: store confirmed fill price for accurate blacklist PnL accounting
