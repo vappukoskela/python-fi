@@ -5528,7 +5528,8 @@ def main():
                                 intended_qty=_snap_qty,
                                 order_lock=order_lock,
                                 price_deques=price_deques,
-                                size_deques=size_deques
+                                size_deques=size_deques,
+                                snap_entry_price=_snap_price  # PATCH18 I1: fix pnl=nan in audit
                             )
                         except Exception as _sell_err:
                             logging.error("[SELL_GUARD][%s] safe_market_sell raised: %s — restoring state", symbol, _sell_err)
