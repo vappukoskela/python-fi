@@ -1169,18 +1169,27 @@ def get_spy_direction():
         ema = spy_series.ewm(span=SPY_SLOPE_WINDOW, adjust=False).mean()
         # Normalize slope by price so it is comparable across SPY price levels
         slope_norm = (ema.iloc[-1] - ema.iloc[-SPY_SLOPE_WINDOW]) / ema.iloc[-SPY_SLOPE_WINDOW]
-        # PATCH15: Use relaxed threshold on BULL_DAY with strong SPY move
+        
+        # PATCH15/PATCH18: Use relaxed threshold on BULL_DAY OR when market_char is bullish.
+        # PATCH18: market_char as fallback prevents NEUTRAL_DAY from locking the strict
+        # threshold all session even when the market is clearly trending up intraday.
         _active_fall_thresh = SPY_SLOPE_FALL_THRESH
         _day_regime_dir = globals().get("day_regime", "NEUTRAL_DAY")
         _spy_open_dir = globals().get("today_open_spy")
-        if _day_regime_dir == "BULL_DAY" and _spy_open_dir is not None:
+        _market_char_dir = globals().get("_market_character", "NEUTRAL")
+        if _spy_open_dir is not None:
             _spy_now_dir = float(spy_series.iloc[-1])
             _spy_move_dir = (_spy_now_dir - _spy_open_dir) / _spy_open_dir
-            if _spy_move_dir >= 0.010:
+            _use_relaxed_slope = (
+                (_day_regime_dir == "BULL_DAY" and _spy_move_dir >= 0.010) or
+                (_market_char_dir in ("STRONG_BULL", "MILD_BULL") and _spy_move_dir >= 0.003)
+            )
+            if _use_relaxed_slope:
                 _active_fall_thresh = SPY_SLOPE_FALL_THRESH_BULL
                 logging.debug(
-                    "[SPY_DIR] BULL_DAY with SPY_move=%.2f%% — using relaxed "
-                    "fall threshold=%.5f", _spy_move_dir * 100, _active_fall_thresh
+                    "[PATCH18][SPY_DIR] relaxed fall threshold=%.5f | "
+                    "day_regime=%s market_char=%s spy_move=%.2f%%",
+                    _active_fall_thresh, _day_regime_dir, _market_char_dir, _spy_move_dir * 100
                 )
         if slope_norm <= _active_fall_thresh:
             logging.debug(
