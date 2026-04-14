@@ -5655,6 +5655,17 @@ def main():
                     log_stack=True
                 )
 
+                # PATCH18 C1: log every entry attempt in LIVE mode
+                # Was only called in SIM branch — audit_entry_live.csv empty since Dec 17
+                try:
+                    log_entry_attempt(
+                        ts_val, symbol, regime, day_bias,
+                        accept, reason, score,
+                        ema_fast_val, ema_slow_val, rsi_val, vwap_val, price
+                    )
+                except Exception as _log_err:
+                    logging.debug("[PATCH18] log_entry_attempt failed for %s: %s", symbol, _log_err)
+
                 budget_exhausted = (len([s for s in entry_prices if entry_prices.get(s) is not None]) >= MAX_CONCURRENT_POSITIONS)
                 # PATCH15: combine MODE1 recovery and MODE2 evaluate_entry signals
                 if not accept and _rec_accept:
