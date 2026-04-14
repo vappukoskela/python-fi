@@ -4,9 +4,9 @@ import pandas as pd
 from zoneinfo import ZoneInfo
 
 # === FETCH SPY 1-MINUTE BARS FOR TODAY ===
-print("Fetching SPY 1-minute bars for 2026-04-13...")
+print("Fetching SPY 1-minute bars for 2026-04-14...")
 
-spy = yf.download("SPY", start="2026-04-13", end="2026-04-14", interval="1m", progress=False)
+spy = yf.download("SPY", start="2026-04-14", end="2026-04-15", interval="1m", progress=False)
 
 if spy.empty:
     print("ERROR: No data returned. Market may still be open or yfinance issue.")
