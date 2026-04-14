@@ -3424,9 +3424,12 @@ def evaluate_entry(sym, price, size, prices_series, sizes_series, ts_val,
         _spy_dir_score = get_spy_direction()
         _market_char_score = globals().get("_market_character", "NEUTRAL")
 
+        # PATCH18 I2: reduced bonus weights — RISING +0.5→+0.3, MILD_BULL +0.3→+0.15
+        # Evidence: NVDA base score 1.30 was carried to 2.10 by bonuses alone on Apr 13.
+        # Symbol had no breakout, no momentum, no MACD, not above VWAP — should have been rejected.
         if _spy_dir_score == "RISING":
-            score += 0.5
-            signal_stack["spy_momentum"] = "+0.5 (SPY RISING)"
+            score += 0.3   # PATCH18: reduced from 0.5
+            signal_stack["spy_momentum"] = "+0.3 (SPY RISING)"
         elif _spy_dir_score == "FALLING":
             score -= 1.0
             signal_stack["spy_momentum"] = "-1.0 (SPY FALLING)"
@@ -3434,8 +3437,8 @@ def evaluate_entry(sym, price, size, prices_series, sizes_series, ts_val,
             signal_stack["spy_momentum"] = "0.0 (SPY FLAT)"
 
         if _market_char_score in ("STRONG_BULL", "MILD_BULL"):
-            score += 0.3
-            signal_stack["market_char_score"] = f"+0.3 ({_market_char_score})"
+            score += 0.15  # PATCH18: reduced from 0.3
+            signal_stack["market_char_score"] = f"+0.15 ({_market_char_score})"
         elif _market_char_score in ("RECOVERING", "BEAR"):
             score -= 0.3
             signal_stack["market_char_score"] = f"-0.3 ({_market_char_score})"
@@ -3443,11 +3446,11 @@ def evaluate_entry(sym, price, size, prices_series, sizes_series, ts_val,
             signal_stack["market_char_score"] = f"0.0 ({_market_char_score})"
 
         logging.debug(
-            "[PATCH17][TREND_SCORE][%s] spy_dir=%s char=%s "
-            "spy_adj=%.1f char_adj=%.1f final_score=%.2f threshold=%.2f",
+            "[PATCH18][TREND_SCORE][%s] spy_dir=%s char=%s "
+            "spy_adj=%.2f char_adj=%.2f final_score=%.2f threshold=%.2f",
             sym, _spy_dir_score, _market_char_score,
-            0.5 if _spy_dir_score == "RISING" else (-1.0 if _spy_dir_score == "FALLING" else 0.0),
-            0.3 if _market_char_score in ("STRONG_BULL", "MILD_BULL") else
+            0.3 if _spy_dir_score == "RISING" else (-1.0 if _spy_dir_score == "FALLING" else 0.0),
+            0.15 if _market_char_score in ("STRONG_BULL", "MILD_BULL") else
             (-0.3 if _market_char_score in ("RECOVERING", "BEAR") else 0.0),
             score,
             adaptive_entry_threshold(CONFIG, sym, regime)
