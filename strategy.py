@@ -5395,12 +5395,15 @@ def main():
                                     )
                                     globals()["day_regime"] = "NEUTRAL_DAY"
                                     
-                                elif _spy_move >= 0.010 and _current_day_regime != "BULL_DAY":
+                                # PATCH18: lowered from 1.0% to 0.5% — today 1.0% only reached
+                                # at minute 366, 6 min after entry block. 0.5% fires ~10:30 ET.
+                                elif _spy_move >= 0.005 and _current_day_regime != "BULL_DAY":
                                     logging.warning(
                                         "[DAY_REGIME] OVERRIDE → BULL_DAY "
                                         "(SPY move=%.2f%% from open)", _spy_move * 100
                                     )
                                     globals()["day_regime"] = "BULL_DAY"
+                                    
                                 elif (_current_day_regime == "BEAR_DAY" and
                                         _today_low is not None and
                                         _today_low > 0):
