@@ -2377,12 +2377,62 @@ def force_liquidation_at_cutoff(trade_client_local, symbols):
         session_low_price[sym] = None
     logging.warning("[SESSION_RESET] Session tracking cleared for %d symbols", len(symbols))
 
+    # PATCH18 I4: write missed opportunities CSV before clearing deques
+    try:
+        import csv as _csv
+        from datetime import date as _date_eod
+        _eod_date = now_et.strftime("%Y-%m-%d")
+        _missed_file = f"missed_opportunities_{_eod_date}.csv"
+        _price_deques_eod = globals().get("price_deques", {})
+        _session_open_eod = globals().get("session_open_price", {})
+        _block_reasons_eod = globals().get("_session_block_reasons", {})
+        _traded_today = set(globals().get("entry_prices", {}).keys()) | \
+                        set(k for k, v in (globals().get("last_exit_time") or {}).items()
+                            if v is not None and
+                            hasattr(v, 'date') and v.date() == now_et.date())
+
+        _rows = []
+        for _sym, _dq in _price_deques_eod.items():
+            if len(_dq) < 2:
+                continue
+            _s_open = _session_open_eod.get(_sym)
+            if not _s_open or _s_open <= 0:
+                continue
+            _s_close = float(_dq[-1])
+            _pct = (_s_close - _s_open) / _s_open * 100
+            _reasons = _block_reasons_eod.get(_sym, {})
+            _top_reason = max(_reasons, key=_reasons.get) if _reasons else "traded_or_no_data"
+            _top_count = _reasons.get(_top_reason, 0)
+            _traded = _sym in _traded_today
+            _rows.append({
+                "date": _eod_date,
+                "symbol": _sym,
+                "session_open": round(_s_open, 4),
+                "session_close": round(_s_close, 4),
+                "pct_change": round(_pct, 3),
+                "traded": _traded,
+                "top_block_reason": _top_reason if not _traded else "traded",
+                "block_count": _top_count if not _traded else 0,
+            })
+        _rows.sort(key=lambda r: abs(r["pct_change"]), reverse=True)
+        _fieldnames = ["date","symbol","session_open","session_close","pct_change",
+                       "traded","top_block_reason","block_count"]
+        with open(_missed_file, "w", newline="") as _f:
+            _w = _csv.DictWriter(_f, fieldnames=_fieldnames)
+            _w.writeheader()
+            _w.writerows(_rows)
+        logging.warning("[PATCH18] EOD missed opportunities written: %s (%d symbols)",
+                        _missed_file, len(_rows))
+    except Exception as _eod_err:
+        logging.warning("[PATCH18] EOD missed opportunities write failed: %s", _eod_err)
+
     # PATCH16+PATCH17: clear session loss tracking for new day
     _session_loss_count.clear()
     _session_blacklist.clear()
     _session_blacklist_spy_level.clear()
     _session_blacklist_time.clear()
     _last_sell_fill_price.clear()
+    _session_block_reasons.clear()  # PATCH18
     globals()["_consecutive_losses"] = 0
     logging.warning("[PATCH17] Session loss tracking and blacklist state cleared for new day")
 
