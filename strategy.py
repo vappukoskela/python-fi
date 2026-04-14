@@ -95,6 +95,9 @@ _session_blacklist_time = {}                 # timestamp when symbol was blackli
 # PATCH17: Fill price tracking for accurate PnL accounting
 _last_sell_fill_price = {}  # symbol -> confirmed fill price from safe_market_sell
 
+# PATCH18 I4: Session block reason tracking for EOD missed opportunities report
+_session_block_reasons = defaultdict(lambda: defaultdict(int))  # sym -> reason -> count
+
 # PATCH17: DRIFT regime toggle for controlled comparison sessions
 DRIFT_ENABLED = True  # set False to run TREND-only sessions without code changes
 
