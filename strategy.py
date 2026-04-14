@@ -2044,7 +2044,10 @@ def safe_market_short(
         logging.exception("[SHORT_OUTER_ERROR] %s: %s", symbol, e)
         return None
 
-def safe_market_sell(trade_client_local, symbol, intended_qty, order_lock, price_deques, size_deques):
+def safe_market_sell(trade_client_local, symbol, intended_qty, order_lock, price_deques, size_deques,
+                     snap_entry_price=None):
+    # PATCH18 I1: snap_entry_price passed from main loop because entry_prices[symbol]
+    # is already popped before this function is called, causing pnl=nan in audit rows.
     with order_lock:
         available = get_position_qty(trade_client_local, symbol)
         if available == 0 and intended_qty > 0:
