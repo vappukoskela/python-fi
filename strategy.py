@@ -5669,6 +5669,11 @@ def main():
                 except Exception as _log_err:
                     logging.debug("[PATCH18] log_entry_attempt failed for %s: %s", symbol, _log_err)
 
+                # PATCH18 I4: track dominant block reason per symbol for EOD report
+                if not accept:
+                    _session_block_reasons[symbol][reason] = \
+                        _session_block_reasons[symbol].get(reason, 0) + 1
+
                 budget_exhausted = (len([s for s in entry_prices if entry_prices.get(s) is not None]) >= MAX_CONCURRENT_POSITIONS)
                 # PATCH15: combine MODE1 recovery and MODE2 evaluate_entry signals
                 if not accept and _rec_accept:
