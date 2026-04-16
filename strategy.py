@@ -5684,10 +5684,17 @@ def main():
                 _symbol_mode = _get_symbol_mode(symbol, prices_series, _spy_move_mode)
 
                 # PATCH15: MODE1 recovery entry check
+                # PATCH19 Option C: context gate — MODE1 only fires in supportive conditions
                 _rec_accept = False
                 _rec_reason = None
                 _rec_stack = {}
+                _market_char_m1 = globals().get("_market_character", "NEUTRAL")
+                _mode1_context_ok = (
+                    day_bias != "bearish" and
+                    _market_char_m1 != "BEAR"
+                )
                 if (_symbol_mode == "MODE1" and
+                        _mode1_context_ok and
                         (symbol not in entry_prices or entry_prices.get(symbol) is None)):
                     _rec_accept, _rec_reason, _, _rec_stack = evaluate_recovery_entry(
                         symbol, price, prices_series, sizes_series,
@@ -5696,7 +5703,7 @@ def main():
                     )
                     if _rec_accept:
                         logging.info(
-                            "[PATCH15][MODE1] %s recovery entry | price=%.4f | %s",
+                            "[PATCH19][MODE1] %s recovery entry | price=%.4f | %s",
                             symbol, price, _rec_stack
                         )
 
