@@ -1097,6 +1097,17 @@ def evaluate_recovery_entry(sym, price, prices_series, sizes_series,
     PATCH15 Mode 1 entry — oversold recovery using Williams %R.
     Fires when WR crosses up through -80 from oversold with momentum and volume.
     """
+    # PATCH19 Option A: structural guardrails — MODE1 must not bypass these blocks
+    if sym == "SPY":
+        return False, "SPY excluded from MODE1", 0.0, {}
+
+    _regime_m1 = detect_regime(prices_series, sizes_series)
+    if _regime_m1 == "HIGH_VOL":
+        return False, "HIGH_VOL excluded from MODE1", 0.0, {}
+
+    if get_spy_direction() == "FALLING":
+        return False, "MODE1 blocked — SPY direction FALLING", 0.0, {}
+
     since_last_exit = (ts_val - last_exit).total_seconds() \
         if last_exit is not None else float("inf")
     since_last_buy = (ts_val - last_buy_time[sym]).total_seconds() \
