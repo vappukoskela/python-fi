@@ -3136,7 +3136,7 @@ def evaluate_entry(sym, price, size, prices_series, sizes_series, ts_val,
     ema_fast = compute_ema_from_series(prices_series, EMA_FAST).iloc[-1] if len(prices_series) >= 2 else float('nan')
     ema_slow = compute_ema_from_series(prices_series, EMA_SLOW).iloc[-1] if len(prices_series) >= 2 else float('nan')
     rsi_val = compute_rsi_from_series(prices_series, RSI_PERIOD).iloc[-1] if len(prices_series) else float('nan')
-    vwap_val = compute_vwap_from_ticks(prices_series, sizes_series).iloc[-1] if len(sizes_eries) else float('nan')
+    vwap_val = compute_vwap_from_ticks(prices_series, sizes_series).iloc[-1] if len(sizes_series) else float('nan')
                        
     # Cooldown
     since_last_exit = (ts_val - last_exit).total_seconds() if last_exit is not None else float("inf")
