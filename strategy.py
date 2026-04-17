@@ -1586,19 +1586,39 @@ def safe_market_buy(
                     if s_high and s_low and s_high != s_low else float("nan")
                 )
                 # === SESSION POSITION ENTRY FILTERS ===
-                RANGE_POSITION_MAX = 0.75
-                # Tighten move_from_open threshold if SPY is negative on the day
+                # PATCH21: regime-aware thresholds
+                # TREND: large move_from_open IS the signal — keep strict filters only for mean-reversion regimes
+                # Risk: extended TREND entries get halved position size to cap max loss
                 _spy_open = globals().get("today_open_spy")
                 _spy_deque = globals().get("price_deques", {}).get("SPY")
                 _spy_now = float(_spy_deque[-1]) if _spy_deque and len(_spy_deque) > 0 else None
-                if _spy_open and _spy_now and _spy_open > 0 and (_spy_now - _spy_open) / _spy_open <= -0.0015:
-                    MOVE_FROM_OPEN_MAX = 0.0015  # tighter on bearish SPY days
+                if regime_at_entry == "TREND":
+                    RANGE_POSITION_MAX = 0.92   # near-high entries valid in trend
+                    MOVE_FROM_OPEN_MAX = 0.015  # 1.5% — trend entries valid deep in the move
+                    # Risk management: halve qty if symbol already moved >0.5% from open
+                    if not pd.isna(move_from_open) and move_from_open > 0.005:
+                        qty = max(1, qty // 2)
+                        logging.debug(
+                            "[PATCH21] %s extended TREND entry (move_from_open=%.2f%%) "
+                            "— qty halved to %d for risk control",
+                            symbol, move_from_open * 100, qty
+                        )
                 else:
-                    MOVE_FROM_OPEN_MAX = 0.002   # standard threshold
-                
+                    RANGE_POSITION_MAX = 0.75
+                    # Tighten move_from_open on bearish SPY days
+                    if _spy_open and _spy_now and _spy_open > 0 and (_spy_now - _spy_open) / _spy_open <= -0.0015:
+                        MOVE_FROM_OPEN_MAX = 0.0015  # tighter on bearish SPY days
+                    else:
+                        MOVE_FROM_OPEN_MAX = 0.002   # standard threshold
+
                 if not pd.isna(range_position) and range_position > RANGE_POSITION_MAX:
                     logging.info("[BUY_BLOCK] %s blocked | range_position=%.3f > %.2f (near session high)",
                                  symbol, range_position, RANGE_POSITION_MAX)
+                    return None
+
+                if not pd.isna(move_from_open) and move_from_open > MOVE_FROM_OPEN_MAX:
+                    logging.info("[BUY_BLOCK] %s blocked | move_from_open=%.4f > %.4f (extended from open)",
+                                 symbol, move_from_open, MOVE_FROM_OPEN_MAX)
                     return None
                 
                 if not pd.isna(move_from_open) and move_from_open > MOVE_FROM_OPEN_MAX:
