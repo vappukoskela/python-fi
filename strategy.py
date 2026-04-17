@@ -1621,11 +1621,7 @@ def safe_market_buy(
                                  symbol, move_from_open, MOVE_FROM_OPEN_MAX)
                     return None
                 
-                if not pd.isna(move_from_open) and move_from_open > MOVE_FROM_OPEN_MAX:
-                    logging.info("[BUY_BLOCK] %s blocked | move_from_open=%.4f > %.4f (extended from open)",
-                                 symbol, move_from_open, MOVE_FROM_OPEN_MAX)
-                    return None
-                    
+                                    
                 # --- Submit order ---
                 order = MarketOrderRequest(
                     symbol=symbol,
