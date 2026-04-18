@@ -5832,6 +5832,70 @@ def main():
                         finally:
                             pending_entries.discard(symbol)
 
+            # === PATCH23: Execute top-ranked candidates ===
+            if PATCH23_CANDIDATE_RANK_ENABLED and _patch23_candidates:
+                # Sort by score descending — highest quality entry first
+                _patch23_candidates.sort(key=lambda x: x[0], reverse=True)
+
+                logging.debug(
+                    "[PATCH23] %d candidate(s) this loop | top scores: %s",
+                    len(_patch23_candidates),
+                    [(c[1], round(c[0], 2)) for c in _patch23_candidates[:5]]
+                )
+
+                _executed_this_loop = 0
+                for _cand_score, _cand_sym, _cand_bias, _cand_cfg, _cand_price in _patch23_candidates:
+                    # Re-check slot availability — previous candidate may have filled a slot
+                    _open_now = len([s for s in entry_prices if entry_prices.get(s) is not None])
+                    if _open_now >= MAX_CONCURRENT_POSITIONS:
+                        logging.debug("[PATCH23] Max positions reached — stopping candidate execution")
+                        break
+
+                    if _executed_this_loop >= PATCH23_MAX_CANDIDATES_PER_LOOP:
+                        logging.debug("[PATCH23] Max candidates per loop reached")
+                        break
+
+                    # Re-check symbol not already entered (state may have changed)
+                    if _cand_sym in entry_prices and entry_prices.get(_cand_sym) is not None:
+                        logging.debug("[PATCH23] %s already in position at execution time — skip", _cand_sym)
+                        continue
+                    if _cand_sym in pending_entries:
+                        logging.debug("[PATCH23] %s in pending_entries at execution time — skip", _cand_sym)
+                        continue
+
+                    # Budget check
+                    if spent_this_loop + (_cand_price * 10) > max_loop_budget:
+                        logging.info("[PATCH23] %s skipped — budget exhausted", _cand_sym)
+                        continue
+
+                    pending_entries.add(_cand_sym)
+                    try:
+                        estimated_cost = _cand_price * int((max_loop_budget * BUY_CASH_BUFFER) // _cand_price)
+                        spent_this_loop += estimated_cost
+                        _executed_this_loop += 1
+
+                        logging.info(
+                            "[PATCH23] Executing rank %d: %s score=%.2f",
+                            _executed_this_loop, _cand_sym, _cand_score
+                        )
+
+                        safe_market_buy(
+                            trade_client_local=trading_client,
+                            symbol=_cand_sym,
+                            cash_for_buy=max_loop_budget,
+                            order_lock=order_lock,
+                            price_deques=price_deques,
+                            size_deques=size_deques,
+                            entry_times=entry_times,
+                            entry_prices=entry_prices,
+                            entry_qty=entry_qty,
+                            entry_configs=entry_configs,
+                            bias=_cand_bias,
+                            config_session=_cand_cfg
+                        )
+                    finally:
+                        pending_entries.discard(_cand_sym)
+            
             # === ENTRY DIAGNOSTIC — silent monitoring to detect blocked entries ===
                 
 
