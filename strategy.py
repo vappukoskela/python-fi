@@ -5377,7 +5377,9 @@ def main():
             MAX_CONCURRENT_POSITIONS = 3
             current_open_positions = len([s for s in entry_prices if entry_prices.get(s) is not None])
             
-
+            # PATCH23: collect all qualifying entries this loop, rank by score, execute top N
+            _patch23_candidates = []  # list of (score, symbol, day_bias, CONFIG_SESSION)
+            
             for symbol in symbols:
                 # PATCH16: retry fetch up to 3 times on connection errors
                 _fetch_price = None
