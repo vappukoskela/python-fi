@@ -1593,7 +1593,7 @@ def safe_market_buy(
                 _spy_deque = globals().get("price_deques", {}).get("SPY")
                 _spy_now = float(_spy_deque[-1]) if _spy_deque and len(_spy_deque) > 0 else None
                 if regime_at_entry == "TREND":
-                    RANGE_POSITION_MAX = 0.92   # near-high entries valid in trend
+                    RANGE_POSITION_MAX = 0.80   # PATCH22: cap TREND entries below 80th percentile of session range
                     MOVE_FROM_OPEN_MAX = 0.015  # 1.5% — trend entries valid deep in the move
                     # Risk management: halve qty if symbol already moved >0.5% from open
                     if not pd.isna(move_from_open) and move_from_open > 0.005:
