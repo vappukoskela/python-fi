@@ -12,7 +12,7 @@ from collections import deque, defaultdict
 
 # === CODE VERSION TAG (for audit comparison) ===
 CODE_VERSION = "PATCH_EPOCH_5" # increment manually when you apply new patches
-CODE_VERSION = "PATCH22_2026-04-19"
+CODE_VERSION = "PATCH23_2026-04-22"
 
 # === NYSE HOLIDAY CALENDAR ===
 # Used by trading day stale detection to correctly handle market holidays
