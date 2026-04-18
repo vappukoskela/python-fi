@@ -5791,45 +5791,46 @@ def main():
 
                 if accept:
                     if symbol in entry_prices and entry_prices.get(symbol) is not None:
-                        logging.info("[SKIP] %s already in position — skipping duplicate BUY", symbol)
+                        logging.debug("[PATCH23] %s already in position — skipping", symbol)
                         continue
-
                     if symbol in pending_entries:
-                        logging.info("[SKIP] %s already pending — skipping duplicate BUY", symbol)
+                        logging.debug("[PATCH23] %s already pending — skipping", symbol)
                         continue
 
-                    pending_entries.add(symbol)
-                    try:
-                        if spent_this_loop + (price * 10) > max_loop_budget:
-                            logging.info("[BUDGET] %s skipped — spent_this_loop=%.2f would exceed max=%.2f",
-                                         symbol, spent_this_loop, max_loop_budget)
-                            continue
-
-                        current_open_positions = len([s for s in entry_prices if entry_prices.get(s) is not None])
-                        budget_exhausted = (current_open_positions >= MAX_CONCURRENT_POSITIONS)
-                        if budget_exhausted:
-                            logging.debug("[BUDGET] Max concurrent positions reached (%d) — entries blocked this loop",
-                                         current_open_positions)
-                        else:
-                            estimated_cost = price * int((max_loop_budget * BUY_CASH_BUFFER) // price)
-                            spent_this_loop += estimated_cost
-
-                            safe_market_buy(
-                                trade_client_local=trading_client,
-                                symbol=symbol,
-                                cash_for_buy=max_loop_budget,
-                                order_lock=order_lock,
-                                price_deques=price_deques,
-                                size_deques=size_deques,
-                                entry_times=entry_times,
-                                entry_prices=entry_prices,
-                                entry_qty=entry_qty,
-                                entry_configs=entry_configs,
-                                bias=day_bias,
-                                config_session=CONFIG_SESSION
-                            )
-                    finally:
-                        pending_entries.discard(symbol)
+                    if PATCH23_CANDIDATE_RANK_ENABLED:
+                        # PATCH23: defer execution — collect as candidate for ranking
+                        _patch23_candidates.append((score, symbol, day_bias, CONFIG_SESSION, price))
+                        logging.debug(
+                            "[PATCH23] %s added as candidate | score=%.2f regime=%s",
+                            symbol, score, regime
+                        )
+                    else:
+                        # PATCH22 fallback: immediate first-match execution
+                        pending_entries.add(symbol)
+                        try:
+                            if spent_this_loop + (price * 10) > max_loop_budget:
+                                logging.info("[BUDGET] %s skipped — budget exceeded", symbol)
+                                continue
+                            current_open_positions = len([s for s in entry_prices if entry_prices.get(s) is not None])
+                            if current_open_positions < MAX_CONCURRENT_POSITIONS:
+                                estimated_cost = price * int((max_loop_budget * BUY_CASH_BUFFER) // price)
+                                spent_this_loop += estimated_cost
+                                safe_market_buy(
+                                    trade_client_local=trading_client,
+                                    symbol=symbol,
+                                    cash_for_buy=max_loop_budget,
+                                    order_lock=order_lock,
+                                    price_deques=price_deques,
+                                    size_deques=size_deques,
+                                    entry_times=entry_times,
+                                    entry_prices=entry_prices,
+                                    entry_qty=entry_qty,
+                                    entry_configs=entry_configs,
+                                    bias=day_bias,
+                                    config_session=CONFIG_SESSION
+                                )
+                        finally:
+                            pending_entries.discard(symbol)
 
             # === ENTRY DIAGNOSTIC — silent monitoring to detect blocked entries ===
                 
