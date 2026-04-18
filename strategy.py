@@ -101,6 +101,13 @@ _session_block_reasons = defaultdict(lambda: defaultdict(int))  # sym -> reason 
 # PATCH17: DRIFT regime toggle for controlled comparison sessions
 DRIFT_ENABLED = True  # set False to run TREND-only sessions without code changes
 
+# === PATCH23: Candidate ranking — score all symbols before executing entries ===
+# When enabled, the main loop collects all qualifying entries each iteration,
+# sorts by score descending, and executes only the top N by quality.
+# When disabled, reverts to PATCH22 first-match behavior.
+PATCH23_CANDIDATE_RANK_ENABLED = True
+PATCH23_MAX_CANDIDATES_PER_LOOP = 3   # max entries to execute per loop iteration
+
 import pandas as pd
 import numpy as np
 from dateutil import parser
