@@ -3303,41 +3303,7 @@ def evaluate_entry(sym, price, size, prices_series, sizes_series, ts_val,
         logging.debug("[BLOCK] %s rejected | Reason=RSI invalid (rsi=%.2f)", sym, rsi_val if rsi_val else -1)
         return False, "RSI invalid", 0.0, {}
 
-    # PATCH15/PATCH18: RSI ceiling tiers.
-    # PATCH18 C2: market_char used as fallback — prevents NEUTRAL_DAY from locking
-    #             ceiling at 70 even when intraday character is clearly bullish.
-    # PATCH18 I3: TREND regime baseline raised from 70 to 75 — TREND breakouts
-    #             naturally elevate RSI; 70 ceiling contradicts the regime's own logic.
-    _rsi_day_regime = globals().get("day_regime", "NEUTRAL_DAY")
-    _rsi_market_char = globals().get("_market_character", "NEUTRAL")
-    _rsi_spy_open = globals().get("today_open_spy")
-    _rsi_spy_deque = globals().get("price_deques", {}).get("SPY")
-    _rsi_spy_now = float(_rsi_spy_deque[-1]) if _rsi_spy_deque and len(_rsi_spy_deque) > 0 else None
-    # PATCH18: bull condition = BULL_DAY OR market_char showing bullish intraday
-    _rsi_bull_condition = (
-        _rsi_day_regime == "BULL_DAY" or
-        _rsi_market_char in ("STRONG_BULL", "MILD_BULL")
-    )
-    if _rsi_bull_condition and _rsi_spy_open and _rsi_spy_now:
-        _rsi_spy_move = (_rsi_spy_now - _rsi_spy_open) / _rsi_spy_open
-        if _rsi_spy_move >= 0.010:
-            RSI_ENTRY_CEILING = 88  # very strong bull day — allow high RSI momentum entries
-        elif _rsi_spy_move >= 0.005:
-            RSI_ENTRY_CEILING = 82  # mild bull day — moderate relaxation
-        else:
-            RSI_ENTRY_CEILING = 75  # early bull / mild char — slight relaxation
-    else:
-        # PATCH18 I3: TREND regime raised from 70 to 75 — breakouts naturally push RSI above 70
-        if regime == "TREND":
-            RSI_ENTRY_CEILING = 75
-        else:
-            RSI_ENTRY_CEILING = 70  # RANGE/DRIFT/other — keep strict ceiling
-            
-    if rsi_val > RSI_ENTRY_CEILING:
-        logging.debug("[BLOCK] %s rejected | Reason=RSI overbought at entry (rsi=%.2f > %d)",
-                      sym, rsi_val, RSI_ENTRY_CEILING)
-        return False, f"RSI overbought block (rsi={rsi_val:.1f})", 0.0, {}
-
+    
     # === PATCH17: Dynamic SPY bearish override — two-condition logic ===
     # Replaces the single -0.50% static gate which missed sustained soft declines.
     # Condition 1 (hard): SPY below -0.40% from open — block regardless of direction.
