@@ -3303,6 +3303,9 @@ def evaluate_entry(sym, price, size, prices_series, sizes_series, ts_val,
         logging.debug("[BLOCK] %s rejected | Reason=RSI invalid (rsi=%.2f)", sym, rsi_val if rsi_val else -1)
         return False, "RSI invalid", 0.0, {}
 
+    # PATCH24 RSI Option 3: RSI overbought ceiling removed from TREND and DRIFT.
+    # RSI filter for RANGE is handled inside the RANGE scoring block via rsi_band_ok.
+    # RANGE hard gate: range_bull_bias_ok requires rsi_band_ok (18-38) — still active.
     
     # === PATCH17: Dynamic SPY bearish override — two-condition logic ===
     # Replaces the single -0.50% static gate which missed sustained soft declines.
