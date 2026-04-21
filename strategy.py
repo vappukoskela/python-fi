@@ -3540,7 +3540,6 @@ def evaluate_entry(sym, price, size, prices_series, sizes_series, ts_val,
         slope_ok = (0 < slope < 0.0008)
         macd_ok = (macd_hist > 0)
         vwap_ok = (price >= vwap_val)
-        rsi_ok = (45 <= rsi_val <= 65)
         bandwidth_ok = (0.0045 <= bandwidth <= 0.012)
 
         signal_stack.update({
@@ -3548,16 +3547,15 @@ def evaluate_entry(sym, price, size, prices_series, sizes_series, ts_val,
             "slope_ok": slope_ok,
             "macd_ok": macd_ok,
             "vwap_ok": vwap_ok,
-            "rsi_ok": rsi_ok,
             "bandwidth_ok": bandwidth_ok
         })
 
+        # PATCH24 RSI Option 3: rsi_ok removed from DRIFT scoring
         score = (
             w["ema_trend"] * (1 if ema_ok else 0) +
             w["slope_ok"] * (1 if slope_ok else 0) +
             w["macd_ok"] * (1 if macd_ok else 0) +
             w["vwap_ok"] * (1 if vwap_ok else 0) +
-            w["rsi_ok"] * (1 if rsi_ok else 0) +
             w["bandwidth_ok"] * (1 if bandwidth_ok else 0)
         )
 
