@@ -3538,41 +3538,33 @@ def evaluate_entry(sym, price, size, prices_series, sizes_series, ts_val,
         signal_stack["adx_ok"] = adx_ok
         score += 0.4 if adx_ok else 0.0
 
-        # PATCH17: SPY momentum as weighted scoring component
-        # Makes SPY context part of entry quality score, not just an external veto
-        _spy_dir_score = get_spy_direction()
-        _market_char_score = globals().get("_market_character", "NEUTRAL")
+        # PATCH24: SPY context scoring from consolidated states
+        _spy_mom_score  = globals().get("SPY_MOMENTUM", "FLAT")
+        _spy_bias_score = globals().get("SPY_DAY_BIAS", "NEUTRAL")
 
-        # PATCH18 I2: reduced bonus weights — RISING +0.5→+0.3, MILD_BULL +0.3→+0.15
-        # Evidence: NVDA base score 1.30 was carried to 2.10 by bonuses alone on Apr 13.
-        # Symbol had no breakout, no momentum, no MACD, not above VWAP — should have been rejected.
-        if _spy_dir_score == "RISING":
-            score += 0.3   # PATCH18: reduced from 0.5
-            signal_stack["spy_momentum"] = "+0.3 (SPY RISING)"
-        elif _spy_dir_score == "FALLING":
+        if _spy_mom_score == "RISING":
+            score += 0.3
+            signal_stack["spy_context"] = "+0.3 (SPY RISING)"
+        elif _spy_mom_score == "FADING":
             score -= 1.0
-            signal_stack["spy_momentum"] = "-1.0 (SPY FALLING)"
+            signal_stack["spy_context"] = "-1.0 (SPY FADING)"
         else:
-            signal_stack["spy_momentum"] = "0.0 (SPY FLAT)"
+            signal_stack["spy_context"] = "0.0 (SPY FLAT)"
 
-        if _market_char_score in ("STRONG_BULL", "MILD_BULL"):
-            score += 0.15  # PATCH18: reduced from 0.3
-            signal_stack["market_char_score"] = f"+0.15 ({_market_char_score})"
-        elif _market_char_score in ("RECOVERING", "BEAR"):
+        if _spy_bias_score == "BULL":
+            score += 0.15
+            signal_stack["day_bias_score"] = "+0.15 (BULL)"
+        elif _spy_bias_score == "BEAR":
             score -= 0.3
-            signal_stack["market_char_score"] = f"-0.3 ({_market_char_score})"
+            signal_stack["day_bias_score"] = "-0.3 (BEAR)"
         else:
-            signal_stack["market_char_score"] = f"0.0 ({_market_char_score})"
+            signal_stack["day_bias_score"] = "0.0 (NEUTRAL)"
 
         logging.debug(
-            "[PATCH18][TREND_SCORE][%s] spy_dir=%s char=%s "
-            "spy_adj=%.2f char_adj=%.2f final_score=%.2f threshold=%.2f",
-            sym, _spy_dir_score, _market_char_score,
-            0.3 if _spy_dir_score == "RISING" else (-1.0 if _spy_dir_score == "FALLING" else 0.0),
-            0.15 if _market_char_score in ("STRONG_BULL", "MILD_BULL") else
-            (-0.3 if _market_char_score in ("RECOVERING", "BEAR") else 0.0),
-            score,
-            adaptive_entry_threshold(CONFIG, sym, regime)
+            "[PATCH24][TREND_SCORE][%s] momentum=%s bias=%s "
+            "final_score=%.2f threshold=%.2f",
+            sym, _spy_mom_score, _spy_bias_score,
+            score, adaptive_entry_threshold(CONFIG, sym, regime)
         )
 
     
