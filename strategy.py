@@ -5473,29 +5473,17 @@ def main():
 
                 if symbol == "SPY":
                     try:
-                        market_series = pd.Series(price_deques["SPY"])
-                        market_trend_state = market_trend_filter(market_series)
-                        globals()["market_trend_state"] = market_trend_state
-                        logging.debug(f"[MARKET] trend_state={market_trend_state}")
-                        # PATCH15: update intraday market character
-                        _spy_open_char = globals().get("today_open_spy")
-                        if _spy_open_char is not None:
-                            _spy_move_char = (price - _spy_open_char) / _spy_open_char
-                            _update_market_character(_spy_move_char, ts_val)
-
+                        # Capture session open price (PATCH13: true 9:30 bar)
                         if globals().get("today_open_spy") is None:
-                            # PATCH13: Use true 9:30 open bar price instead of first tick price
-                            # First tick can arrive minutes into session on fast-moving days
                             _true_open = None
                             try:
                                 from alpaca.data.requests import StockBarsRequest
                                 from alpaca.data.timeframe import TimeFrame
-                                import datetime as _dt
                                 _today = ts_val.date()
                                 _open_start = datetime(
                                     _today.year, _today.month, _today.day,
                                     13, 30, 0, tzinfo=timezone.utc
-                                )  # 9:30 ET = 13:30 UTC
+                                )
                                 _open_end = _open_start + timedelta(minutes=2)
                                 _bars_req = StockBarsRequest(
                                     symbol_or_symbols="SPY",
@@ -5507,14 +5495,30 @@ def main():
                                 if _bars is not None and not _bars.empty:
                                     _true_open = float(_bars["open"].iloc[0])
                                     logging.info(
-                                        "[DAY_REGIME] PATCH13: True 9:30 open bar fetched: %.4f", 
-                                        _true_open
+                                        "[PATCH24] SPY true 9:30 open: %.4f", _true_open
                                     )
                             except Exception as _e:
                                 logging.warning(
-                                    "[DAY_REGIME] PATCH13: Could not fetch true open bar: %s "
-                                    "— falling back to first tick %.4f", _e, price
+                                    "[PATCH24] Could not fetch true open bar: %s "
+                                    "— using first tick %.4f", _e, price
                                 )
+                            globals()["today_open_spy"] = \
+                                _true_open if _true_open is not None else price
+                            globals()["today_low_spy"] = globals()["today_open_spy"]
+                            logging.info(
+                                "[PATCH24] SPY session open captured: %.4f",
+                                globals()["today_open_spy"]
+                            )
+                        else:
+                            globals()["today_low_spy"] = min(
+                                globals().get("today_low_spy", price), price
+                            )
+
+                        # PATCH24: update all three consolidated SPY states
+                        _update_spy_states(price, ts_val)
+
+                    except Exception as e:
+                        logging.debug("[PATCH24] SPY state update failed: %s", e)
                             globals()["today_open_spy"] = _true_open if _true_open is not None else price
                             globals()["today_low_spy"] = globals()["today_open_spy"]
                             logging.info(
