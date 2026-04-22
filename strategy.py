@@ -5576,8 +5576,8 @@ def main():
                                             _recovery_from_low * 100, _today_low
                                         )
                                         globals()["day_regime"] = "NEUTRAL_DAY"
-                    except Exception as e:
-                        logging.debug(f"[MARKET] trend update failed: {e}")
+                                except Exception as e:
+                                    logging.debug(f"[MARKET] trend update failed: {e}")
 
                 # --- Detect regime ---
                 regime_raw = detect_regime(prices_series, sizes_series)
