@@ -5531,53 +5531,6 @@ def main():
 
                     except Exception as e:
                         logging.debug("[PATCH24] SPY state update failed: %s", e)
-                        globals()["today_open_spy"] = _true_open if _true_open is not None else price
-                        globals()["today_low_spy"] = globals()["today_open_spy"]
-                        logging.info(
-                            "[DAY_REGIME] SPY open price captured: %.4f", 
-                            globals()["today_open_spy"]
-                        )
-                    else:
-                        globals()["today_low_spy"] = min(
-                            globals().get("today_low_spy", price), price
-                        )
-                    try:    
-                        _today_open = globals().get("today_open_spy")
-                        _today_low = globals().get("today_low_spy", _today_open)
-                        _current_day_regime = globals().get("day_regime", "NEUTRAL_DAY")
-                        if _today_open is not None:
-                            _spy_move = (price - _today_open) / _today_open
-                            _session_min = _session_minutes(ts_val)
-                            if _session_min > 30 and _session_min % 5 == 0:
-                                if _spy_move <= -0.010 and _current_day_regime not in ("BEAR_DAY", "NEUTRAL_DAY"):
-                                    logging.warning(
-                                        "[DAY_REGIME] OVERRIDE → NEUTRAL_DAY "
-                                        "(SPY move=%.2f%% from open — longs blocked by SPY filter)", _spy_move * 100
-                                    )
-                                    globals()["day_regime"] = "NEUTRAL_DAY"
-                                    
-                                # PATCH18: lowered from 1.0% to 0.5% — today 1.0% only reached
-                                # at minute 366, 6 min after entry block. 0.5% fires ~10:30 ET.
-                                elif _spy_move >= 0.005 and _current_day_regime != "BULL_DAY":
-                                    logging.warning(
-                                        "[DAY_REGIME] OVERRIDE → BULL_DAY "
-                                        "(SPY move=%.2f%% from open)", _spy_move * 100
-                                    )
-                                    globals()["day_regime"] = "BULL_DAY"
-                                    
-                                elif (_current_day_regime == "BEAR_DAY" and
-                                        _today_low is not None and
-                                        _today_low > 0):
-                                    _recovery_from_low = (price - _today_low) / _today_low
-                                    if _recovery_from_low >= 0.006:
-                                        logging.warning(
-                                            "[DAY_REGIME] OVERRIDE → NEUTRAL_DAY "
-                                            "(SPY recovered %.2f%% from session low=%.4f)",
-                                            _recovery_from_low * 100, _today_low
-                                        )
-                                        globals()["day_regime"] = "NEUTRAL_DAY"
-                                except Exception as e:
-                                    logging.debug(f"[MARKET] trend update failed: {e}")
 
                 # --- Detect regime ---
                 regime_raw = detect_regime(prices_series, sizes_series)
