@@ -4023,20 +4023,34 @@ def evaluate_sell(
         # ============================================================
         # 5. TAKE-PROFIT + ROCKET MODE
         # ============================================================
-        # PATCH15: Dynamic TP based on market character
-        _tp_base = CONFIG_E.get("TP_PCT", TP_PCT)
-        _tp_market_char = globals().get("_market_character", "NEUTRAL")
-        _tp_spy_open = globals().get("today_open_spy")
-        _tp_spy_deque = globals().get("price_deques", {}).get("SPY")
-        _tp_spy_now = float(_tp_spy_deque[-1]) \
-            if _tp_spy_deque and len(_tp_spy_deque) > 0 else None
-        _tp_spy_move = (_tp_spy_now - _tp_spy_open) / _tp_spy_open \
-            if _tp_spy_open and _tp_spy_now else 0.0
-        tp_pct = _get_dynamic_tp(_tp_base, _tp_market_char, _tp_spy_move)
+        # PATCH24: Dynamic TP from consolidated states
+        _tp_base       = CONFIG_E.get("TP_PCT", TP_PCT)
+        _tp_bias       = globals().get("SPY_DAY_BIAS", "NEUTRAL")
+        _tp_momentum   = globals().get("SPY_MOMENTUM", "FLAT")
+        _tp_spy_open   = globals().get("today_open_spy")
+        _tp_spy_deque  = globals().get("price_deques", {}).get("SPY")
+        _tp_spy_now    = float(_tp_spy_deque[-1]) \
+                         if _tp_spy_deque and len(_tp_spy_deque) > 0 else None
+        _tp_spy_move   = (_tp_spy_now - _tp_spy_open) / _tp_spy_open \
+                         if _tp_spy_open and _tp_spy_now else 0.0
+
+        if _tp_bias == "BULL" and _tp_momentum == "RISING" and _tp_spy_move >= 0.010:
+            tp_pct = _tp_base * 3.0   # very strong bull — let it run far
+        elif _tp_bias == "BULL" and _tp_momentum in ("RISING", "FLAT"):
+            tp_pct = _tp_base * 1.7   # bull day — extended target
+        elif _tp_bias == "NEUTRAL" and _tp_momentum == "RISING":
+            tp_pct = _tp_base * 1.3   # neutral day trending up — modest extension
+        elif _tp_momentum == "FADING":
+            tp_pct = _tp_base * 0.7   # fading market — take profit quickly
+        elif _tp_bias == "BEAR":
+            tp_pct = _tp_base * 0.6   # bear day — take small wins immediately
+        else:
+            tp_pct = _tp_base * 0.85  # neutral default
+
         if tp_pct != _tp_base:
             logging.debug(
-                "[PATCH15][TP] %s dynamic_tp=%.4f base_tp=%.4f char=%s spy_move=%.2f%%",
-                sym, tp_pct, _tp_base, _tp_market_char, _tp_spy_move * 100
+                "[PATCH24][TP] %s dynamic_tp=%.4f base_tp=%.4f bias=%s momentum=%s",
+                sym, tp_pct, _tp_base, _tp_bias, _tp_momentum
             )
         tp_price = ref_entry * (1 + tp_pct)
         _spy_dir_rocket = get_spy_direction()
