@@ -905,13 +905,15 @@ def overlay_by_session(CONFIG, ts, regime):
     except Exception:
         pass
 
+    # PATCH24: use consolidated states for entry pressure
     spy_pressure = 0.0
-    if spy_open and spy_current and spy_open > 0:
-        spy_move = (spy_current - spy_open) / spy_open
-        if spy_move <= -0.0015:   # SPY down 0.15% or more from open
-            spy_pressure = 0.4    # add 0.4 to all entry thresholds
-            logging.debug("[SPY_PRESSURE] SPY move=%.3f%% — tightening entry thresholds by %.1f",
-                          spy_move * 100, spy_pressure)
+    if globals().get("SPY_MOMENTUM") == "FADING" or \
+       globals().get("SPY_DAY_BIAS") == "BEAR":
+        spy_pressure = 0.4
+        logging.debug("[PATCH24][PRESSURE] SPY_MOMENTUM=%s SPY_DAY_BIAS=%s — "
+                      "tightening entry thresholds by %.1f",
+                      globals().get("SPY_MOMENTUM"), globals().get("SPY_DAY_BIAS"),
+                      spy_pressure)
 
     # OPEN session stricter entries, tighter SL, slightly higher TP
     if 0 <= minutes < 30:
