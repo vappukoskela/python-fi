@@ -1196,8 +1196,9 @@ def evaluate_recovery_entry(sym, price, prices_series, sizes_series,
     if _regime_m1 == "HIGH_VOL":
         return False, "HIGH_VOL excluded from MODE1", 0.0, {}
 
-    if get_spy_direction() == "FALLING":
-        return False, "MODE1 blocked — SPY direction FALLING", 0.0, {}
+    # PATCH24: use consolidated state
+    if globals().get("SPY_MOMENTUM", "FLAT") == "FADING":
+        return False, "MODE1 blocked — SPY FADING", 0.0, {}
 
     since_last_exit = (ts_val - last_exit).total_seconds() \
         if last_exit is not None else float("inf")
