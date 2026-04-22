@@ -2516,6 +2516,13 @@ def force_liquidation_at_cutoff(trade_client_local, symbols):
     _session_block_reasons.clear()  # PATCH18
     globals()["_consecutive_losses"] = 0
     logging.warning("[PATCH17] Session loss tracking and blacklist state cleared for new day")
+    # PATCH24: reset consolidated SPY states for new session
+    globals()["SPY_DAY_BIAS"] = "NEUTRAL"
+    globals()["SPY_MOMENTUM"] = "FLAT"
+    globals()["SPY_RISK"] = "NORMAL"
+    globals()["_spy_session_high"] = None
+    globals()["_spy_fading_candidate_since"] = None
+    logging.warning("[PATCH24] Consolidated SPY states reset for new session")
 
     # Clear session open file at EOD so tomorrow starts fresh
     try:
