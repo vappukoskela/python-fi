@@ -972,6 +972,104 @@ def get_spy_volatility_state():
         logging.debug("[VOL_STATE] get_spy_volatility_state failed: %s", e)
         return "NORMAL"
 
+def _update_spy_states(spy_price, ts_val):
+    """
+    PATCH24: Single function updating all three consolidated SPY states.
+    Called every loop when processing the SPY symbol.
+    Replaces: _update_market_character, classify_day_regime intraday overrides,
+              get_spy_direction logic, get_spy_volatility_state logic,
+              get_session_state logic, market_trend_filter calls.
+    """
+    global SPY_DAY_BIAS, SPY_MOMENTUM, SPY_RISK
+    global _spy_session_high, _spy_fading_candidate_since
+
+    spy_open = globals().get("today_open_spy")
+    spy_deque = globals().get("price_deques", {}).get("SPY")
+
+    # === 1. SPY_DAY_BIAS — strategic day context from move vs session open ===
+    if spy_open and spy_open > 0:
+        spy_move = (spy_price - spy_open) / spy_open
+        if spy_move >= 0.005:
+            new_bias = "BULL"
+        elif spy_move <= -0.004:
+            new_bias = "BEAR"
+        else:
+            new_bias = "NEUTRAL"
+
+        if new_bias != SPY_DAY_BIAS:
+            logging.warning(
+                "[PATCH24] SPY_DAY_BIAS: %s → %s | spy_move=%.3f%%",
+                SPY_DAY_BIAS, new_bias, spy_move * 100
+            )
+            SPY_DAY_BIAS = new_bias
+            globals()["SPY_DAY_BIAS"] = SPY_DAY_BIAS
+
+    # === 2. SPY_MOMENTUM — intraday momentum with FADING detection ===
+    # Track session high
+    if _spy_session_high is None or spy_price > _spy_session_high:
+        _spy_session_high = spy_price
+        globals()["_spy_session_high"] = _spy_session_high
+
+    # Pullback from session high
+    pullback = (_spy_session_high - spy_price) / _spy_session_high \
+               if _spy_session_high and _spy_session_high > 0 else 0.0
+    currently_fading = pullback >= SPY_FADING_THRESHOLD
+
+    if currently_fading:
+        if _spy_fading_candidate_since is None:
+            _spy_fading_candidate_since = ts_val
+            globals()["_spy_fading_candidate_since"] = _spy_fading_candidate_since
+        elapsed = (ts_val - _spy_fading_candidate_since).total_seconds()
+        new_momentum = "FADING" if elapsed >= SPY_FADING_SUSTAIN_SECS else SPY_MOMENTUM
+    else:
+        # Reset fading candidate timer
+        if _spy_fading_candidate_since is not None:
+            _spy_fading_candidate_since = None
+            globals()["_spy_fading_candidate_since"] = None
+
+        # RISING: near session high and slope positive
+        near_high = pullback < SPY_FADING_THRESHOLD
+        slope_positive = True
+        if spy_deque and len(spy_deque) >= 10:
+            spy_series = pd.Series(spy_deque)
+            ema = spy_series.ewm(span=20, adjust=False).mean()
+            slope_positive = float(ema.iloc[-1]) > float(ema.iloc[-5]) \
+                             if len(ema) >= 5 else True
+        new_momentum = "RISING" if (near_high and slope_positive) else "FLAT"
+
+    if new_momentum != SPY_MOMENTUM:
+        logging.warning(
+            "[PATCH24] SPY_MOMENTUM: %s → %s | pullback_from_high=%.3f%% "
+            "spy=%.4f high=%.4f",
+            SPY_MOMENTUM, new_momentum,
+            pullback * 100, spy_price, _spy_session_high or 0
+        )
+        SPY_MOMENTUM = new_momentum
+        globals()["SPY_MOMENTUM"] = SPY_MOMENTUM
+
+    # === 3. SPY_RISK — volatility state from ATR ratio ===
+    if spy_deque and \
+       len(spy_deque) >= SPY_VOL_BASELINE_WINDOW + SPY_VOL_ATR_WINDOW:
+        spy_series = pd.Series(spy_deque)
+        current_atr = compute_atr_from_series(spy_series, SPY_VOL_ATR_WINDOW)
+        atr_series = spy_series.diff().abs().rolling(SPY_VOL_ATR_WINDOW).mean()
+        baseline_atr = atr_series.iloc[-SPY_VOL_BASELINE_WINDOW:].mean()
+        if not pd.isna(current_atr) and not pd.isna(baseline_atr) and baseline_atr > 0:
+            ratio = current_atr / baseline_atr
+            if ratio >= SPY_VOL_EXTREME_MULT:
+                new_risk = "EXTREME"
+            elif ratio >= SPY_VOL_ELEVATED_MULT:
+                new_risk = "ELEVATED"
+            else:
+                new_risk = "NORMAL"
+            if new_risk != SPY_RISK:
+                logging.warning(
+                    "[PATCH24] SPY_RISK: %s → %s | atr_ratio=%.2f",
+                    SPY_RISK, new_risk, ratio
+                )
+                SPY_RISK = new_risk
+                globals()["SPY_RISK"] = SPY_RISK
+
 # === SPY DIRECTIONAL SLOPE — detects sustained intraday fade ===
 # Returns "FALLING", "FLAT", or "RISING" based on recent SPY price slope
 # Uses short window (20 ticks) to detect current momentum direction
