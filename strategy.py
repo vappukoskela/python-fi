@@ -5531,12 +5531,12 @@ def main():
 
                     except Exception as e:
                         logging.debug("[PATCH24] SPY state update failed: %s", e)
-                            globals()["today_open_spy"] = _true_open if _true_open is not None else price
-                            globals()["today_low_spy"] = globals()["today_open_spy"]
-                            logging.info(
-                                "[DAY_REGIME] SPY open price captured: %.4f", 
-                                globals()["today_open_spy"]
-                            )
+                        globals()["today_open_spy"] = _true_open if _true_open is not None else price
+                        globals()["today_low_spy"] = globals()["today_open_spy"]
+                        logging.info(
+                            "[DAY_REGIME] SPY open price captured: %.4f", 
+                            globals()["today_open_spy"]
+                        )
                         else:
                             globals()["today_low_spy"] = min(
                                 globals().get("today_low_spy", price), price
