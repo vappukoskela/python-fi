@@ -3438,12 +3438,12 @@ def evaluate_entry(sym, price, size, prices_series, sizes_series, ts_val,
         _vwap_extension = (price - vwap_val) / vwap_val
         _vwap_ext_max = 0.003  # default 0.3% for DRIFT and non-bull TREND days
         if regime == "TREND":
-            _vwap_char = globals().get("_market_character", "NEUTRAL")
-            _vwap_day  = globals().get("day_regime", "NEUTRAL_DAY")
-            if _vwap_char in ("STRONG_BULL", "MILD_BULL") or _vwap_day == "BULL_DAY":
-                _vwap_ext_max = 0.010  # 1.0% — extended is normal on genuine bull days
+            # PATCH24: use consolidated states for VWAP extension limit
+            if globals().get("SPY_DAY_BIAS") == "BULL" and \
+               globals().get("SPY_MOMENTUM") in ("RISING", "FLAT"):
+                _vwap_ext_max = 0.010  # bull day — extended moves are normal
             else:
-                _vwap_ext_max = 0.005  # 0.5% — modest relaxation for TREND on neutral days
+                _vwap_ext_max = 0.005  # neutral/bear — tighter extension limit
         if _vwap_extension > _vwap_ext_max:
             logging.debug(
                 "[BLOCK] %s blocked | vwap_extension=%.4f > %.3f — price too extended above VWAP",
