@@ -3352,61 +3352,56 @@ def evaluate_entry(sym, price, size, prices_series, sizes_series, ts_val,
     # RSI filter for RANGE is handled inside the RANGE scoring block via rsi_band_ok.
     # RANGE hard gate: range_bull_bias_ok requires rsi_band_ok (18-38) — still active.
     
-    # === PATCH17: Dynamic SPY bearish override — two-condition logic ===
-    # Replaces the single -0.50% static gate which missed sustained soft declines.
-    # Condition 1 (hard): SPY below -0.40% from open — block regardless of direction.
-    # Condition 2 (dynamic): SPY below -0.20% AND direction FALLING — sustained fade block.
-    _spy_open = globals().get("today_open_spy")
-    _spy_deque = globals().get("price_deques", {}).get("SPY")
-    _spy_now = float(_spy_deque[-1]) if _spy_deque and len(_spy_deque) > 0 else None
-    if _spy_open and _spy_now and _spy_open > 0:
-        _spy_session_move = (_spy_now - _spy_open) / _spy_open
-        _spy_dir_entry = get_spy_direction()
-        if _spy_session_move <= SPY_BEARISH_HARD_THRESHOLD:
-            logging.debug(
-                "[BLOCK] %s blocked | SPY move=%.3f%% <= %.1f%% — hard bearish override",
-                sym, _spy_session_move * 100, SPY_BEARISH_HARD_THRESHOLD * 100
-            )
-            return False, "SPY session bearish override", 0.0, {}
-        if _spy_session_move <= SPY_BEARISH_DIRECTION_THRESHOLD and _spy_dir_entry == "FALLING":
-            logging.debug(
-                "[BLOCK] %s blocked | SPY move=%.3f%% AND direction=FALLING — dynamic bearish override",
-                sym, _spy_session_move * 100
-            )
-            return False, "SPY dynamic bearish override", 0.0, {}
+    # === PATCH24: Consolidated SPY state gate ===
+    _spy_bias  = globals().get("SPY_DAY_BIAS", "NEUTRAL")
+    _spy_mom   = globals().get("SPY_MOMENTUM", "FLAT")
+    _spy_risk  = globals().get("SPY_RISK", "NORMAL")
+    _spy_open_g = globals().get("today_open_spy")
+    _spy_dq_g  = globals().get("price_deques", {}).get("SPY")
+    _spy_now_g = float(_spy_dq_g[-1]) if _spy_dq_g and len(_spy_dq_g) > 0 else None
 
-    # === SPY REALIZED VOLATILITY ENTRY FILTER ===
-    _vol_state = get_spy_volatility_state()
-    if _vol_state == "EXTREME":
-        logging.debug(
-            "[BLOCK] %s blocked | SPY volatility EXTREME — no entries in chaotic market",
-            sym
-        )
-        return False, "SPY volatility EXTREME — entries blocked", 0.0, {}
-    if _vol_state == "ELEVATED":
-        # In elevated volatility only allow entry if price is very close to VWAP
-        # Tighten the VWAP extension limit from 0.3% to 0.1%
+    # Hard block: extreme volatility — no entries under any conditions
+    if _spy_risk == "EXTREME":
+        return False, "SPY_RISK EXTREME — all entries blocked", 0.0, {}
+
+    # Helper: symbol relative strength vs SPY
+    def _sym_rel_strength():
+        _s_open = globals().get(f"today_open_{sym}")
+        if not _s_open or _s_open <= 0 or not _spy_open_g or not _spy_now_g:
+            return 0.0
+        return ((price - _s_open) / _s_open) - ((_spy_now_g - _spy_open_g) / _spy_open_g)
+
+    # BEAR day: block unless symbol shows strong independent momentum
+    if _spy_bias == "BEAR":
+        _rs = _sym_rel_strength()
+        if _rs < SPY_RELATIVE_STRENGTH_MIN:
+            logging.debug(
+                "[PATCH24] %s blocked | SPY_DAY_BIAS=BEAR rel_strength=%.3f%% < %.1f%%",
+                sym, _rs * 100, SPY_RELATIVE_STRENGTH_MIN * 100
+            )
+            return False, \
+                f"SPY BEAR day — insufficient relative strength ({_rs*100:.2f}%)", \
+                0.0, {}
+
+    # FADING: block unless symbol shows strong independent momentum
+    if _spy_mom == "FADING":
+        _rs = _sym_rel_strength()
+        if _rs < SPY_RELATIVE_STRENGTH_MIN:
+            logging.debug(
+                "[PATCH24] %s blocked | SPY_MOMENTUM=FADING rel_strength=%.3f%% < %.1f%%",
+                sym, _rs * 100, SPY_RELATIVE_STRENGTH_MIN * 100
+            )
+            return False, \
+                f"SPY FADING — insufficient relative strength ({_rs*100:.2f}%)", \
+                0.0, {}
+
+    # ELEVATED volatility: require tight VWAP proximity
+    if _spy_risk == "ELEVATED":
         if not pd.isna(vwap_val) and vwap_val > 0:
-            _tight_extension = (price - vwap_val) / vwap_val
-            if _tight_extension > 0.001:
-                logging.debug(
-                    "[BLOCK] %s blocked | SPY volatility ELEVATED + price too extended (%.4f > 0.001)",
-                    sym, _tight_extension
-                )
-                return False, "SPY volatility ELEVATED — tight VWAP extension block", 0.0, {}
-
-    # === SPY DIRECTIONAL FADE BLOCK ===
-    # Block new entries when SPY is in a sustained intraday downtrend
-    # This catches afternoon weakness even on positive SPY days
-    # Different from ATR volatility — this measures direction not choppiness
-    _spy_direction = get_spy_direction()
-    if _spy_direction == "FALLING":
-        logging.debug(
-            "[BLOCK] %s blocked | SPY direction FALLING — no new longs during sustained fade",
-            sym
-        )
-        return False, "SPY direction falling — entry blocked", 0.0, {}
-                       
+            if (price - vwap_val) / vwap_val > 0.001:
+                return False, "SPY_RISK ELEVATED — price too extended from VWAP", 0.0, {}
+    
+                           
     market_trend = globals().get("market_trend_state", "unknown")
     gate_ok, gate_reason = gate_entry(
         sym, regime, prices_series, sizes_series, vwap_val,
