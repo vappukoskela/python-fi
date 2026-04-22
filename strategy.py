@@ -1292,15 +1292,9 @@ def evaluate_recovery_entry(sym, price, prices_series, sizes_series,
     )
     return True, "MODE1_recovery", 1.0, signal_stack
 
-def get_spy_direction():
-    """PATCH24 compatibility wrapper — reads SPY_MOMENTUM."""
-    m = globals().get("SPY_MOMENTUM", "FLAT")
-    if m == "FADING":
-        return "FALLING"
-    elif m == "RISING":
-        return "RISING"
-    else:
-        return "FLAT"
+def get_spy_volatility_state():
+    """PATCH24 compatibility wrapper — reads SPY_RISK."""
+    return globals().get("SPY_RISK", "NORMAL")
     
 def _adx_proxy(series, period=14):
     # simple directional movement proxy from closes
