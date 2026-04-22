@@ -5268,8 +5268,40 @@ def main():
     if RUN_MODE == "LIVE":
         warmup_deques(symbols, price_deques, size_deques, time_deques, lookback_minutes=60)
         _wait_for_935_et()
-        day_regime = classify_day_regime(stock_data_client, price_deques["SPY"])
-        globals()["day_regime"] = day_regime
+        # PATCH24: initialize SPY_DAY_BIAS from gap vs prev close
+        _spy_prev_close = _load_prev_close()
+        if _spy_prev_close is not None:
+            globals()["today_open_spy"] = _spy_prev_close
+            try:
+                _init_resp = stock_data_client.get_stock_latest_trade(
+                    StockLatestTradeRequest(symbol_or_symbols="SPY")
+                )
+                _spy_init = float(_init_resp["SPY"].price)
+                _init_gap = (_spy_init - _spy_prev_close) / _spy_prev_close
+                if _init_gap >= 0.005:
+                    globals()["SPY_DAY_BIAS"] = "BULL"
+                elif _init_gap <= -0.004:
+                    globals()["SPY_DAY_BIAS"] = "BEAR"
+                else:
+                    globals()["SPY_DAY_BIAS"] = "NEUTRAL"
+                logging.warning(
+                    "[PATCH24] Initial SPY_DAY_BIAS=%s | gap=%.3f%% "
+                    "prev_close=%.4f spy_now=%.4f",
+                    globals()["SPY_DAY_BIAS"], _init_gap * 100,
+                    _spy_prev_close, _spy_init
+                )
+            except Exception as e:
+                globals()["SPY_DAY_BIAS"] = "NEUTRAL"
+                logging.warning("[PATCH24] Could not initialize SPY_DAY_BIAS: %s", e)
+        else:
+            globals()["today_open_spy"] = None
+            globals()["SPY_DAY_BIAS"] = "NEUTRAL"
+            logging.warning("[PATCH24] No prev_close — SPY_DAY_BIAS defaulting NEUTRAL")
+
+        globals()["SPY_MOMENTUM"] = "FLAT"
+        globals()["SPY_RISK"] = "NORMAL"
+        globals()["_spy_session_high"] = None
+        globals()["_spy_fading_candidate_since"] = None
         # === USE PREV CLOSE AS SPY REFERENCE PRICE ===
         # Alpaca free subscription does not allow historical bar fetches (403 error).
         # Instead use the previous day close saved by force_liquidation_at_cutoff.
