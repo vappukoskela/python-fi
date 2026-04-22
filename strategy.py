@@ -1588,17 +1588,19 @@ def safe_market_buy(
                     logging.warning("[BUY_SKIP] %s est_price invalid: %s", symbol, est_price)
                     return None
 
-                # PATCH16: risk scaling — reduce size in adverse conditions
-                _market_char_size = globals().get("_market_character", "NEUTRAL")
-                _day_regime_size = globals().get("day_regime", "NEUTRAL_DAY")
+                # PATCH24: three-tier position sizing from consolidated states
+                _size_bias = globals().get("SPY_DAY_BIAS", "NEUTRAL")
+                _size_mom  = globals().get("SPY_MOMENTUM", "FLAT")
                 _size_multiplier = 1.0
-                if _day_regime_size != "BULL_DAY" and \
-                        _market_char_size in ("NEUTRAL", "RECOVERING", "BEAR"):
-                    _size_multiplier = 0.6
+
+                if _size_bias == "BULL" and _size_mom == "RISING":
+                    _size_multiplier = 1.6  # ~8% — strong bull confirmed
+                    logging.debug("[PATCH24][SIZE] BULL+RISING — size x1.6")
+                elif _size_mom == "FADING" or _size_bias == "BEAR":
+                    _size_multiplier = 0.6  # ~3% — adverse conditions
                     logging.debug(
-                        "[PATCH16][SIZE] Reducing position size to 60%% | "
-                        "char=%s regime=%s",
-                        _market_char_size, _day_regime_size
+                        "[PATCH24][SIZE] bias=%s momentum=%s — size x0.6",
+                        _size_bias, _size_mom
                     )
                 qty = int((cash_for_buy * BUY_CASH_BUFFER * _size_multiplier) // est_price)
                 if qty <= 0 or qty * est_price < MIN_TRADE_USD:
