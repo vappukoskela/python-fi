@@ -3402,11 +3402,14 @@ def evaluate_entry(sym, price, size, prices_series, sizes_series, ts_val,
                 return False, "SPY_RISK ELEVATED — price too extended from VWAP", 0.0, {}
     
                            
-    market_trend = globals().get("market_trend_state", "unknown")
+    # PATCH24: map SPY_DAY_BIAS to gate_entry market_trend format
+    _mts = globals().get("SPY_DAY_BIAS", "NEUTRAL").lower()
+    if _mts == "neutral":
+        _mts = "flat"
     gate_ok, gate_reason = gate_entry(
         sym, regime, prices_series, sizes_series, vwap_val,
         compute_rsi_from_series(prices_series, RSI_PERIOD),
-        market_trend_state=market_trend
+        market_trend_state=_mts
     )
     if not gate_ok:
         logging.debug("[BLOCK] %s rejected by gate_entry | Reason=%s", sym, gate_reason)
