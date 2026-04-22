@@ -108,6 +108,20 @@ DRIFT_ENABLED = True  # set False to run TREND-only sessions without code change
 PATCH23_CANDIDATE_RANK_ENABLED = True
 PATCH23_MAX_CANDIDATES_PER_LOOP = 3   # max entries to execute per loop iteration
 
+# === PATCH24: Consolidated SPY states ===
+# Replaces: day_regime, _market_character, _current_session_state,
+#           get_spy_direction, get_spy_volatility_state, market_trend_state
+SPY_DAY_BIAS = "NEUTRAL"          # BULL | NEUTRAL | BEAR
+SPY_MOMENTUM = "FLAT"             # RISING | FLAT | FADING
+SPY_RISK     = "NORMAL"           # NORMAL | ELEVATED | EXTREME
+
+_spy_session_high = None          # SPY session high price this session
+_spy_fading_candidate_since = None  # timestamp when FADING condition first met
+
+SPY_FADING_THRESHOLD      = 0.001   # 0.10% pullback from session high = FADING candidate
+SPY_FADING_SUSTAIN_SECS   = 300     # 5 minutes sustained before FADING confirmed
+SPY_RELATIVE_STRENGTH_MIN = 0.005   # 0.5% relative strength required to enter during FADING or BEAR
+
 import pandas as pd
 import numpy as np
 from dateutil import parser
