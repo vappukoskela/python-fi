@@ -5537,10 +5537,10 @@ def main():
                             "[DAY_REGIME] SPY open price captured: %.4f", 
                             globals()["today_open_spy"]
                         )
-                        else:
-                            globals()["today_low_spy"] = min(
-                                globals().get("today_low_spy", price), price
-                            )
+                    else:
+                        globals()["today_low_spy"] = min(
+                            globals().get("today_low_spy", price), price
+                        )
                         
                         _today_open = globals().get("today_open_spy")
                         _today_low = globals().get("today_low_spy", _today_open)
