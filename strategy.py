@@ -3958,28 +3958,22 @@ def evaluate_sell(
             _rocket_mode_peak.pop(sym, None)
             return True, "Emergency SL"
 
-        # === SPY REALIZED VOLATILITY EXIT ADJUSTMENT ===
-        # In high volatility widen soft exit thresholds so normal pullbacks
-        # do not trigger premature exits
-        _vol_state_exit = get_spy_volatility_state()
-        _spy_dir_exit = get_spy_direction()
+        # === PATCH24: exit threshold multiplier from consolidated states ===
+        _spy_risk_exit = globals().get("SPY_RISK", "NORMAL")
+        _spy_mom_exit  = globals().get("SPY_MOMENTUM", "FLAT")
         _vol_multiplier = 1.0
 
-        if _vol_state_exit == "ELEVATED":
-            _vol_multiplier = 1.5
-            logging.debug("[VOL_EXIT][%s] ELEVATED volatility — widening exit thresholds x1.5", sym)
-        elif _vol_state_exit == "EXTREME":
+        if _spy_risk_exit == "EXTREME":
             _vol_multiplier = 2.0
-            logging.debug("[VOL_EXIT][%s] EXTREME volatility — widening exit thresholds x2.0", sym)
+            logging.debug("[PATCH24][EXIT][%s] SPY_RISK EXTREME — widening x2.0", sym)
+        elif _spy_risk_exit == "ELEVATED":
+            _vol_multiplier = 1.5
+            logging.debug("[PATCH24][EXIT][%s] SPY_RISK ELEVATED — widening x1.5", sym)
 
-        # === SPY DIRECTIONAL EXIT ACCELERATOR ===
-        # When SPY is in sustained downtrend, tighten exit thresholds to exit faster
-        # This is the OPPOSITE of the volatility widening above — direction overrides choppiness
-        # SPY falling + position open = get out sooner not later
-        if _spy_dir_exit == "FALLING":
+        if _spy_mom_exit == "FADING":
             _vol_multiplier = max(0.5, _vol_multiplier * 0.6)
             logging.debug(
-                "[SPY_EXIT][%s] SPY direction FALLING — tightening exit thresholds to x%.2f",
+                "[PATCH24][EXIT][%s] SPY FADING — tightening exits to x%.2f",
                 sym, _vol_multiplier
             )
 
