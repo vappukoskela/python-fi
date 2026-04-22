@@ -5541,7 +5541,7 @@ def main():
                         globals()["today_low_spy"] = min(
                             globals().get("today_low_spy", price), price
                         )
-                        
+                    try:    
                         _today_open = globals().get("today_open_spy")
                         _today_low = globals().get("today_low_spy", _today_open)
                         _current_day_regime = globals().get("day_regime", "NEUTRAL_DAY")
