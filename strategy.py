@@ -5744,10 +5744,10 @@ def main():
                 _rec_accept = False
                 _rec_reason = None
                 _rec_stack = {}
-                _market_char_m1 = globals().get("_market_character", "NEUTRAL")
+                # PATCH24: use consolidated state for MODE1 context
                 _mode1_context_ok = (
                     day_bias != "bearish" and
-                    _market_char_m1 != "BEAR"
+                    globals().get("SPY_DAY_BIAS", "NEUTRAL") != "BEAR"
                 )
                 if (_symbol_mode == "MODE1" and
                         _mode1_context_ok and
