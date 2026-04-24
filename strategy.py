@@ -5448,12 +5448,13 @@ def main():
         # Instead use the previous day close saved by force_liquidation_at_cutoff.
         # This matches what Yahoo Finance shows and is a reliable reference.
         _spy_prev_close = _load_prev_close()
-        if _spy_prev_close is not None:
+        
+        if _spy_prev_close is not None and globals().get("today_open_spy") is None:
             globals()["today_open_spy"] = _spy_prev_close
-            logging.warning("[DAY_REGIME] Using prev_close=%.4f as SPY reference price", _spy_prev_close)
+            logging.warning("[DAY_REGIME] Using prev_close=%.4f as SPY reference price (fallback)", _spy_prev_close)
         else:
-            globals()["today_open_spy"] = None
-            logging.warning("[DAY_REGIME] No prev_close available — SPY bearish override will be inactive today")
+            logging.warning("[DAY_REGIME] today_open_spy already set to %.4f by init — prev_close fallback skipped",
+                            globals().get("today_open_spy", 0))
 
         # Save session open for late-start recovery
         try:
