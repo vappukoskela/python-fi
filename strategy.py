@@ -4622,6 +4622,164 @@ MIN_TRADE_USD = 25
 MARKET_DATA_CHUNK = 5
 MAX_INFLIGHT_PER_SYMBOL = 1  
 
+def _initialize_session_state_from_history(symbols, price_deques, size_deques):
+    """
+    PATCH24: Initializes session state from historical bars when bot starts mid-session.
+    Called once after warmup, before the main loop.
+    Fixes: _spy_session_high, today_open_spy, today_open_{sym},
+           session_open_price/high/low, SPY_DAY_BIAS.
+    Falls back gracefully if Alpaca bars are unavailable (free tier 403).
+    """
+    from zoneinfo import ZoneInfo
+    ET = ZoneInfo("America/New_York")
+    now_utc = datetime.now(timezone.utc)
+    now_et  = now_utc.astimezone(ET)
+    today   = now_et.date()
+
+    # Session open in UTC
+    session_open_utc = datetime(
+        today.year, today.month, today.day,
+        13, 30, 0, tzinfo=timezone.utc   # 9:30 ET = 13:30 UTC
+    )
+
+    # Only run during market hours
+    minutes_since_open = int((now_utc - session_open_utc).total_seconds() // 60)
+    if minutes_since_open <= 0:
+        logging.warning("[INIT_HISTORY] Called before market open — skipping")
+        return
+
+    logging.warning(
+        "[INIT_HISTORY] Bot started at SM%d — initializing state from history",
+        minutes_since_open
+    )
+
+    # === Step 1: Fetch SPY bars since 9:30 ===
+    spy_bars = None
+    try:
+        from alpaca.data.requests import StockBarsRequest
+        from alpaca.data.timeframe import TimeFrame
+        _req = StockBarsRequest(
+            symbol_or_symbols="SPY",
+            start=session_open_utc,
+            end=now_utc,
+            timeframe=TimeFrame.Minute
+        )
+        _df = stock_data_client.get_stock_bars(_req).df
+        if _df is not None and not _df.empty:
+            if hasattr(_df.index, "levels"):   # MultiIndex
+                spy_bars = _df.xs("SPY", level=0) if "SPY" in _df.index.get_level_values(0) else _df
+            else:
+                spy_bars = _df
+            logging.warning("[INIT_HISTORY] SPY bars fetched: %d bars", len(spy_bars))
+    except Exception as e:
+        logging.warning("[INIT_HISTORY] Could not fetch SPY bars: %s — using deque fallback", e)
+
+    # === Step 2: Set SPY state from bars ===
+    if spy_bars is not None and len(spy_bars) > 0:
+        spy_open_price = float(spy_bars["open"].iloc[0])
+        spy_session_high = float(spy_bars["high"].max())
+        spy_current = float(spy_bars["close"].iloc[-1])
+
+        globals()["today_open_spy"] = spy_open_price
+        globals()["_spy_session_high"] = spy_session_high
+
+        # Set SPY_DAY_BIAS from actual session move
+        spy_move = (spy_current - spy_open_price) / spy_open_price
+        if spy_move >= 0.005:
+            globals()["SPY_DAY_BIAS"] = "BULL"
+        elif spy_move <= -0.004:
+            globals()["SPY_DAY_BIAS"] = "BEAR"
+        else:
+            globals()["SPY_DAY_BIAS"] = "NEUTRAL"
+
+        logging.warning(
+            "[INIT_HISTORY] SPY — open=%.4f session_high=%.4f current=%.4f "
+            "move=%.3f%% SPY_DAY_BIAS=%s",
+            spy_open_price, spy_session_high, spy_current,
+            spy_move * 100, globals()["SPY_DAY_BIAS"]
+        )
+    else:
+        # Fallback: use warmup deque
+        spy_deque = price_deques.get("SPY")
+        if spy_deque and len(spy_deque) > 0:
+            spy_current = float(spy_deque[-1])
+            # We don't know the true open, but we can use prev_close as reference
+            _prev = _load_prev_close()
+            if _prev and globals().get("today_open_spy") is None:
+                globals()["today_open_spy"] = _prev
+            # Best-effort session high from deque
+            if globals().get("_spy_session_high") is None:
+                globals()["_spy_session_high"] = max(float(x) for x in spy_deque)
+            logging.warning(
+                "[INIT_HISTORY] SPY deque fallback — session_high=%.4f (last %d ticks only)",
+                globals()["_spy_session_high"], len(spy_deque)
+            )
+
+    # === Step 3: Initialize per-symbol state ===
+    # Fetch bars for all non-SPY symbols in one pass
+    tradeable = [s for s in symbols if s != "SPY"]
+
+    # Batch fetch — split into chunks to avoid API limits
+    CHUNK = 10
+    sym_bars_map = {}
+    for i in range(0, len(tradeable), CHUNK):
+        chunk = tradeable[i:i + CHUNK]
+        try:
+            from alpaca.data.requests import StockBarsRequest
+            from alpaca.data.timeframe import TimeFrame
+            _req = StockBarsRequest(
+                symbol_or_symbols=chunk,
+                start=session_open_utc,
+                end=now_utc,
+                timeframe=TimeFrame.Minute
+            )
+            _df = stock_data_client.get_stock_bars(_req).df
+            if _df is not None and not _df.empty:
+                if hasattr(_df.index, "levels"):  # MultiIndex (sym, timestamp)
+                    for sym in chunk:
+                        try:
+                            sym_bars_map[sym] = _df.xs(sym, level=0)
+                        except KeyError:
+                            pass
+                else:
+                    # Single symbol returned
+                    if len(chunk) == 1:
+                        sym_bars_map[chunk[0]] = _df
+        except Exception as e:
+            logging.warning("[INIT_HISTORY] Bars fetch failed for chunk %s: %s", chunk, e)
+
+    logging.warning("[INIT_HISTORY] Symbol bars fetched for %d/%d symbols",
+                    len(sym_bars_map), len(tradeable))
+
+    for sym in symbols:
+        if sym == "SPY":
+            continue
+
+        bars = sym_bars_map.get(sym)
+        if bars is not None and len(bars) > 0:
+            sym_open  = float(bars["open"].iloc[0])
+            sym_high  = float(bars["high"].max())
+            sym_low   = float(bars["low"].min())
+            sym_close = float(bars["close"].iloc[-1])
+        else:
+            # Fallback: use deque data
+            dq = price_deques.get(sym)
+            if dq and len(dq) > 0:
+                sym_open  = float(dq[0])
+                sym_high  = max(float(x) for x in dq)
+                sym_low   = min(float(x) for x in dq)
+                sym_close = float(dq[-1])
+            else:
+                continue  # no data at all — skip
+
+        globals()[f"today_open_{sym}"] = sym_open
+        session_open_price[sym]  = sym_open
+        session_high_price[sym]  = sym_high
+        session_low_price[sym]   = sym_low
+
+    logging.warning("[INIT_HISTORY] Session state initialization complete — SM%d start",
+                    minutes_since_open)
+
 
 def main():
     load_dotenv()
