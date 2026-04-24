@@ -5648,35 +5648,9 @@ def main():
                     try:
                         # Capture session open price (PATCH13: true 9:30 bar)
                         if globals().get("today_open_spy") is None:
-                            _true_open = None
-                            try:
-                                from alpaca.data.requests import StockBarsRequest
-                                from alpaca.data.timeframe import TimeFrame
-                                _today = ts_val.date()
-                                _open_start = datetime(
-                                    _today.year, _today.month, _today.day,
-                                    13, 30, 0, tzinfo=timezone.utc
-                                )
-                                _open_end = _open_start + timedelta(minutes=2)
-                                _bars_req = StockBarsRequest(
-                                    symbol_or_symbols="SPY",
-                                    start=_open_start,
-                                    end=_open_end,
-                                    timeframe=TimeFrame.Minute
-                                )
-                                _bars = stock_data_client.get_stock_bars(_bars_req).df
-                                if _bars is not None and not _bars.empty:
-                                    _true_open = float(_bars["open"].iloc[0])
-                                    logging.info(
-                                        "[PATCH24] SPY true 9:30 open: %.4f", _true_open
-                                    )
-                            except Exception as _e:
-                                logging.warning(
-                                    "[PATCH24] Could not fetch true open bar: %s "
-                                    "— using first tick %.4f", _e, price
-                                )
-                            globals()["today_open_spy"] = \
-                                _true_open if _true_open is not None else price
+                            # Fallback only — should have been set by _initialize_session_state_from_history
+                            globals()["today_open_spy"] = price
+                            logging.warning("[SPY] today_open_spy not set by init — using first tick %.4f", price)
                             globals()["today_low_spy"] = globals()["today_open_spy"]
                             logging.info(
                                 "[PATCH24] SPY session open captured: %.4f",
