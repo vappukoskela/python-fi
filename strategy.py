@@ -5433,13 +5433,16 @@ def main():
     if RUN_MODE == "LIVE":
         warmup_deques(symbols, price_deques, size_deques, time_deques, lookback_minutes=60)
         _wait_for_935_et()
-        # PATCH24: initialize SPY_DAY_BIAS from gap vs prev close
-        
 
         globals()["SPY_MOMENTUM"] = "FLAT"
         globals()["SPY_RISK"] = "NORMAL"
         globals()["_spy_session_high"] = None
         globals()["_spy_fading_candidate_since"] = None
+
+        # PATCH24: initialize all session state from historical bars
+        # Handles both on-time and late starts correctly
+        _initialize_session_state_from_history(symbols, price_deques, size_deques)
+        
         # === USE PREV CLOSE AS SPY REFERENCE PRICE ===
         # Alpaca free subscription does not allow historical bar fetches (403 error).
         # Instead use the previous day close saved by force_liquidation_at_cutoff.
