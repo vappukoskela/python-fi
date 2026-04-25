@@ -66,6 +66,7 @@ _session_state_last_update = None
 # Rocket mode tracking per symbol
 _rocket_mode_active = {}
 _rocket_mode_peak = {}
+_rocket_mode_entry_time = {}       # PATCH24: tracks when rocket mode was activated
 _rocket_mode_floor_pct = 0.0015   # 0.15% trailing floor in rocket mode
 _rocket_tight_floor_pct = 0.0010  # 0.10% floor when SPY turns FALLING
 
