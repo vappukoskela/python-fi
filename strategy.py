@@ -3947,18 +3947,27 @@ def evaluate_sell(
         _market_char_sl = globals().get("_market_character", "NEUTRAL")
         _day_regime_sl = globals().get("day_regime", "NEUTRAL_DAY")
         _consec_losses = globals().get("_consecutive_losses", 0)
+        # PATCH24: adaptive stop using consolidated states
+        _sl_bias   = globals().get("SPY_DAY_BIAS", "NEUTRAL")
+        _sl_mom    = globals().get("SPY_MOMENTUM", "FLAT")
+        _sl_losses = globals().get("_consecutive_losses", 0)
         _use_tight_sl = (
-            _market_char_sl in ("NEUTRAL", "RECOVERING", "BEAR") or
-            _day_regime_sl != "BULL_DAY" and _consec_losses >= ADAPTIVE_SL_CONSECUTIVE_LOSSES
+            _sl_bias == "BEAR" or
+            _sl_mom  == "FADING" or
+            (_sl_bias != "BULL" and _sl_losses >= ADAPTIVE_SL_CONSECUTIVE_LOSSES)
         )
         if _use_tight_sl:
             emergency_sl_pct = ADAPTIVE_SL_TIGHT_PCT
             logging.debug(
-                "[PATCH16][SL] %s using tight stop %.4f | char=%s regime=%s consec=%d",
-                sym, emergency_sl_pct, _market_char_sl, _day_regime_sl, _consec_losses
+                "[PATCH24][SL] %s tight stop %.4f | bias=%s momentum=%s consec=%d",
+                sym, emergency_sl_pct, _sl_bias, _sl_mom, _sl_losses
             )
         else:
             emergency_sl_pct = float(CONFIG.get("EMERGENCY_SL_PCT", 0.01))
+            logging.debug(
+                "[PATCH24][SL] %s loose stop %.4f | bias=%s momentum=%s consec=%d",
+                sym, emergency_sl_pct, _sl_bias, _sl_mom, _sl_losses
+            )
         if last_price <= ref_entry * (1 - emergency_sl_pct):
             logging.info("[%s] EXIT evaluate_sell | reason=Emergency SL (session=%s) | "
                          "last=%.4f | ref=%.4f | sl_pct=%.4f",
