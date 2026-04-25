@@ -3996,6 +3996,23 @@ def evaluate_sell(
                 sym, _vol_multiplier
             )
 
+        # PATCH24: FADING proactive exit — close losing positions immediately
+        # when SPY confirms a fade. Does not touch profitable positions.
+        # Fires before indicators so there is no MIN_HOLD_SECONDS gate.
+        if _spy_mom_exit == "FADING":
+            _fading_unrealized = (last_price - ref_entry) / ref_entry \
+                                 if ref_entry and ref_entry > 0 else 0.0
+            if _fading_unrealized < 0:
+                logging.warning(
+                    "[PATCH24][FADING_EXIT] %s unrealized=%.3f%% — "
+                    "closing losing position on confirmed FADING",
+                    sym, _fading_unrealized * 100
+                )
+                _rocket_mode_active.pop(sym, None)
+                _rocket_mode_peak.pop(sym, None)
+                _rocket_mode_entry_time.pop(sym, None)
+                return True, "FADING exit"
+
         # ============================================================
         # 3. INDICATORS
         # ============================================================
