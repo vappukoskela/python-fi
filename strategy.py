@@ -4105,31 +4105,48 @@ def evaluate_sell(
                     sym, last_price, last_price,
                     last_price * (1 - _rocket_mode_floor_pct)
                 )
-            # Tighten floor if SPY turns FALLING
-            _active_floor_pct = (_rocket_tight_floor_pct
-                                  if _spy_dir_rocket == "FALLING"
-                                  else _rocket_mode_floor_pct)
-            peak = _rocket_mode_peak.get(sym, last_price)
-            drawdown_from_peak = (peak - last_price) / peak if peak > 0 else 0
-            if drawdown_from_peak >= _active_floor_pct:
+            # PATCH24: rocket mode time limit — 30 minutes from activation
+            _rocket_start = _rocket_mode_entry_time.get(sym)
+            _rocket_elapsed = (now_ts - _rocket_start).total_seconds() \
+                              if isinstance(_rocket_start, datetime) else 0.0
+            if _rocket_elapsed >= 1800:  # 30 minutes
                 logging.warning(
-                    "[ROCKET] %s exit triggered | price=%.4f peak=%.4f "
-                    "drawdown=%.3f%% floor=%.3f%% spy_dir=%s",
-                    sym, last_price, peak,
-                    drawdown_from_peak * 100, _active_floor_pct * 100,
-                    _spy_dir_rocket
+                    "[ROCKET] %s time limit expired | elapsed=%.0fs — "
+                    "falling back to normal exit logic",
+                    sym, _rocket_elapsed
                 )
                 _rocket_mode_active.pop(sym, None)
                 _rocket_mode_peak.pop(sym, None)
-                return True, "Rocket trailing exit"
-            # Still in rocket mode — do NOT exit at normal TP
-            logging.debug(
-                "[ROCKET] %s holding | price=%.4f peak=%.4f drawdown=%.3f%% floor=%.3f%%",
-                sym, last_price, peak,
-                drawdown_from_peak * 100, _active_floor_pct * 100
-            )
-        else:
-            # Normal TP — not in rocket mode
+                _rocket_mode_entry_time.pop(sym, None)
+                # fall through to normal TP check below
+            else:
+                # Tighten floor if SPY turns FALLING
+                _active_floor_pct = (_rocket_tight_floor_pct
+                                      if _spy_dir_rocket == "FALLING"
+                                      else _rocket_mode_floor_pct)
+                peak = _rocket_mode_peak.get(sym, last_price)
+                drawdown_from_peak = (peak - last_price) / peak if peak > 0 else 0
+                if drawdown_from_peak >= _active_floor_pct:
+                    logging.warning(
+                        "[ROCKET] %s exit triggered | price=%.4f peak=%.4f "
+                        "drawdown=%.3f%% floor=%.3f%% spy_dir=%s",
+                        sym, last_price, peak,
+                        drawdown_from_peak * 100, _active_floor_pct * 100,
+                        _spy_dir_rocket
+                    )
+                    _rocket_mode_active.pop(sym, None)
+                    _rocket_mode_peak.pop(sym, None)
+                    _rocket_mode_entry_time.pop(sym, None)
+                    return True, "Rocket trailing exit"
+                # Still in rocket mode — do NOT exit at normal TP
+                logging.debug(
+                    "[ROCKET] %s holding | price=%.4f peak=%.4f drawdown=%.3f%% floor=%.3f%%",
+                    sym, last_price, peak,
+                    drawdown_from_peak * 100, _active_floor_pct * 100
+                )
+
+        # Normal TP — not in rocket mode (or rocket just expired via time limit)
+        if not _rocket_mode_active.get(sym, False):
             if last_price >= tp_price:
                 logging.info(
                     "[%s] EXIT evaluate_sell | reason=Take-profit (session=%s) | "
