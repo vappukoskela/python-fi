@@ -4087,6 +4087,7 @@ def evaluate_sell(
                     and _sym_slope_ok):
                 _rocket_mode_active[sym] = True
                 _rocket_mode_peak[sym] = last_price
+                _rocket_mode_entry_time[sym] = now_ts  # PATCH24: record activation time
                 logging.warning(
                     "[ROCKET] %s activated | price=%.4f peak=%.4f floor=%.4f "
                     "session=%s profit=%.3f%%",
