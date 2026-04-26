@@ -2,5 +2,7 @@
 trade_log.txt
 __pycache__/
 *.pyc
-.txt
-.csv
+*.txt
+*.csv
+*.pdf
+*.log
