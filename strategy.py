@@ -1676,7 +1676,6 @@ def safe_market_buy(
                                  symbol, move_from_open, MOVE_FROM_OPEN_MAX)
                     return None
                 
-                print("hello world")       
                 # --- Submit order ---
                 order = MarketOrderRequest(
                     symbol=symbol,
