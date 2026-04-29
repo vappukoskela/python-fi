@@ -4,9 +4,9 @@ import pandas as pd
 from zoneinfo import ZoneInfo
 
 # === FETCH SPY 1-MINUTE BARS FOR TODAY ===
-print("Fetching SPY 1-minute bars for 2026-04-28...")
+print("Fetching SPY 1-minute bars for 2026-04-29...")
 
-spy = yf.download("SPY", start="2026-04-28", end="2026-04-29", interval="1m", progress=False)
+spy = yf.download("SPY", start="2026-04-29", end="2026-04-30", interval="1m", progress=False)
 
 if spy.empty:
     print("ERROR: No data returned. Market may still be open or yfinance issue.")
@@ -37,7 +37,7 @@ else:
     spy["session_high_pct"] = spy["move_from_open_pct"].cummax()
 
     # Save to CSV
-    output_file = "spy_session_2026-04-28.csv"
+    output_file = "spy_session_2026-04-29.csv"
     spy[["et_time", "helsinki_time", "Close", "move_from_open_pct", "session_high_pct"]].to_csv(output_file, index=False)
     print(f"Saved to {output_file}")
     print(f"\nOpen price: {open_price:.2f}")
