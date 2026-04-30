@@ -4510,6 +4510,7 @@ def audit_rejection_live(sym, ts_val, price, size, ema_fast, ema_slow,
 PREV_CLOSE_FILE = "spy_prev_close.txt"
 SPY_SESSION_HIGH_FILE = "spy_session_high.txt"  # PATCH25: persists session high across restarts
 
+
 def _save_prev_close(price):
     try:
         with open(PREV_CLOSE_FILE, "w") as f:
@@ -4557,7 +4558,35 @@ def _load_spy_session_high():
         logging.debug("[SESSION_HIGH] Could not load: %s", e)
     return None
 
-def _save_session_open(price)::
+def _save_spy_session_high(price):
+    """PATCH25: Persist session high to file so late restarts load it correctly."""
+    try:
+        with open(SPY_SESSION_HIGH_FILE, "w") as f:
+            f.write(f"{price:.4f}")
+    except Exception as e:
+        logging.debug("[SESSION_HIGH] Could not save: %s", e)
+
+def _load_spy_session_high():
+    """PATCH25: Load persisted session high. Returns None if missing or stale (>20h)."""
+    try:
+        if os.path.exists(SPY_SESSION_HIGH_FILE):
+            age_hours = (
+                datetime.now(timezone.utc) -
+                datetime.fromtimestamp(
+                    os.path.getmtime(SPY_SESSION_HIGH_FILE), tz=timezone.utc
+                )
+            ).total_seconds() / 3600
+            if age_hours > 20:
+                return  # === PATCH24: Consolidated SPY state gate ===
+            with open(SPY_SESSION_HIGH_FILE, "r") as f:
+                val = float(f.read().strip())
+            logging.info("[SESSION_HIGH] Loaded session_high=%.4f from file", val)
+            return val
+    except Exception as e:
+        logging.debug("[SESSION_HIGH] Could not load: %s", e)
+    return None
+
+def _save_session_open(price):
     try:
         with open(SESSION_OPEN_FILE, "w") as f:
             f.write(f"{price:.4f}")
