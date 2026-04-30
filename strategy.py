@@ -11,7 +11,7 @@ from datetime import datetime, timezone, timedelta
 from collections import deque, defaultdict
 
 # === CODE VERSION TAG (for audit comparison) ===
-CODE_VERSION = "PATCH_EPOCH_5" # increment manually when you apply new patches
+
 CODE_VERSION = "PATCH26_2026-04-30"
 
 # === NYSE HOLIDAY CALENDAR ===
@@ -3111,7 +3111,25 @@ def evaluate_short_entry(sym, price, size, prices_series, sizes_series, ts_val,
         logging.debug("[BLOCK] %s rejected | Reason=RSI invalid (rsi=%.2f)", sym, rsi_val if rsi_val else -1)
         return False, "RSI invalid", 0.0, {}
 
-    
+    # PATCH26 Fix2: RSI ceiling for TREND when SPY stalling
+    if regime == "TREND" and not pd.isna(rsi_val) and rsi_val > 75 and not _spy_advancing:
+        logging.debug(
+            "[PATCH26][FIX2] %s blocked | RSI=%.1f > 75 while SPY stalling (high %.0fs old)",
+            sym, rsi_val, _spy_high_age_secs
+        )
+        return False, f"TREND blocked — RSI overbought ({rsi_val:.1f}) while SPY stalling", 0.0, {}
+
+    # PATCH26 Fix3: move_from_open minimum for TREND when SPY stalling
+    if regime == "TREND" and not _spy_advancing and not pd.isna(_move_from_open_p26):
+        if _move_from_open_p26 < 0.0015:
+            logging.debug(
+                "[PATCH26][FIX3] %s blocked | move_from_open=%.3f%% < 0.15%% while SPY stalling",
+                sym, _move_from_open_p26 * 100
+            )
+            return False, \
+                f"TREND blocked — move_from_open ({_move_from_open_p26*100:.2f}%) insufficient while SPY stalling", \
+                0.0, {}
+
     # PATCH24 RSI Option 3: RSI overbought ceiling removed from TREND and DRIFT.
 
     since_last_exit = (ts_val - last_exit).total_seconds() \
@@ -4510,33 +4528,6 @@ def _load_prev_close():
         logging.warning("[DAY_REGIME] Could not load prev_close: %s", e)
     return None
 
-def _save_spy_session_high(price):
-    """PATCH25: Persist session high to file so late restarts load it correctly."""
-    try:
-        with open(SPY_SESSION_HIGH_FILE, "w") as f:
-            f.write(f"{price:.4f}")
-    except Exception as e:
-        logging.debug("[SESSION_HIGH] Could not save: %s", e)
-
-def _load_spy_session_high():
-    """PATCH25: Load persisted session high. Returns None if missing or stale (>20h)."""
-    try:
-        if os.path.exists(SPY_SESSION_HIGH_FILE):
-            age_hours = (
-                datetime.now(timezone.utc) -
-                datetime.fromtimestamp(
-                    os.path.getmtime(SPY_SESSION_HIGH_FILE), tz=timezone.utc
-                )
-            ).total_seconds() / 3600
-            if age_hours > 20:
-                return None
-            with open(SPY_SESSION_HIGH_FILE, "r") as f:
-                val = float(f.read().strip())
-            logging.info("[SESSION_HIGH] Loaded session_high=%.4f from file", val)
-            return val
-    except Exception as e:
-        logging.debug("[SESSION_HIGH] Could not load: %s", e)
-    return None
 
 def _save_spy_session_high(price):
     """PATCH25: Persist session high to file so late restarts load it correctly."""
