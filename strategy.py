@@ -12,7 +12,7 @@ from collections import deque, defaultdict
 
 # === CODE VERSION TAG (for audit comparison) ===
 CODE_VERSION = "PATCH_EPOCH_5" # increment manually when you apply new patches
-CODE_VERSION = "PATCH24_2026-04-27"
+CODE_VERSION = "PATCH26_2026-04-30""
 
 # === NYSE HOLIDAY CALENDAR ===
 # Used by trading day stale detection to correctly handle market holidays
@@ -117,6 +117,7 @@ SPY_MOMENTUM = "FLAT"             # RISING | FLAT | FADING
 SPY_RISK     = "NORMAL"           # NORMAL | ELEVATED | EXTREME
 
 _spy_session_high = None          # SPY session high price this session
+_spy_session_high_ts = None       # PATCH26: timestamp when session high was last set
 _spy_fading_candidate_since = None  # timestamp when FADING condition first met
 
 SPY_FADING_THRESHOLD      = 0.001   # 0.10% pullback from session high = FADING candidate
@@ -984,6 +985,8 @@ def _update_spy_states(spy_price, ts_val):
     if _spy_session_high is None or spy_price > _spy_session_high:
         _spy_session_high = spy_price
         globals()["_spy_session_high"] = _spy_session_high
+        globals()["_spy_session_high_ts"] = ts_val   # PATCH26: track when high was set
+        _save_spy_session_high(_spy_session_high)     # PATCH25: persist across restarts
 
     # Pullback from session high
     pullback = (_spy_session_high - spy_price) / _spy_session_high \
@@ -2532,6 +2535,14 @@ def force_liquidation_at_cutoff(trade_client_local, symbols):
     except Exception as e:
         logging.warning("[SESSION_STATE] EOD: could not clear session_open file: %s", e)
 
+    # PATCH25: clear session high file at EOD
+    try:
+        if os.path.exists(SPY_SESSION_HIGH_FILE):
+            os.remove(SPY_SESSION_HIGH_FILE)
+            logging.warning("[SESSION_HIGH] EOD: cleared session_high file")
+    except Exception as e:
+        logging.warning("[SESSION_HIGH] EOD: could not clear session_high file: %s", e)
+
 
 def reattach_orphan_if_needed(symbol, positions_map, entry_times, entry_prices,
                                entry_qty, entry_configs, CONFIG_SESSION):
@@ -3097,9 +3108,31 @@ def evaluate_short_entry(sym, price, size, prices_series, sizes_series, ts_val,
         return False, "Missing core indicators", 0.0, {}
 
     if pd.isna(rsi_val) or rsi_val <= 0 or rsi_val > 100:
-        logging.debug("[SHORT_BLOCK] %s rejected | Reason=RSI invalid (rsi=%.2f)",
-                      sym, rsi_val if rsi_val else -1)
+        logging.debug("[BLOCK] %s rejected | Reason=RSI invalid (rsi=%.2f)", sym, rsi_val if rsi_val else -1)
         return False, "RSI invalid", 0.0, {}
+
+    # PATCH26 Fix2: RSI ceiling for TREND — block overbought entries when SPY stalling
+    # Restored selectively: only fires when SPY is not actively making new highs
+    if regime == "TREND" and not pd.isna(rsi_val) and rsi_val > 75 and not _spy_advancing:
+        logging.debug(
+            "[PATCH26][FIX2] %s blocked | RSI=%.1f > 75 while SPY stalling (high %.0fs old)",
+            sym, rsi_val, _spy_high_age_secs
+        )
+        return False, f"TREND blocked — RSI overbought ({rsi_val:.1f}) while SPY stalling", 0.0, {}
+
+    # PATCH26 Fix3: require minimum move from open for TREND when SPY stalling
+    # Blocks entries on symbols with no directional movement while market oscillates
+    if regime == "TREND" and not _spy_advancing and not pd.isna(_move_from_open_p26):
+        if _move_from_open_p26 < 0.0015:
+            logging.debug(
+                "[PATCH26][FIX3] %s blocked | move_from_open=%.3f%% < 0.15%% while SPY stalling",
+                sym, _move_from_open_p26 * 100
+            )
+            return False, \
+                f"TREND blocked — move_from_open ({_move_from_open_p26*100:.2f}%) insufficient while SPY stalling", \
+                0.0, {}
+
+    # PATCH24 RSI Option 3: RSI overbought ceiling removed from TREND and DRIFT.
 
     since_last_exit = (ts_val - last_exit).total_seconds() \
                       if last_exit is not None else float("inf")
@@ -3368,6 +3401,17 @@ def evaluate_entry(sym, price, size, prices_series, sizes_series, ts_val,
     _spy_open_g = globals().get("today_open_spy")
     _spy_dq_g  = globals().get("price_deques", {}).get("SPY")
     _spy_now_g = float(_spy_dq_g[-1]) if _spy_dq_g and len(_spy_dq_g) > 0 else None
+
+    # PATCH26: SPY session high age — is SPY actively making new highs?
+    _spy_high_ts = globals().get("_spy_session_high_ts")
+    _spy_high_age_secs = (ts_val - _spy_high_ts).total_seconds() \
+                         if isinstance(_spy_high_ts, datetime) else float("inf")
+    _spy_advancing = _spy_high_age_secs < 900  # new high within last 15 min
+
+    # PATCH26: symbol move from open — has symbol established direction today?
+    _sym_open_p26 = globals().get(f"today_open_{sym}")
+    _move_from_open_p26 = ((price - _sym_open_p26) / _sym_open_p26) \
+                          if _sym_open_p26 and _sym_open_p26 > 0 else float("nan")
 
     # Hard block: extreme volatility — no entries under any conditions
     if _spy_risk == "EXTREME":
@@ -3789,8 +3833,18 @@ def evaluate_entry(sym, price, size, prices_series, sizes_series, ts_val,
                 tail = prices_series.iloc[-ENTRY_CONFIRM_TICKS-1:]
                 confirm_ok = (tail.iloc[-ENTRY_CONFIRM_TICKS] > rh) and all(tail.diff().fillna(0) > 0)
 
-    CONFIG_SESSION = overlay_by_session(CONFIG, ts_val, regime)                   
+    CONFIG_SESSION = overlay_by_session(CONFIG, ts_val, regime)
     threshold = adaptive_entry_threshold(CONFIG_SESSION, sym, regime)
+
+    # PATCH26 Fix1: raise TREND threshold when SPY session high is stale
+    # If SPY hasn't made a new high in 15+ min, require stronger confirmation
+    if regime == "TREND" and not _spy_advancing:
+        threshold += 0.5
+        logging.debug(
+            "[PATCH26][FIX1] %s TREND threshold raised +0.5 (SPY high %.0fs old → threshold=%.2f)",
+            sym, _spy_high_age_secs, threshold
+        )
+
     accept = (score >= threshold) and confirm_ok
         
     if log_stack and (accept or AUDIT_TRAIL_ENABLED):
@@ -4454,6 +4508,7 @@ def audit_rejection_live(sym, ts_val, price, size, ema_fast, ema_slow,
 
 # === MAIN ===
 PREV_CLOSE_FILE = "spy_prev_close.txt"
+SPY_SESSION_HIGH_FILE = "spy_session_high.txt"  # PATCH25: persists session high across restarts
 
 def _save_prev_close(price):
     try:
@@ -4474,7 +4529,35 @@ def _load_prev_close():
         logging.warning("[DAY_REGIME] Could not load prev_close: %s", e)
     return None
 
-def _save_session_open(price):
+def _save_spy_session_high(price):
+    """PATCH25: Persist session high to file so late restarts load it correctly."""
+    try:
+        with open(SPY_SESSION_HIGH_FILE, "w") as f:
+            f.write(f"{price:.4f}")
+    except Exception as e:
+        logging.debug("[SESSION_HIGH] Could not save: %s", e)
+
+def _load_spy_session_high():
+    """PATCH25: Load persisted session high. Returns None if missing or stale (>20h)."""
+    try:
+        if os.path.exists(SPY_SESSION_HIGH_FILE):
+            age_hours = (
+                datetime.now(timezone.utc) -
+                datetime.fromtimestamp(
+                    os.path.getmtime(SPY_SESSION_HIGH_FILE), tz=timezone.utc
+                )
+            ).total_seconds() / 3600
+            if age_hours > 20:
+                return None
+            with open(SPY_SESSION_HIGH_FILE, "r") as f:
+                val = float(f.read().strip())
+            logging.info("[SESSION_HIGH] Loaded session_high=%.4f from file", val)
+            return val
+    except Exception as e:
+        logging.debug("[SESSION_HIGH] Could not load: %s", e)
+    return None
+
+def _save_session_open(price)::
     try:
         with open(SESSION_OPEN_FILE, "w") as f:
             f.write(f"{price:.4f}")
@@ -4754,6 +4837,17 @@ def _initialize_session_state_from_history(symbols, price_deques, size_deques):
             # Best-effort session high from deque
             if globals().get("_spy_session_high") is None:
                 globals()["_spy_session_high"] = max(float(x) for x in spy_deque)
+            # PATCH25: override with persisted file value if it is higher
+            _saved_high = _load_spy_session_high()
+            if _saved_high is not None:
+                current_high = globals().get("_spy_session_high") or 0
+                if _saved_high > current_high:
+                    globals()["_spy_session_high"] = _saved_high
+                    logging.warning(
+                        "[INIT_HISTORY] Session high restored from file: %.4f "
+                        "(deque had %.4f) — FADING detection will be correct",
+                        _saved_high, current_high
+                    )
             logging.warning(
                 "[INIT_HISTORY] SPY deque fallback — session_high=%.4f (last %d ticks only)",
                 globals()["_spy_session_high"], len(spy_deque)
@@ -5481,7 +5575,9 @@ def main():
         globals()["SPY_MOMENTUM"] = "FLAT"
         globals()["SPY_RISK"] = "NORMAL"
         globals()["_spy_session_high"] = None
+        globals()["_spy_session_high_ts"] = None          # PATCH26
         globals()["_spy_fading_candidate_since"] = None
+        logging.warning("[PATCH24] Consolidated SPY states reset for new session")
 
         # PATCH24: initialize all session state from historical bars
         # Handles both on-time and late starts correctly
