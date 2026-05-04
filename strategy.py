@@ -3111,24 +3111,6 @@ def evaluate_short_entry(sym, price, size, prices_series, sizes_series, ts_val,
         logging.debug("[BLOCK] %s rejected | Reason=RSI invalid (rsi=%.2f)", sym, rsi_val if rsi_val else -1)
         return False, "RSI invalid", 0.0, {}
 
-    # PATCH26 Fix2: RSI ceiling for TREND when SPY stalling
-    if regime == "TREND" and not pd.isna(rsi_val) and rsi_val > 75 and not _spy_advancing:
-        logging.debug(
-            "[PATCH26][FIX2] %s blocked | RSI=%.1f > 75 while SPY stalling (high %.0fs old)",
-            sym, rsi_val, _spy_high_age_secs
-        )
-        return False, f"TREND blocked — RSI overbought ({rsi_val:.1f}) while SPY stalling", 0.0, {}
-
-    # PATCH26 Fix3: move_from_open minimum for TREND when SPY stalling
-    if regime == "TREND" and not _spy_advancing and not pd.isna(_move_from_open_p26):
-        if _move_from_open_p26 < 0.0015:
-            logging.debug(
-                "[PATCH26][FIX3] %s blocked | move_from_open=%.3f%% < 0.15%% while SPY stalling",
-                sym, _move_from_open_p26 * 100
-            )
-            return False, \
-                f"TREND blocked — move_from_open ({_move_from_open_p26*100:.2f}%) insufficient while SPY stalling", \
-                0.0, {}
 
     # PATCH24 RSI Option 3: RSI overbought ceiling removed from TREND and DRIFT.
 
@@ -3387,6 +3369,27 @@ def evaluate_entry(sym, price, size, prices_series, sizes_series, ts_val,
     if pd.isna(rsi_val) or rsi_val <= 0 or rsi_val > 100:
         logging.debug("[BLOCK] %s rejected | Reason=RSI invalid (rsi=%.2f)", sym, rsi_val if rsi_val else -1)
         return False, "RSI invalid", 0.0, {}
+
+    # PATCH26 Fix2: RSI ceiling for TREND when SPY stalling
+    # Restored selectively: only fires when SPY is not actively making new highs
+    if regime == "TREND" and not pd.isna(rsi_val) and rsi_val > 75 and not _spy_advancing:
+        logging.debug(
+            "[PATCH26][FIX2] %s blocked | RSI=%.1f > 75 while SPY stalling (high %.0fs old)",
+            sym, rsi_val, _spy_high_age_secs
+        )
+        return False, f"TREND blocked — RSI overbought ({rsi_val:.1f}) while SPY stalling", 0.0, {}
+
+    # PATCH26 Fix3: require minimum move from open for TREND when SPY stalling
+    # Blocks entries on symbols with no directional movement while market oscillates
+    if regime == "TREND" and not _spy_advancing and not pd.isna(_move_from_open_p26):
+        if _move_from_open_p26 < 0.0015:
+            logging.debug(
+                "[PATCH26][FIX3] %s blocked | move_from_open=%.3f%% < 0.15%% while SPY stalling",
+                sym, _move_from_open_p26 * 100
+            )
+            return False, \
+                f"TREND blocked — move_from_open ({_move_from_open_p26*100:.2f}%) insufficient while SPY stalling", \
+                0.0, {}
 
     # PATCH24 RSI Option 3: RSI overbought ceiling removed from TREND and DRIFT.
     # RSI filter for RANGE is handled inside the RANGE scoring block via rsi_band_ok.
@@ -4548,7 +4551,7 @@ def _load_spy_session_high():
                 )
             ).total_seconds() / 3600
             if age_hours > 20:
-                return  # === PATCH24: Consolidated SPY state gate ===
+                return None
             with open(SPY_SESSION_HIGH_FILE, "r") as f:
                 val = float(f.read().strip())
             logging.info("[SESSION_HIGH] Loaded session_high=%.4f from file", val)
@@ -5579,6 +5582,7 @@ def main():
         globals()["_spy_fading_candidate_since"] = None
         logging.warning("[PATCH24] Consolidated SPY states reset for new session")
 
+        
         # PATCH24: initialize all session state from historical bars
         # Handles both on-time and late starts correctly
         _initialize_session_state_from_history(symbols, price_deques, size_deques)
