@@ -12,7 +12,7 @@ from collections import deque, defaultdict
 
 # === CODE VERSION TAG (for audit comparison) ===
 
-CODE_VERSION = "PATCH26_2026-04-30"
+CODE_VERSION = "PATCH27_2026-05-07"
 
 # === NYSE HOLIDAY CALENDAR ===
 # Used by trading day stale detection to correctly handle market holidays
@@ -1554,7 +1554,8 @@ def safe_market_buy(
     entry_qty,
     entry_configs,
     bias=None,
-    config_session=None
+    config_session=None,
+    smoothed_regime=None  # PATCH27: smoothed regime from main loop for mismatch detection
 ):
     import logging, time, csv, os
     import pandas as pd
@@ -1624,6 +1625,22 @@ def safe_market_buy(
                 rsi_val = _safe_last(compute_rsi_from_series(prices_series, RSI_PERIOD))
                 vwap_val = _safe_last(compute_vwap_from_ticks(prices_series, sizes_series))
                 regime_at_entry = detect_regime(prices_series, sizes_series)
+
+                # PATCH27: execution-time regime mismatch guard.
+                # If raw re-detection at execution time is HIGH_VOL, block the entry
+                # even if _smooth_regime passed TREND to evaluate_entry due to stickiness.
+                if regime_at_entry == "HIGH_VOL":
+                    logging.warning(
+                        "[BUY_BLOCK][PATCH27] %s blocked at execution — raw regime=HIGH_VOL "
+                        "(smoothed was %s) — regime flipped between gating and execution",
+                        symbol, smoothed_regime or "unknown"
+                    )
+                    return None
+
+                # Use smoothed_regime for audit so it reflects what evaluate_entry used for gating.
+                # Falls back to regime_at_entry if smoothed_regime was not passed.
+                audit_regime = smoothed_regime if smoothed_regime is not None else regime_at_entry
+
                 bias_val = bias if bias is not None else globals().get("day_bias", "unknown")
 
                 # === SESSION POSITION METRICS AT ENTRY ===
@@ -1698,7 +1715,7 @@ def safe_market_buy(
                           
                            
                 entry_config_dict = {
-                    "regime": regime_at_entry,
+                    "regime": audit_regime,
                     "bias": bias_val,
                     "ema_fast": ema_fast_val,
                     "ema_slow": ema_slow_val,
@@ -1751,7 +1768,7 @@ def safe_market_buy(
                     "ema_slow": ema_slow_val,
                     "rsi": rsi_val,
                     "vwap": vwap_val,
-                    "regime": regime_at_entry,
+                    "regime": audit_regime,
                     "code_version": CODE_VERSION,
                     "dist_from_session_high": entry_config_dict["dist_from_session_high"],
                     "move_from_open": entry_config_dict["move_from_open"],
@@ -1782,7 +1799,7 @@ def safe_market_buy(
                                 "ema_slow": round(ema_slow_val, 6) if not pd.isna(ema_slow_val) else None,
                                 "rsi": round(rsi_val, 2) if not pd.isna(rsi_val) else None,
                                 "vwap": round(vwap_val, 6) if not pd.isna(vwap_val) else None,
-                                "regime": regime_at_entry,
+                                "regime": audit_regime,
                                 "code_version": CODE_VERSION,
                                 "dist_from_session_high": entry_config_dict["dist_from_session_high"],
                                 "move_from_open": entry_config_dict["move_from_open"],
@@ -1861,7 +1878,7 @@ def safe_market_buy(
                         "ema_slow": ema_slow_val,
                         "rsi": rsi_val,
                         "vwap": vwap_val,
-                        "regime": regime_at_entry,
+                        "regime": audit_regime,
                         "code_version": CODE_VERSION,
                         "dist_from_session_high": entry_config_dict["dist_from_session_high"],
                         "move_from_open": entry_config_dict["move_from_open"],
@@ -6058,7 +6075,7 @@ def main():
 
                     if PATCH23_CANDIDATE_RANK_ENABLED:
                         # PATCH23: defer execution — collect as candidate for ranking
-                        _patch23_candidates.append((score, symbol, day_bias, CONFIG_SESSION, price))
+                        _patch23_candidates.append((score, symbol, day_bias, CONFIG_SESSION, price, regime))
                         logging.debug(
                             "[PATCH23] %s added as candidate | score=%.2f regime=%s",
                             symbol, score, regime
@@ -6103,7 +6120,7 @@ def main():
                 )
 
                 _executed_this_loop = 0
-                for _cand_score, _cand_sym, _cand_bias, _cand_cfg, _cand_price in _patch23_candidates:
+                for _cand_score, _cand_sym, _cand_bias, _cand_cfg, _cand_price, _cand_regime in _patch23_candidates:
                     # Re-check slot availability — previous candidate may have filled a slot
                     _open_now = len([s for s in entry_prices if entry_prices.get(s) is not None])
                     if _open_now >= MAX_CONCURRENT_POSITIONS:
@@ -6150,7 +6167,8 @@ def main():
                             entry_qty=entry_qty,
                             entry_configs=entry_configs,
                             bias=_cand_bias,
-                            config_session=_cand_cfg
+                            config_session=_cand_cfg,
+                            smoothed_regime=_cand_regime  # PATCH27
                         )
                     finally:
                         pending_entries.discard(_cand_sym)
