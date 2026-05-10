@@ -12,7 +12,7 @@ from collections import deque, defaultdict
 
 # === CODE VERSION TAG (for audit comparison) ===
 
-CODE_VERSION = "PATCH27_2026-05-07"
+CODE_VERSION = "PATCH28_2026-05-08"
 
 # === NYSE HOLIDAY CALENDAR ===
 # Used by trading day stale detection to correctly handle market holidays
@@ -1636,6 +1636,45 @@ def safe_market_buy(
                         symbol, smoothed_regime or "unknown"
                     )
                     return None
+
+                # PATCH28: Fix2/Fix3 execution-time guards for TREND entries.
+                # Mirrors the checks in evaluate_entry but runs on regime_at_entry (raw).
+                # Prevents Fix2/Fix3 bypass when smoothed regime != TREND at gating time
+                # (e.g. smoothing returned DRIFT/RANGE due to stickiness, so Fix2/Fix3
+                # never evaluated in evaluate_entry, but raw re-detection finds TREND here).
+                if regime_at_entry == "TREND":
+                    _exec_rsi = _safe_last(compute_rsi_from_series(prices_series, RSI_PERIOD))
+                    _exec_spy_high_ts = globals().get("_spy_session_high_ts")
+                    _exec_spy_high_age = (
+                        (datetime.now(timezone.utc) - _exec_spy_high_ts).total_seconds()
+                        if isinstance(_exec_spy_high_ts, datetime) else float("inf")
+                    )
+                    _exec_spy_advancing = _exec_spy_high_age < 900  # new high within last 15 min
+
+                    # PATCH28 Fix2: RSI ceiling when SPY stalling
+                    if not pd.isna(_exec_rsi) and _exec_rsi > 75 and not _exec_spy_advancing:
+                        logging.warning(
+                            "[BUY_BLOCK][PATCH28][FIX2] %s blocked at execution — "
+                            "TREND + RSI=%.1f > 75 while SPY stalling (high %.0fs old, "
+                            "smoothed_regime was %s)",
+                            symbol, _exec_rsi, _exec_spy_high_age, smoothed_regime or "unknown"
+                        )
+                        return None
+
+                    # PATCH28 Fix3: mfo floor when SPY stalling
+                    _exec_sym_open = globals().get(f"today_open_{symbol}")
+                    _exec_mfo = (
+                        (est_price - _exec_sym_open) / _exec_sym_open
+                        if _exec_sym_open and _exec_sym_open > 0 else float("nan")
+                    )
+                    if not pd.isna(_exec_mfo) and _exec_mfo < 0.0015 and not _exec_spy_advancing:
+                        logging.warning(
+                            "[BUY_BLOCK][PATCH28][FIX3] %s blocked at execution — "
+                            "TREND + mfo=%.2f%% < 0.15%% while SPY stalling "
+                            "(smoothed_regime was %s)",
+                            symbol, _exec_mfo * 100, smoothed_regime or "unknown"
+                        )
+                        return None
 
                 # Use smoothed_regime for audit so it reflects what evaluate_entry used for gating.
                 # Falls back to regime_at_entry if smoothed_regime was not passed.
