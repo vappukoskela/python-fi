@@ -194,6 +194,13 @@ console_handler.setLevel(logging.INFO)
 console_handler.setFormatter(HelsinkiFormatter(LOG_FORMAT, LOG_DATE_FORMAT))
 root_logger.addHandler(console_handler)
 
+# Silence noisy third-party loggers. The Alpaca SDK uses urllib3 which logs
+# every HTTP request and response at DEBUG level. Without this filter, the
+# log file fills with thousands of lines per hour of API plumbing chatter
+# that hides anything the strategy actually says.
+for noisy in ("urllib3", "alpaca", "httpx", "httpcore"):
+    logging.getLogger(noisy).setLevel(logging.WARNING)
+
 
 def audit_timestamp(dt=None):
     """Returns a formatted timestamp string in display timezone (Helsinki),
@@ -1968,6 +1975,113 @@ def _process_entries(state, latest_prices, market_state):
     return entered
 
 
+def _diagnostic_snapshot(state, market_state):
+    """Log a per-symbol diagnostic showing how close each symbol is to
+    triggering an entry.
+
+    For every symbol with enough data, computes the four entry inputs
+    (breakout distance, volume ratio, VWAP position, relative strength)
+    and reports the top 5 symbols closest to breaking out, plus any
+    symbol whose breakout actually fired but failed a filter.
+
+    This is operational visibility, not strategy state — strategy
+    decisions ignore this output.
+    """
+    if market_state is None:
+        logging.info("[diag] market_state=None — SPY buffer not ready yet")
+        return
+
+    spy_buffer = state.get_buffer(REFERENCE_SYMBOL)
+    if spy_buffer is None:
+        logging.info("[diag] no SPY buffer")
+        return
+
+    snapshots = []  # list of dicts, one per symbol with enough data
+
+    for symbol in TRADABLE_UNIVERSE:
+        buffer = state.get_buffer(symbol)
+        if buffer is None:
+            continue
+
+        price = buffer.latest_price()
+        if price is None:
+            continue
+
+        recent_high = compute_recent_high(buffer, BREAKOUT_WINDOW_MIN * 60)
+        if recent_high is None:
+            continue
+
+        breakout_target = recent_high * (1 + BREAKOUT_CUSHION_PCT)
+        # Negative distance = price already above the target (a triggered
+        # breakout); positive distance = how much further price needs to rise.
+        distance_to_breakout = (breakout_target - price) / price
+
+        current_vol = compute_current_1min_volume(buffer)
+        median_vol = compute_volume_median_1min(buffer, VOLUME_LOOKBACK_MIN)
+        vol_ratio = None
+        if current_vol is not None and median_vol is not None and median_vol > 0:
+            vol_ratio = current_vol / median_vol
+
+        vwap = compute_vwap(buffer)
+        above_vwap = (price > vwap) if vwap is not None else None
+
+        rs = compute_relative_strength(buffer, spy_buffer,
+                                       BREAKOUT_WINDOW_MIN)
+
+        snapshots.append({
+            "symbol": symbol,
+            "price": price,
+            "high": recent_high,
+            "dist": distance_to_breakout,
+            "vol_ratio": vol_ratio,
+            "above_vwap": above_vwap,
+            "rs": rs,
+            "buffer_len": buffer.length(),
+        })
+
+    if not snapshots:
+        logging.info("[diag] no symbols have enough buffer data yet")
+        return
+
+    # Sort by distance — smallest (or most negative) first.
+    snapshots.sort(key=lambda s: s["dist"])
+
+    # Show top 5 nearest to (or past) breakout.
+    logging.info("[diag] market_state=%s — top 5 closest to breakout:",
+                 market_state)
+    for s in snapshots[:5]:
+        vol_str = f"{s['vol_ratio']:.2f}" if s['vol_ratio'] is not None else "n/a"
+        vwap_str = (
+            "above" if s["above_vwap"] is True else
+            "below" if s["above_vwap"] is False else
+            "n/a"
+        )
+        rs_str = f"{s['rs']*100:+.2f}%" if s['rs'] is not None else "n/a"
+        logging.info(
+            "  %s price=%.4f high15m=%.4f dist=%+.3f%% vol=%sx vwap=%s rs=%s buf=%ds",
+            s["symbol"], s["price"], s["high"], s["dist"] * 100,
+            vol_str, vwap_str, rs_str, s["buffer_len"]
+        )
+
+    # Flag any symbol that's actually past the breakout level but didn't
+    # trigger — useful for spotting filter rejections.
+    triggered = [s for s in snapshots if s["dist"] <= 0]
+    if triggered:
+        logging.info("[diag] %d symbol(s) past breakout level:",
+                     len(triggered))
+        for s in triggered:
+            issues = []
+            if s["vol_ratio"] is None or s["vol_ratio"] < VOLUME_MULTIPLE:
+                issues.append(f"vol_low({s['vol_ratio']})")
+            if s["above_vwap"] is False:
+                issues.append("below_vwap")
+            if s["rs"] is not None and s["rs"] < RS_FILTER_FLOOR:
+                issues.append(f"rs_weak({s['rs']*100:+.2f}%)")
+            issues_str = ",".join(issues) if issues else "should_enter"
+            logging.info("  %s past_breakout: %s",
+                         s["symbol"], issues_str)
+
+
 def _check_kill_switch(state, latest_prices):
     """Check the daily kill switch. If tripped, close all positions.
 
@@ -2020,6 +2134,10 @@ def main_loop(state):
     """
     previous_market_state = "neutral"
     last_logged_state = None
+    last_heartbeat = now_utc()
+    last_diagnostic = now_utc() - timedelta(seconds=60)  # fire on first iter
+    HEARTBEAT_INTERVAL_SEC = 300       # short status every 5 minutes
+    DIAGNOSTIC_INTERVAL_SEC = 60       # per-symbol detail every 1 minute
 
     logging.info("Main loop starting")
 
@@ -2059,6 +2177,28 @@ def main_loop(state):
                                  market_state, last_logged_state)
                     last_logged_state = market_state
                 previous_market_state = market_state
+
+            # Heartbeat — confirm to the operator that the loop is alive
+            # even when nothing interesting is happening.
+            if (now - last_heartbeat).total_seconds() >= HEARTBEAT_INTERVAL_SEC:
+                spy_len = spy_buffer.length() if spy_buffer else 0
+                spy_price = spy_buffer.latest_price() if spy_buffer else None
+                state_str = market_state if market_state else "computing"
+                entries_ok = "yes" if entries_allowed_now(now) else "no"
+                logging.info(
+                    "[heartbeat] state=%s positions=%d entries_allowed=%s "
+                    "spy_buffer=%ds spy_price=%s",
+                    state_str, state.positions.count(), entries_ok,
+                    spy_len,
+                    f"{spy_price:.2f}" if spy_price else "n/a"
+                )
+                last_heartbeat = now
+
+            # Diagnostic snapshot — per-symbol detail every minute so the
+            # operator can see what the bot is seeing for the universe.
+            if (now - last_diagnostic).total_seconds() >= DIAGNOSTIC_INTERVAL_SEC:
+                _diagnostic_snapshot(state, market_state)
+                last_diagnostic = now
 
             # Kill switch check — trips and closes everything if breached.
             ks_tripped = _check_kill_switch(state, latest_prices)
