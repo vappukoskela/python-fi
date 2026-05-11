@@ -75,7 +75,7 @@ TRADABLE_UNIVERSE = [
     # Financials
     "V", "JPM", "C",
     # Other high-beta
-    "UBER", "SQ",
+    "UBER", "XYZ",
 ]
 
 REFERENCE_SYMBOL = "SPY"  # Used for market state; never traded.
