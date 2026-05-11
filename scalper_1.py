@@ -945,13 +945,31 @@ class SymbolBuffer:
 # Returns None when there isn't enough data to compute reliably.
 
 
+RECENT_HIGH_EXCLUSION_SECONDS = 10  # exclude last 10s so current tick isn't
+                                     # compared against itself
+
+
 def compute_recent_high(buffer, lookback_seconds):
-    """Highest price in the last `lookback_seconds`.
-    Returns None if buffer doesn't have enough data."""
-    if buffer.length() < lookback_seconds:
+    """Highest price in the lookback window, EXCLUDING the most recent
+    RECENT_HIGH_EXCLUSION_SECONDS seconds.
+
+    The exclusion exists so the breakout comparison ("is current price above
+    recent high + cushion") is meaningful. If the function included the
+    current tick in its own high, a smoothly trending symbol would never
+    trigger — each new tick would also be the new high.
+
+    Returns None if the buffer doesn't have enough data to produce a valid
+    window beyond the exclusion zone.
+    """
+    needed = lookback_seconds + RECENT_HIGH_EXCLUSION_SECONDS
+    if buffer.length() < needed:
         return None
-    recent = list(buffer.prices)[-lookback_seconds:]
-    return max(recent)
+    prices = list(buffer.prices)
+    # Take a slice ending RECENT_HIGH_EXCLUSION_SECONDS seconds before now.
+    window = prices[-needed:-RECENT_HIGH_EXCLUSION_SECONDS]
+    if not window:
+        return None
+    return max(window)
 
 
 def compute_volume_median_1min(buffer, lookback_minutes):
