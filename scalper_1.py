@@ -100,11 +100,17 @@ SPY_DIRECTION_LOOKBACK_MIN = 15  # minutes
 SPY_DIRECTION_FLAT_BAND = 0.0005  # ±0.05%
 
 # --- Entry (Spec Section 4) ---
-BREAKOUT_WINDOW_MIN = 15        # minutes
-BREAKOUT_CUSHION_PCT = 0.001    # 0.1% above recent high
+# Breakout reference: highest price across the last BREAKOUT_BARS completed
+# one-minute bars, EXCLUDING the currently-building minute. Price must
+# exceed this by BREAKOUT_CUSHION_PCT. Plus: last MOMENTUM_BARS completed
+# bars must have sequentially rising closes (momentum confirmation).
+BREAKOUT_BARS = 5               # one-minute bars in breakout lookback
+BREAKOUT_CUSHION_PCT = 0.001    # 0.1% above the 5-bar high
+MOMENTUM_BARS = 3               # consecutive rising bars required for entry
 VOLUME_MULTIPLE = 1.5           # 1.5x median 1-minute volume
-VOLUME_LOOKBACK_MIN = 15        # minutes (matches breakout window)
-RS_FILTER_FLOOR = -0.005        # -0.5% over 15 minutes (filter)
+VOLUME_LOOKBACK_MIN = 15        # minutes (volume comparison window)
+RS_LOOKBACK_MIN = 15            # minutes (relative-strength comparison window)
+RS_FILTER_FLOOR = -0.005        # -0.5% over RS_LOOKBACK_MIN (filter)
 
 # --- Exit (Spec Section 5) ---
 STOP_LOSS_PCT = 0.005           # 0.5% below entry
@@ -945,31 +951,92 @@ class SymbolBuffer:
 # Returns None when there isn't enough data to compute reliably.
 
 
-RECENT_HIGH_EXCLUSION_SECONDS = 10  # exclude last 10s so current tick isn't
-                                     # compared against itself
+def _build_minute_bars(buffer, num_completed_bars):
+    """Build the last num_completed_bars 1-minute bars from the buffer,
+    EXCLUDING the currently-building minute.
 
+    Returns a list of dicts ordered oldest to newest:
+        [{"minute": datetime, "high": float, "close": float}, ...]
 
-def compute_recent_high(buffer, lookback_seconds):
-    """Highest price in the lookback window, EXCLUDING the most recent
-    RECENT_HIGH_EXCLUSION_SECONDS seconds.
+    Returns None if not enough buffer data to build that many completed bars.
 
-    The exclusion exists so the breakout comparison ("is current price above
-    recent high + cushion") is meaningful. If the function included the
-    current tick in its own high, a smoothly trending symbol would never
-    trigger — each new tick would also be the new high.
+    A "bar" is the set of ticks whose timestamps fall within a single
+    calendar minute (e.g. 14:32:00 through 14:32:59). The current calendar
+    minute is always excluded — we only consider bars that have closed.
 
-    Returns None if the buffer doesn't have enough data to produce a valid
-    window beyond the exclusion zone.
+    This is an internal helper. Callers use compute_breakout_high() or
+    check_momentum_rising() rather than building bars directly.
     """
-    needed = lookback_seconds + RECENT_HIGH_EXCLUSION_SECONDS
-    if buffer.length() < needed:
+    if buffer.length() == 0:
         return None
-    prices = list(buffer.prices)
-    # Take a slice ending RECENT_HIGH_EXCLUSION_SECONDS seconds before now.
-    window = prices[-needed:-RECENT_HIGH_EXCLUSION_SECONDS]
-    if not window:
+
+    # The "current" minute is the calendar minute of the most recent tick.
+    # Anything stamped at or after this minute is excluded.
+    last_ts = buffer.timestamps[-1]
+    current_minute = last_ts.replace(second=0, microsecond=0)
+
+    # Group all prior ticks by their calendar minute.
+    minute_to_prices = {}
+    for ts, price in zip(buffer.timestamps, buffer.prices):
+        minute = ts.replace(second=0, microsecond=0)
+        if minute >= current_minute:
+            continue  # skip current minute and any future-stamped ticks
+        minute_to_prices.setdefault(minute, []).append(price)
+
+    if len(minute_to_prices) < num_completed_bars:
+        return None  # not enough completed minutes
+
+    # Take the most recent num_completed_bars minutes, in chronological order.
+    minutes_desc = sorted(minute_to_prices.keys(), reverse=True)
+    selected_asc = list(reversed(minutes_desc[:num_completed_bars]))
+
+    bars = []
+    for minute in selected_asc:
+        prices_in_minute = minute_to_prices[minute]
+        bars.append({
+            "minute": minute,
+            "high": max(prices_in_minute),
+            "close": prices_in_minute[-1],
+        })
+    return bars
+
+
+def compute_breakout_high(buffer):
+    """Highest price across the last BREAKOUT_BARS completed 1-minute bars,
+    EXCLUDING the currently-building minute.
+
+    The current minute is excluded so the breakout comparison
+    ("is current price above recent high + cushion") is meaningful. If
+    the current minute were included, a smoothly trending symbol would
+    never trigger because each new tick would also be the new high.
+
+    Returns None if the buffer doesn't have enough completed bars.
+    """
+    bars = _build_minute_bars(buffer, BREAKOUT_BARS)
+    if bars is None:
         return None
-    return max(window)
+    return max(b["high"] for b in bars)
+
+
+def check_momentum_rising(buffer):
+    """Returns True if the last MOMENTUM_BARS completed 1-minute bars
+    have sequentially rising closes
+    (bar[i].close > bar[i-1].close for every consecutive pair).
+
+    Filters out spike-and-revert "breakouts" where the price flickers above
+    a recent high for one bar but the broader move isn't actually trending.
+
+    Returns False if not enough data, or if any bar fails the rising
+    sequence.
+    """
+    bars = _build_minute_bars(buffer, MOMENTUM_BARS)
+    if bars is None:
+        return False
+    closes = [b["close"] for b in bars]
+    for i in range(1, len(closes)):
+        if closes[i] <= closes[i-1]:
+            return False
+    return True
 
 
 def compute_volume_median_1min(buffer, lookback_minutes):
@@ -1480,6 +1547,7 @@ def evaluate_entry(symbol, state, market_state):
         "drawdown": None,
         "vol_multiple": None,
         "breakout": None,
+        "momentum_rising": None,
     }
 
     # --- Pre-checks ---
@@ -1511,8 +1579,7 @@ def evaluate_entry(symbol, state, market_state):
         return None, "no_price", indicators
 
     # --- Trigger condition 1: price breakout ---
-    recent_high = compute_recent_high(symbol_buffer,
-                                      BREAKOUT_WINDOW_MIN * 60)
+    recent_high = compute_breakout_high(symbol_buffer)
     if recent_high is None:
         return None, "insufficient_history", indicators
 
@@ -1521,6 +1588,14 @@ def evaluate_entry(symbol, state, market_state):
 
     if not indicators["breakout"]:
         return None, "no_breakout", indicators
+
+    # --- Trigger condition 1b: momentum confirmation ---
+    # Last MOMENTUM_BARS completed bars must have rising closes.
+    # Filters out spike-and-revert "breakouts" that don't follow through.
+    if not check_momentum_rising(symbol_buffer):
+        indicators["momentum_rising"] = False
+        return None, "no_momentum", indicators
+    indicators["momentum_rising"] = True
 
     # --- Trigger condition 2: volume confirmation ---
     current_volume = compute_current_1min_volume(symbol_buffer)
@@ -1547,7 +1622,7 @@ def evaluate_entry(symbol, state, market_state):
 
     # --- Filter 2: relative strength not below floor ---
     rs = compute_relative_strength(symbol_buffer, spy_buffer,
-                                   BREAKOUT_WINDOW_MIN)
+                                   RS_LOOKBACK_MIN)
     if rs is None:
         return None, "no_rs_data", indicators
 
@@ -2025,7 +2100,7 @@ def _diagnostic_snapshot(state, market_state):
         if price is None:
             continue
 
-        recent_high = compute_recent_high(buffer, BREAKOUT_WINDOW_MIN * 60)
+        recent_high = compute_breakout_high(buffer)
         if recent_high is None:
             continue
 
@@ -2044,7 +2119,9 @@ def _diagnostic_snapshot(state, market_state):
         above_vwap = (price > vwap) if vwap is not None else None
 
         rs = compute_relative_strength(buffer, spy_buffer,
-                                       BREAKOUT_WINDOW_MIN)
+                                       RS_LOOKBACK_MIN)
+
+        momentum_ok = check_momentum_rising(buffer)
 
         snapshots.append({
             "symbol": symbol,
@@ -2054,6 +2131,7 @@ def _diagnostic_snapshot(state, market_state):
             "vol_ratio": vol_ratio,
             "above_vwap": above_vwap,
             "rs": rs,
+            "momentum_ok": momentum_ok,
             "buffer_len": buffer.length(),
         })
 
@@ -2075,10 +2153,11 @@ def _diagnostic_snapshot(state, market_state):
             "n/a"
         )
         rs_str = f"{s['rs']*100:+.2f}%" if s['rs'] is not None else "n/a"
+        mom_str = "yes" if s["momentum_ok"] else "no"
         logging.info(
-            "  %s price=%.4f high15m=%.4f dist=%+.3f%% vol=%sx vwap=%s rs=%s buf=%ds",
+            "  %s price=%.4f high5b=%.4f dist=%+.3f%% vol=%sx vwap=%s rs=%s mom=%s buf=%ds",
             s["symbol"], s["price"], s["high"], s["dist"] * 100,
-            vol_str, vwap_str, rs_str, s["buffer_len"]
+            vol_str, vwap_str, rs_str, mom_str, s["buffer_len"]
         )
 
     # Flag any symbol that's actually past the breakout level but didn't
@@ -2095,6 +2174,8 @@ def _diagnostic_snapshot(state, market_state):
                 issues.append("below_vwap")
             if s["rs"] is not None and s["rs"] < RS_FILTER_FLOOR:
                 issues.append(f"rs_weak({s['rs']*100:+.2f}%)")
+            if not s["momentum_ok"]:
+                issues.append("no_momentum")
             issues_str = ",".join(issues) if issues else "should_enter"
             logging.info("  %s past_breakout: %s",
                          s["symbol"], issues_str)
@@ -2356,19 +2437,31 @@ def startup_check_unexpected_positions():
 
 
 def startup_populate_buffers(state):
-    """Fetch the last BREAKOUT_WINDOW_MIN minutes of historical bars for
-    each symbol to populate the rolling windows.
+    """Fetch enough historical 1-minute bars for each symbol to make all
+    indicators immediately operational at session start.
+
+    The amount fetched is the longest lookback needed by any indicator:
+    VOLUME_LOOKBACK_MIN, RS_LOOKBACK_MIN, and (BREAKOUT_BARS + MOMENTUM_BARS).
 
     Best-effort: symbols whose history can't be fetched will have empty
-    buffers and won't be tradable until 15 minutes of live data accumulate.
+    buffers and won't be tradable until enough live data accumulates.
     """
+    # Pre-populate enough history for the longest-lookback indicator.
+    # The breakout signal only needs BREAKOUT_BARS + MOMENTUM_BARS bars
+    # plus a small margin, but volume and RS each need their own windows.
+    # Pre-populating the longest ensures all indicators work on iteration 1.
+    prepopulate_min = max(
+        VOLUME_LOOKBACK_MIN,
+        RS_LOOKBACK_MIN,
+        BREAKOUT_BARS + MOMENTUM_BARS + 1,
+    )
     logging.info("Pre-populating buffers from %d minutes of history...",
-                 BREAKOUT_WINDOW_MIN)
+                 prepopulate_min)
     populated = 0
     skipped = 0
 
     for symbol in ALL_SYMBOLS:
-        bars = fetch_recent_minute_bars(symbol, BREAKOUT_WINDOW_MIN)
+        bars = fetch_recent_minute_bars(symbol, prepopulate_min)
         buffer = state.get_buffer(symbol)
         if buffer is None:
             logging.warning("No buffer for %s during pre-populate", symbol)
