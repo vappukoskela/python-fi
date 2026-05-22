@@ -113,10 +113,11 @@ RS_LOOKBACK_MIN = 15            # minutes (relative-strength comparison window)
 RS_FILTER_FLOOR = -0.005        # -0.5% over RS_LOOKBACK_MIN (filter)
 
 # --- Exit (Spec Section 5) ---
-STOP_LOSS_PCT = 0.005           # 0.5% below entry
-TAKE_PROFIT_PCT = 0.010         # 1.0% above entry
+STOP_LOSS_PCT = 0.003           # 0.3% below entry
+TAKE_PROFIT_PCT = 0.006         # 0.6% above entry (2:1 reward/risk preserved)
 TIME_LIMIT_SEC = 30 * 60        # 30 minutes
-TRAILING_STOP_PCT = 0.004       # 0.4% below peak in runner mode
+TRAILING_STOP_PCT = 0.0024      # 0.24% below peak in runner mode
+                                # (proportionally scaled with TP: 0.4% × 0.6)
 
 # --- Position sizing (Spec Section 6) ---
 TIER1_SIZE_PCT = 0.03           # 3% (reduced)
@@ -1340,6 +1341,18 @@ class SymbolBlacklist:
         """True if the symbol is blacklisted for the current session."""
         return symbol in self._blocked
 
+    def has_recent_loss(self, symbol):
+        """True if the symbol's most recent outcome in this session was a loss
+        (without a subsequent win clearing the counter).
+
+        Used to restrict Tier 3 sizing: a symbol that has just lost should
+        not be sized up at the next entry, even if all other Tier 3 conditions
+        are met. A win on the symbol clears the counter (since
+        record_outcome resets _losses_per_symbol[symbol] = 0 on any win),
+        so a symbol that recovered after losing is eligible for Tier 3 again.
+        """
+        return self._losses_per_symbol.get(symbol, 0) > 0
+
     def reset_for_new_session(self):
         """Clear all blacklist state at the start of a new trading day."""
         self._losses_per_symbol.clear()
@@ -1635,20 +1648,27 @@ def evaluate_entry(symbol, state, market_state):
     drawdown = compute_drawdown_from_high(symbol_buffer)
     indicators["drawdown"] = drawdown
 
-    tier = _determine_entry_tier(state, market_state, rs, drawdown)
+    tier = _determine_entry_tier(state, symbol, market_state, rs, drawdown)
     return tier, None, indicators
 
 
-def _determine_entry_tier(state, market_state, rs, drawdown):
+def _determine_entry_tier(state, symbol, market_state, rs, drawdown):
     """Determine the sizing tier for an approved entry.
 
     Per spec section 6.1:
     - Tier 1 (3%): tier_tracker says we're in reduced mode after consecutive losses
     - Tier 3 (7%): bullish market AND rs > +0.5% AND drawdown < 0.5%
+                   AND the symbol has no unrecovered loss this session
+                   (i.e., it hasn't just lost without a win clearing it)
     - Tier 2 (5%): default
 
     Tier 1 takes precedence over Tier 3 — if we're in a losing streak,
     we're in reduced size regardless of how strong the setup looks.
+
+    Tier 3 restriction (added after observing that Tier 3 re-entries on
+    previously-lost symbols produced significant losses): if the symbol's
+    most recent outcome this session was a loss (without a subsequent
+    win), do not upgrade to Tier 3. The trade can still enter at Tier 2.
     """
     if state.tier_tracker.is_tier1_active():
         return 1
@@ -1657,7 +1677,8 @@ def _determine_entry_tier(state, market_state, rs, drawdown):
             and rs is not None
             and rs > TIER3_RS_THRESHOLD
             and drawdown is not None
-            and drawdown < TIER3_DRAWDOWN_THRESHOLD):
+            and drawdown < TIER3_DRAWDOWN_THRESHOLD
+            and not state.blacklist.has_recent_loss(symbol)):
         return 3
 
     return 2
@@ -1973,13 +1994,25 @@ def _process_entries(state, latest_prices, market_state):
         )
 
         if tier is None:
-            # Log blocked decisions only when the trigger actually fired.
-            # Avoid spamming the CSV with "no_breakout" rows for every
-            # symbol on every tick.
+            # Log blocked decisions only when the trigger actually fired
+            # and the rejection carries per-trade information.
+            # We deliberately skip:
+            #   - Pre-trigger filters that fire on most symbols every tick
+            #     (no_breakout, no_buffer, no_price, insufficient_history,
+            #      insufficient_volume_data, already_in_position, low_volume)
+            #   - Global-state blocks that don't depend on the symbol or are
+            #     repeated for the same symbol every loop iteration
+            #     (market_bearish, market_state_unknown, max_positions_reached,
+            #      kill_switch_tripped, symbol_blocked)
+            # The CSV keeps actual filter rejections that vary by trade
+            # (no_momentum, no_vwap, below_vwap, rs_too_weak, no_rs_data, etc.)
             if block_reason not in (
                 "no_breakout", "no_buffer", "no_price",
                 "insufficient_history", "insufficient_volume_data",
                 "already_in_position", "low_volume",
+                "market_bearish", "market_state_unknown",
+                "max_positions_reached", "kill_switch_tripped",
+                "symbol_blocked",
             ):
                 log_decision(symbol=symbol, decision="blocked",
                              market_state=market_state,
