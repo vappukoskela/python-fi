@@ -1,51 +1,57 @@
-
 import yfinance as yf
 import pandas as pd
 from zoneinfo import ZoneInfo
 
-# === FETCH SPY 1-MINUTE BARS FOR TODAY ===
-print("Fetching SPY 1-minute bars for 2026-05-26...")
+# === FETCH QCOM 1-MINUTE BARS FOR TODAY ===
+print("Fetching QCOM 1-minute bars for 2026-05-26...")
+qcom = yf.download("QCOM", start="2026-05-26", end="2026-05-27", interval="1m", progress=False)
 
-spy = yf.download("SPY", start="2026-05-26", end="2026-05-27", interval="1m", progress=False)
-
-if spy.empty:
+if qcom.empty:
     print("ERROR: No data returned. Market may still be open or yfinance issue.")
 else:
     # Flatten multi-level columns if present
-    if isinstance(spy.columns, pd.MultiIndex):
-        spy.columns = spy.columns.get_level_values(0)
+    if isinstance(qcom.columns, pd.MultiIndex):
+        qcom.columns = qcom.columns.get_level_values(0)
 
     # Convert index to proper timezone-aware timestamps
-    spy.index = pd.to_datetime(spy.index)
-    if spy.index.tz is None:
-        spy.index = spy.index.tz_localize("UTC")
+    qcom.index = pd.to_datetime(qcom.index)
+    if qcom.index.tz is None:
+        qcom.index = qcom.index.tz_localize("UTC")
 
     # Add ET and Helsinki time columns
-    spy["et_time"]       = spy.index.tz_convert("America/New_York")
-    spy["helsinki_time"] = spy.index.tz_convert("Europe/Helsinki")
+    qcom["et_time"]       = qcom.index.tz_convert("America/New_York")
+    qcom["helsinki_time"] = qcom.index.tz_convert("Europe/Helsinki")
 
     # Only keep market hours 9:30 - 16:00 ET
-    spy_et = spy["et_time"]
-    spy = spy[(spy_et.dt.hour > 9) | ((spy_et.dt.hour == 9) & (spy_et.dt.minute >= 30))]
-    spy = spy[spy_et.dt.hour < 16]
+    qcom_et = qcom["et_time"]
+    qcom = qcom[(qcom_et.dt.hour > 9) | ((qcom_et.dt.hour == 9) & (qcom_et.dt.minute >= 30))]
+    qcom = qcom[qcom_et.dt.hour < 16]
 
     # Calculate move from open
-    open_price = spy["Close"].iloc[0]
-    spy["move_from_open_pct"] = (spy["Close"] - open_price) / open_price * 100
+    open_price = qcom["Close"].iloc[0]
+    qcom["move_from_open_pct"] = (qcom["Close"] - open_price) / open_price * 100
 
-    # Calculate rolling high watermark — tracks peak SPY reached
-    spy["session_high_pct"] = spy["move_from_open_pct"].cummax()
+    # Calculate rolling high watermark
+    qcom["session_high_pct"] = qcom["move_from_open_pct"].cummax()
 
-    # Save to CSV
-    output_file = "spy_session_2026-05-26.csv"
-    spy[["et_time", "helsinki_time", "Close", "move_from_open_pct", "session_high_pct"]].to_csv(output_file, index=False)
+    # Compute 1-minute range (high - low) as % — KEY for stop analysis
+    qcom["minute_range_pct"] = (qcom["High"] - qcom["Low"]) / qcom["Close"] * 100
+
+    # Save to CSV — include High, Low, Open for proper analysis
+    output_file = "qcom_session_2026-05-26.csv"
+    qcom[["et_time", "helsinki_time", "Open", "High", "Low", "Close",
+          "move_from_open_pct", "session_high_pct", "minute_range_pct"]].to_csv(output_file, index=False)
     print(f"Saved to {output_file}")
+
     print(f"\nOpen price: {open_price:.2f}")
-    print(f"Session high: {spy['Close'].max():.2f} ({spy['session_high_pct'].max():.2f}%)")
-    print(f"Session low:  {spy['Close'].min():.2f} ({spy['move_from_open_pct'].min():.2f}%)")
-    print(f"Close price:  {spy['Close'].iloc[-1]:.2f} ({spy['move_from_open_pct'].iloc[-1]:.2f}%)")
-    print(f"\nFirst 5 rows:")
-    print(spy[["et_time", "helsinki_time", "Close", "move_from_open_pct"]].head().to_string())
-    print(f"\nLast 5 rows:")
-    print(spy[["et_time", "helsinki_time", "Close", "move_from_open_pct"]].tail().to_string())
+    print(f"Session high: {qcom['High'].max():.2f}")
+    print(f"Session low:  {qcom['Low'].min():.2f}")
+    print(f"Close price:  {qcom['Close'].iloc[-1]:.2f} ({qcom['move_from_open_pct'].iloc[-1]:.2f}%)")
+    print(f"\nMax 1-minute range: {qcom['minute_range_pct'].max():.3f}%")
+    print(f"Avg 1-minute range: {qcom['minute_range_pct'].mean():.3f}%")
+
+    # Focus on the disaster window — 10:44 to 10:50 ET
+    print(f"\n=== QCOM rapid-fire window (10:44-10:50 ET) ===")
+    disaster = qcom[(qcom_et.dt.hour == 10) & (qcom_et.dt.minute >= 44) & (qcom_et.dt.minute <= 50)]
+    print(disaster[["et_time", "Open", "High", "Low", "Close", "minute_range_pct"]].to_string())
            
