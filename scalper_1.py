@@ -1,15 +1,22 @@
 """
 Intraday Breakout Scalper
-Implementation of strategy specification v1.0
+Implementation of strategy specification v1.3
 
 Strategy: Long-only intraday breakout scalping on liquid US large-cap equities.
-Entry: 15-minute price breakout + volume confirmation, with market state filters.
-Exit: 0.5% stop / 1.0% TP / 30-min timeout, with runner mode in bullish conditions.
+Entry: 5-bar price breakout + 2-bar momentum + volume + VWAP + RS filters,
+       with VWAP-extension late-entry filter and market state filter.
+Exit: 0.4% stop / 0.6% TP / 30-min timeout, with runner mode in bullish state.
 Risk: 2% daily kill switch, per-symbol session block, EOD forced close.
 
 This file implements the specification document; the document is the source of
 truth. Where code and spec disagree, the spec is correct and the code must be
 fixed.
+
+Changes from v1.2 → v1.3 (2026-05-31, after week-2 data analysis):
+- MOMENTUM_BARS: 3 → 2 (enter one bar earlier)
+- VWAP_EXTENSION_MAX: 0.005 added (block entries when price > VWAP × 1.005)
+- STOP_LOSS_PCT: 0.003 → 0.004 (widen stop to address noise-trigger pattern)
+- TRAILING_STOP_PCT: 0.0024 → 0.0032 (scaled proportionally with stop)
 """
 
 # ============================================================================
@@ -106,18 +113,30 @@ SPY_DIRECTION_FLAT_BAND = 0.0005  # ±0.05%
 # bars must have sequentially rising closes (momentum confirmation).
 BREAKOUT_BARS = 5               # one-minute bars in breakout lookback
 BREAKOUT_CUSHION_PCT = 0.001    # 0.1% above the 5-bar high
-MOMENTUM_BARS = 3               # consecutive rising bars required for entry
+MOMENTUM_BARS = 2               # consecutive rising bars required for entry
+                                # (v1.3: lowered from 3 — 2-bar momentum
+                                # catches breakouts ~60 seconds earlier in
+                                # the move, reducing "entered late" failures)
 VOLUME_MULTIPLE = 1.5           # 1.5x median 1-minute volume
 VOLUME_LOOKBACK_MIN = 15        # minutes (volume comparison window)
 RS_LOOKBACK_MIN = 15            # minutes (relative-strength comparison window)
 RS_FILTER_FLOOR = -0.005        # -0.5% over RS_LOOKBACK_MIN (filter)
+VWAP_EXTENSION_MAX = 0.005      # 0.5% — block entries when price is more
+                                # than 0.5% above VWAP (v1.3: late-entry
+                                # filter — extended moves typically can't
+                                # deliver enough additional rise to clear
+                                # the 0.6% TP before pulling back)
 
 # --- Exit (Spec Section 5) ---
-STOP_LOSS_PCT = 0.003           # 0.3% below entry
-TAKE_PROFIT_PCT = 0.006         # 0.6% above entry (2:1 reward/risk preserved)
+STOP_LOSS_PCT = 0.004           # 0.4% below entry (v1.3: widened from 0.3%
+                                # — 20+ documented cases in week 2 of stops
+                                # firing on noise that subsequently recovered)
+TAKE_PROFIT_PCT = 0.006         # 0.6% above entry (1.5:1 reward/risk ratio
+                                # — breaks 2:1 by intent, supported by data)
 TIME_LIMIT_SEC = 30 * 60        # 30 minutes
-TRAILING_STOP_PCT = 0.0024      # 0.24% below peak in runner mode
-                                # (proportionally scaled with TP: 0.4% × 0.6)
+TRAILING_STOP_PCT = 0.0032      # 0.32% below peak in runner mode
+                                # (v1.3: scaled proportionally with stop:
+                                # 0.4% × 0.8)
 
 # --- Position sizing (Spec Section 6) ---
 TIER1_SIZE_PCT = 0.03           # 3% (reduced)
@@ -217,7 +236,7 @@ def audit_timestamp(dt=None):
 
 
 logging.info("=" * 60)
-logging.info("Scalper starting — strategy spec v1.0")
+logging.info("Scalper starting — strategy spec v1.3")
 logging.info("Universe: %d tradable + 1 reference (%s)",
              len(TRADABLE_UNIVERSE), REFERENCE_SYMBOL)
 logging.info("API base: %s", BASE_URL)
@@ -1632,6 +1651,17 @@ def evaluate_entry(symbol, state, market_state):
 
     if not indicators["above_vwap"]:
         return None, "below_vwap", indicators
+
+    # --- Filter 1b: VWAP extension limit (v1.3) ---
+    # If price is too far above VWAP, the move has already run significantly.
+    # Entering here means catching only the tail-end of the move; reaching
+    # the 0.6% TP requires another sustained leg up. Empirical data
+    # (week of May 26-29) showed entries past +1% from open had 20% win
+    # rate vs 44% for entries within 0.5% of open. This filter rejects
+    # those late entries.
+    vwap_extension = (current_price - vwap) / vwap
+    if vwap_extension > VWAP_EXTENSION_MAX:
+        return None, "vwap_extended", indicators
 
     # --- Filter 2: relative strength not below floor ---
     rs = compute_relative_strength(symbol_buffer, spy_buffer,
