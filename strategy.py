@@ -1,51 +1,196 @@
+"""
+Fetch 1-minute session data for all tradable symbols.
+
+Run after market close (or whenever yfinance has the day's data).
+Produces one CSV per day with one row per (symbol, minute) showing what
+each symbol looked like at that moment.
+
+Usage:
+    Edit TARGET_DATE below, then run:
+    python universe_session.py
+
+Output:
+    universe_session_YYYY-MM-DD.csv
+
+Each row has:
+    - timestamp columns (ET and Helsinki)
+    - symbol
+    - OHLC and volume for the minute
+    - move_from_open_pct: % change from session open close
+    - session_high_pct: peak move from open up to this point
+    - minute_range_pct: intra-minute range (high-low)/close as %
+    - vwap: rolling volume-weighted average price within session
+    - dist_from_vwap_pct: how far above/below VWAP
+    - high_5bar: highest close in prior 5 minutes (excluding current)
+    - dist_to_breakout_pct: distance from breakout level (5bar_high * 1.001)
+"""
 
 import yfinance as yf
 import pandas as pd
+import time
 from zoneinfo import ZoneInfo
 
-# === FETCH SPY 1-MINUTE BARS FOR TODAY ===
-print("Fetching SPY 1-minute bars for 2026-05-29...")
+# === CONFIGURATION ===
 
-spy = yf.download("SPY", start="2026-05-29", end="2026-05-30", interval="1m", progress=False)
+TARGET_DATE = "2026-06-01"  # Edit this each day
 
-if spy.empty:
-    print("ERROR: No data returned. Market may still be open or yfinance issue.")
-else:
+# Universe — matches scalper.py TRADABLE_UNIVERSE
+SYMBOLS = [
+    "NVDA", "AMD", "TSLA", "AAPL", "MSFT", "AMZN", "GOOG", "META",
+    "MU", "QCOM", "AVGO", "SMCI",
+    "CRM", "ORCL", "ADSK", "NFLX", "PLTR", "SHOP",
+    "V", "JPM", "C",
+    "UBER", "XYZ",
+]
+
+BREAKOUT_BARS = 5  # matches bot — 5-minute lookback for breakout level
+
+
+def fetch_symbol_session(symbol, target_date):
+    """Fetch 1-minute bars for one symbol on target_date.
+    Returns DataFrame or None on failure."""
+    end_date = (pd.Timestamp(target_date) + pd.Timedelta(days=1)).strftime("%Y-%m-%d")
+
+    try:
+        df = yf.download(
+            symbol,
+            start=target_date,
+            end=end_date,
+            interval="1m",
+            progress=False,
+            auto_adjust=False,
+        )
+    except Exception as e:
+        print(f"  {symbol}: fetch failed — {e}")
+        return None
+
+    if df is None or df.empty:
+        print(f"  {symbol}: no data returned")
+        return None
+
     # Flatten multi-level columns if present
-    if isinstance(spy.columns, pd.MultiIndex):
-        spy.columns = spy.columns.get_level_values(0)
+    if isinstance(df.columns, pd.MultiIndex):
+        df.columns = df.columns.get_level_values(0)
 
-    # Convert index to proper timezone-aware timestamps
-    spy.index = pd.to_datetime(spy.index)
-    if spy.index.tz is None:
-        spy.index = spy.index.tz_localize("UTC")
+    # Timezone handling
+    df.index = pd.to_datetime(df.index)
+    if df.index.tz is None:
+        df.index = df.index.tz_localize("UTC")
 
-    # Add ET and Helsinki time columns
-    spy["et_time"]       = spy.index.tz_convert("America/New_York")
-    spy["helsinki_time"] = spy.index.tz_convert("Europe/Helsinki")
+    df["et_time"] = df.index.tz_convert("America/New_York")
+    df["helsinki_time"] = df.index.tz_convert("Europe/Helsinki")
 
-    # Only keep market hours 9:30 - 16:00 ET
-    spy_et = spy["et_time"]
-    spy = spy[(spy_et.dt.hour > 9) | ((spy_et.dt.hour == 9) & (spy_et.dt.minute >= 30))]
-    spy = spy[spy_et.dt.hour < 16]
+    # Restrict to regular market hours 9:30-16:00 ET
+    et = df["et_time"]
+    df = df[(et.dt.hour > 9) | ((et.dt.hour == 9) & (et.dt.minute >= 30))]
+    df = df[df["et_time"].dt.hour < 16]
 
-    # Calculate move from open
-    open_price = spy["Close"].iloc[0]
-    spy["move_from_open_pct"] = (spy["Close"] - open_price) / open_price * 100
+    if df.empty:
+        print(f"  {symbol}: no bars in regular hours")
+        return None
 
-    # Calculate rolling high watermark — tracks peak SPY reached
-    spy["session_high_pct"] = spy["move_from_open_pct"].cummax()
+    df["symbol"] = symbol
+    return df
 
-    # Save to CSV
-    output_file = "spy_session_2026-05-29.csv"
-    spy[["et_time", "helsinki_time", "Close", "move_from_open_pct", "session_high_pct"]].to_csv(output_file, index=False)
-    print(f"Saved to {output_file}")
-    print(f"\nOpen price: {open_price:.2f}")
-    print(f"Session high: {spy['Close'].max():.2f} ({spy['session_high_pct'].max():.2f}%)")
-    print(f"Session low:  {spy['Close'].min():.2f} ({spy['move_from_open_pct'].min():.2f}%)")
-    print(f"Close price:  {spy['Close'].iloc[-1]:.2f} ({spy['move_from_open_pct'].iloc[-1]:.2f}%)")
-    print(f"\nFirst 5 rows:")
-    print(spy[["et_time", "helsinki_time", "Close", "move_from_open_pct"]].head().to_string())
-    print(f"\nLast 5 rows:")
-    print(spy[["et_time", "helsinki_time", "Close", "move_from_open_pct"]].tail().to_string())
+
+def compute_session_metrics(df):
+    """Add the analysis columns to a symbol's session DataFrame."""
+    open_price = float(df["Close"].iloc[0])
+    df["session_open"] = open_price
+
+    # Move from open at each minute
+    df["move_from_open_pct"] = (df["Close"] - open_price) / open_price * 100
+
+    # Rolling session high watermark
+    df["session_high_pct"] = df["move_from_open_pct"].cummax()
+
+    # Intra-minute range
+    df["minute_range_pct"] = (df["High"] - df["Low"]) / df["Close"] * 100
+
+    # Session VWAP (cumulative volume-weighted)
+    typical = (df["High"] + df["Low"] + df["Close"]) / 3.0
+    cum_vol = df["Volume"].cumsum().replace(0, pd.NA)
+    cum_pv = (typical * df["Volume"]).cumsum()
+    df["vwap"] = cum_pv / cum_vol
+    df["dist_from_vwap_pct"] = (df["Close"] - df["vwap"]) / df["vwap"] * 100
+
+    # 5-bar high (excluding current minute) — matches bot's breakout reference
+    # Shift by 1 so the current minute is excluded, then rolling max over 5 prior.
+    df["high_5bar"] = df["High"].shift(1).rolling(BREAKOUT_BARS).max()
+    # Distance from breakout level (5bar_high * 1.001) as % of current price.
+    # Negative = price is above breakout level (a triggered breakout).
+    # Positive = how much further price needs to rise to break out.
+    breakout_level = df["high_5bar"] * 1.001
+    df["dist_to_breakout_pct"] = (breakout_level - df["Close"]) / df["Close"] * 100
+
+    return df
+
+
+def main():
+    print(f"=== Fetching universe session data for {TARGET_DATE} ===")
+    print(f"Symbols: {len(SYMBOLS)}")
+    print()
+
+    all_frames = []
+    success_count = 0
+
+    for symbol in SYMBOLS:
+        print(f"  {symbol}...", end=" ", flush=True)
+        df = fetch_symbol_session(symbol, TARGET_DATE)
+        if df is None or df.empty:
+            print("skipped")
+            continue
+        df = compute_session_metrics(df)
+        all_frames.append(df)
+        success_count += 1
+        print(f"OK ({len(df)} bars)")
+        # Be polite to yfinance — small delay between requests
+        time.sleep(0.3)
+
+    if not all_frames:
+        print("\nERROR: No data fetched for any symbol.")
+        return
+
+    print()
+    print(f"=== Combining {success_count}/{len(SYMBOLS)} symbols ===")
+
+    combined = pd.concat(all_frames, ignore_index=False)
+    combined = combined.sort_values(["symbol", "et_time"])
+
+    # Output columns in order
+    output_cols = [
+        "et_time", "helsinki_time", "symbol",
+        "Open", "High", "Low", "Close", "Volume",
+        "session_open",
+        "move_from_open_pct", "session_high_pct", "minute_range_pct",
+        "vwap", "dist_from_vwap_pct",
+        "high_5bar", "dist_to_breakout_pct",
+    ]
+
+    out = combined[output_cols].copy()
+
+    output_file = f"universe_session_{TARGET_DATE}.csv"
+    out.to_csv(output_file, index=False)
+    print(f"Saved {len(out)} rows to {output_file}")
+    print()
+
+    # Quick summary — show each symbol's day at a glance
+    print("=== Per-symbol summary ===")
+    print(f"{'Symbol':<6} {'Open':<10} {'High%':<8} {'Low%':<8} {'Close%':<8} {'Range%':<8} {'Bars':<5}")
+    print("-" * 60)
+    for sym in SYMBOLS:
+        sub = out[out["symbol"] == sym]
+        if sub.empty:
+            continue
+        open_p = sub["session_open"].iloc[0]
+        high_pct = sub["session_high_pct"].max()
+        low_pct = sub["move_from_open_pct"].min()
+        close_pct = sub["move_from_open_pct"].iloc[-1]
+        max_range = sub["minute_range_pct"].max()
+        print(f"{sym:<6} ${open_p:<9.2f} {high_pct:+.2f}%   {low_pct:+.2f}%   "
+              f"{close_pct:+.2f}%   {max_range:.2f}%   {len(sub)}")
+
+
+if __name__ == "__main__":
+    main()
            
