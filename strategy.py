@@ -23,6 +23,12 @@ Each row has:
     - dist_from_vwap_pct: how far above/below VWAP
     - high_5bar: highest close in prior 5 minutes (excluding current)
     - dist_to_breakout_pct: distance from breakout level (5bar_high * 1.001)
+
+Reliability:
+    yfinance occasionally fails with a TypeError on high-volume symbols
+    (Yahoo's servers sometimes return malformed responses, especially for
+    AAPL/AMD/NVDA/etc.). This script retries failed symbols up to 3 times
+    with progressively longer delays.
 """
 
 import yfinance as yf
@@ -34,7 +40,7 @@ from zoneinfo import ZoneInfo
 
 TARGET_DATE = "2026-06-04"  # Edit this each day
 
-# Universe — matches scalper.py TRADABLE_UNIVERSE
+# Universe - matches scalper.py TRADABLE_UNIVERSE
 SYMBOLS = [
     "NVDA", "AMD", "TSLA", "AAPL", "MSFT", "AMZN", "GOOG", "META",
     "MU", "QCOM", "AVGO", "SMCI",
@@ -43,12 +49,20 @@ SYMBOLS = [
     "UBER", "XYZ",
 ]
 
-BREAKOUT_BARS = 5  # matches bot — 5-minute lookback for breakout level
+BREAKOUT_BARS = 5  # matches bot - 5-minute lookback for breakout level
+
+# Reliability settings (added to fix recurring fetch failures)
+BASE_DELAY_SEC = 1.0       # delay between successful fetches (was 0.3)
+MAX_RETRIES = 3            # how many times to retry a failed symbol
+RETRY_DELAYS = [3, 8, 15]  # seconds to wait before each retry attempt
 
 
 def fetch_symbol_session(symbol, target_date):
     """Fetch 1-minute bars for one symbol on target_date.
-    Returns DataFrame or None on failure."""
+
+    Returns DataFrame on success, None if data is empty/missing.
+    Does NOT raise - yfinance errors are caught and treated as empty.
+    """
     end_date = (pd.Timestamp(target_date) + pd.Timedelta(days=1)).strftime("%Y-%m-%d")
 
     try:
@@ -60,12 +74,11 @@ def fetch_symbol_session(symbol, target_date):
             progress=False,
             auto_adjust=False,
         )
-    except Exception as e:
-        print(f"  {symbol}: fetch failed — {e}")
+    except Exception:
+        # Internal yfinance error - treat as empty
         return None
 
     if df is None or df.empty:
-        print(f"  {symbol}: no data returned")
         return None
 
     # Flatten multi-level columns if present
@@ -86,11 +99,32 @@ def fetch_symbol_session(symbol, target_date):
     df = df[df["et_time"].dt.hour < 16]
 
     if df.empty:
-        print(f"  {symbol}: no bars in regular hours")
         return None
 
     df["symbol"] = symbol
     return df
+
+
+def fetch_with_retry(symbol, target_date):
+    """Fetch a symbol's data with retries on failure.
+
+    Returns DataFrame on success after up to MAX_RETRIES+1 total attempts,
+    or None if all attempts failed.
+    """
+    df = fetch_symbol_session(symbol, target_date)
+    if df is not None and not df.empty:
+        return df
+
+    # First attempt failed - try retries
+    for attempt in range(MAX_RETRIES):
+        delay = RETRY_DELAYS[attempt]
+        print(f"retrying in {delay}s...", end=" ", flush=True)
+        time.sleep(delay)
+        df = fetch_symbol_session(symbol, target_date)
+        if df is not None and not df.empty:
+            return df
+
+    return None
 
 
 def compute_session_metrics(df):
@@ -114,12 +148,8 @@ def compute_session_metrics(df):
     df["vwap"] = cum_pv / cum_vol
     df["dist_from_vwap_pct"] = (df["Close"] - df["vwap"]) / df["vwap"] * 100
 
-    # 5-bar high (excluding current minute) — matches bot's breakout reference
-    # Shift by 1 so the current minute is excluded, then rolling max over 5 prior.
+    # 5-bar high (excluding current minute) - matches bot's breakout reference
     df["high_5bar"] = df["High"].shift(1).rolling(BREAKOUT_BARS).max()
-    # Distance from breakout level (5bar_high * 1.001) as % of current price.
-    # Negative = price is above breakout level (a triggered breakout).
-    # Positive = how much further price needs to rise to break out.
     breakout_level = df["high_5bar"] * 1.001
     df["dist_to_breakout_pct"] = (breakout_level - df["Close"]) / df["Close"] * 100
 
@@ -129,23 +159,26 @@ def compute_session_metrics(df):
 def main():
     print(f"=== Fetching universe session data for {TARGET_DATE} ===")
     print(f"Symbols: {len(SYMBOLS)}")
+    print(f"Settings: base_delay={BASE_DELAY_SEC}s, max_retries={MAX_RETRIES}")
     print()
 
     all_frames = []
     success_count = 0
+    failed_symbols = []
 
     for symbol in SYMBOLS:
         print(f"  {symbol}...", end=" ", flush=True)
-        df = fetch_symbol_session(symbol, TARGET_DATE)
+        df = fetch_with_retry(symbol, TARGET_DATE)
         if df is None or df.empty:
-            print("skipped")
+            print("FAILED after all retries")
+            failed_symbols.append(symbol)
             continue
         df = compute_session_metrics(df)
         all_frames.append(df)
         success_count += 1
         print(f"OK ({len(df)} bars)")
-        # Be polite to yfinance — small delay between requests
-        time.sleep(0.3)
+        # Polite delay between successful fetches
+        time.sleep(BASE_DELAY_SEC)
 
     if not all_frames:
         print("\nERROR: No data fetched for any symbol.")
@@ -153,6 +186,10 @@ def main():
 
     print()
     print(f"=== Combining {success_count}/{len(SYMBOLS)} symbols ===")
+
+    if failed_symbols:
+        print(f"WARNING - FAILED: {', '.join(failed_symbols)}")
+        print(f"   {len(failed_symbols)} symbols missing from output")
 
     combined = pd.concat(all_frames, ignore_index=False)
     combined = combined.sort_values(["symbol", "et_time"])
@@ -174,7 +211,7 @@ def main():
     print(f"Saved {len(out)} rows to {output_file}")
     print()
 
-    # Quick summary — show each symbol's day at a glance
+    # Quick summary - show each symbol's day at a glance
     print("=== Per-symbol summary ===")
     print(f"{'Symbol':<6} {'Open':<10} {'High%':<8} {'Low%':<8} {'Close%':<8} {'Range%':<8} {'Bars':<5}")
     print("-" * 60)
