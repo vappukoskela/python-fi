@@ -1,6 +1,6 @@
 """
 Intraday Breakout Scalper
-Implementation of strategy specification v1.3
+Implementation of strategy specification v1.4
 
 Strategy: Long-only intraday breakout scalping on liquid US large-cap equities.
 Entry: 5-bar price breakout + 2-bar momentum + volume + VWAP + RS filters,
@@ -17,6 +17,10 @@ Changes from v1.2 → v1.3 (2026-05-31, after week-2 data analysis):
 - VWAP_EXTENSION_MAX: 0.005 added (block entries when price > VWAP × 1.005)
 - STOP_LOSS_PCT: 0.003 → 0.004 (widen stop to address noise-trigger pattern)
 - TRAILING_STOP_PCT: 0.0024 → 0.0032 (scaled proportionally with stop)
+
+Changes from v1.3 → v1.4 (2026-06-06, after week-3 data analysis):
+- VOLUME_MULTIPLE: 1.5 → 1.2 (capture moderate-volume breakouts that v1.3
+  data showed were being rejected despite being valid moves)
 """
 
 # ============================================================================
@@ -117,7 +121,13 @@ MOMENTUM_BARS = 2               # consecutive rising bars required for entry
                                 # (v1.3: lowered from 3 — 2-bar momentum
                                 # catches breakouts ~60 seconds earlier in
                                 # the move, reducing "entered late" failures)
-VOLUME_MULTIPLE = 1.5           # 1.5x median 1-minute volume
+VOLUME_MULTIPLE = 1.2           # 1.2x median 1-minute volume
+                                # (v1.4: lowered from 1.5 — two days of v1.3
+                                # data showed ~$200-250/day in TPs missed due
+                                # to volume readings of 0.9-1.4x median. The
+                                # blocked breakouts were real moves, not false
+                                # signals. 1.2 captures most while preserving
+                                # moderate volume confirmation requirement)
 VOLUME_LOOKBACK_MIN = 15        # minutes (volume comparison window)
 RS_LOOKBACK_MIN = 15            # minutes (relative-strength comparison window)
 RS_FILTER_FLOOR = -0.005        # -0.5% over RS_LOOKBACK_MIN (filter)
@@ -236,7 +246,7 @@ def audit_timestamp(dt=None):
 
 
 logging.info("=" * 60)
-logging.info("Scalper starting — strategy spec v1.3")
+logging.info("Scalper starting — strategy spec v1.4")
 logging.info("Universe: %d tradable + 1 reference (%s)",
              len(TRADABLE_UNIVERSE), REFERENCE_SYMBOL)
 logging.info("API base: %s", BASE_URL)
