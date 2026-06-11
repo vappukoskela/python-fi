@@ -29,7 +29,7 @@ from zoneinfo import ZoneInfo
 
 # === CONFIGURATION ===
 
-TARGET_DATE = "2026-06-10"  # Edit this each day
+TARGET_DATE = "2026-06-11"  # Edit this each day
 
 # Reliability settings
 MAX_RETRIES = 3
