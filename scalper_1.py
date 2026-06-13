@@ -1,6 +1,6 @@
 """
 Intraday Breakout Scalper
-Implementation of strategy specification v1.6
+Implementation of strategy specification v1.7
 
 Strategy: Long-only intraday breakout scalping on liquid US large-cap equities.
 Entry: 5-bar price breakout + 2-bar momentum + volume + VWAP + RS filters,
@@ -28,6 +28,19 @@ Changes from v1.4 → v1.6 (2026-06-11, turn-detector — Candidate B):
   fast-exit sweep.
 - Ships in OBSERVE mode: logs signal+intended actions, takes NO action
   until TURN_DETECTOR_MODE='active'.
+
+Changes from v1.6 → v1.7 (2026-06-13, red-bounce entry guard — Rule A):
+- BOUNCE GUARD added (Spec Section 16). Blocks new entries in a specific
+  negative-expectancy setup: a symbol RED from its own open that has
+  BOUNCED >=0.4% off its recent 10-min low, while market state is NEUTRAL.
+  Full-week data (Jun 8-12): this bucket was 25 trades, net -$379, 40%
+  win, with winners and losers indistinguishable at entry (outcome set by
+  post-entry market direction, a coin-flip in chop). No entry-time edge,
+  so the rule avoids the bet rather than trying to time it.
+- INTERIM scaffolding: a future directionless-chop stand-down capability
+  is expected to subsume this rule. Easily reversed via BOUNCE_GUARD_MODE.
+- Coexists with the turn detector (still observe mode); both are entry
+  gates and compose without conflict.
 """
 
 # ============================================================================
@@ -182,6 +195,14 @@ TURN_THRUST_IMMUNITY = 0.008      # >=+0.8% thrust grants pullback immunity
 TURN_WINNER_CUSHION = 0.002       # >+0.2% = winner (keep); else loser
 TURN_WINNER_STOP_BAND = 0.002     # winners' stop pulled to 0.2% below current
 
+# --- Bounce guard (Spec Section 16, Rule A) ---
+# Block entries in the red-bounce-in-neutral setup (negative-EV, no entry
+# edge). Mode: "off" disables; "observe" logs would-block but allows the
+# trade; "active" actually blocks. Interim; reversible.
+BOUNCE_GUARD_MODE = "active"      # "off" | "observe" | "active"
+BOUNCE_LOOKBACK_MIN = 10          # window for the recent low
+BOUNCE_MIN_RISE = 0.004           # >=0.4% rise off the 10-min low = bounce
+
 
 # --- Session timing (Spec Section 7) ---
 ET_TZ = ZoneInfo("America/New_York")
@@ -266,7 +287,7 @@ def audit_timestamp(dt=None):
 
 
 logging.info("=" * 60)
-logging.info("Scalper starting — strategy spec v1.6 (turn-detector: %s)", TURN_DETECTOR_MODE)
+logging.info("Scalper starting — strategy spec v1.7 (turn-detector: %s, bounce-guard: %s)", TURN_DETECTOR_MODE, BOUNCE_GUARD_MODE)
 logging.info("Universe: %d tradable + 1 reference (%s)",
              len(TRADABLE_UNIVERSE), REFERENCE_SYMBOL)
 logging.info("API base: %s", BASE_URL)
@@ -1278,6 +1299,42 @@ def compute_universe_breadth(state, lookback_minutes):
     return red_falling / considered, considered
 
 
+def compute_bounce_off_low(buffer, lookback_minutes):
+    """Fractional rise of the current price above its lowest price over the
+    last lookback_minutes. Proxy for 'how far has this bounced off a recent
+    low'. Returns None if insufficient data."""
+    needed = lookback_minutes * 60
+    if buffer.length() < needed:
+        return None
+    recent = list(buffer.prices)[-needed:]
+    low = min(recent)
+    cur = buffer.latest_price()
+    if low <= 0 or cur is None:
+        return None
+    return (cur - low) / low
+
+
+def is_red_bounce_setup(symbol_buffer, market_state):
+    """Rule A predicate: True if this is the negative-EV red-bounce-in-neutral
+    setup — symbol red from its own open, bounced >= BOUNCE_MIN_RISE off its
+    recent low, while market state is neutral. Returns (is_setup, bounce).
+    """
+    if market_state != "neutral":
+        return False, None
+    if symbol_buffer.session_open_price is None:
+        return False, None
+    cur = symbol_buffer.latest_price()
+    if cur is None:
+        return False, None
+    red = cur < symbol_buffer.session_open_price
+    if not red:
+        return False, None
+    bounce = compute_bounce_off_low(symbol_buffer, BOUNCE_LOOKBACK_MIN)
+    if bounce is None:
+        return False, None
+    return (bounce >= BOUNCE_MIN_RISE), bounce
+
+
 # ============================================================================
 # SECTION 11: STATE MANAGEMENT
 # ============================================================================
@@ -1804,6 +1861,15 @@ def evaluate_entry(symbol, state, market_state):
     if TURN_DETECTOR_MODE == "active" and state.turn_signal == "TURN_DOWN":
         return None, "turn_down", indicators
 
+    # Bounce guard (Rule A). Block the red-bounce-in-neutral setup when
+    # active. In observe mode the would-block is logged by the caller.
+    if BOUNCE_GUARD_MODE == "active":
+        sym_buf = state.get_buffer(symbol)
+        if sym_buf is not None:
+            is_setup, _bounce = is_red_bounce_setup(sym_buf, market_state)
+            if is_setup:
+                return None, "red_bounce_guard", indicators
+
     symbol_buffer = state.get_buffer(symbol)
     spy_buffer = state.get_buffer(REFERENCE_SYMBOL)
     if symbol_buffer is None or spy_buffer is None:
@@ -2230,6 +2296,20 @@ def _process_entries(state, latest_prices, market_state):
             symbol, state, market_state
         )
 
+        # Bounce-guard visibility (Rule A). Log every block (active) and
+        # every would-block (observe) so the rule's behaviour is auditable
+        # live and we can judge whether it holds beyond the first week.
+        if BOUNCE_GUARD_MODE in ("observe", "active"):
+            sym_buf = state.get_buffer(symbol)
+            if sym_buf is not None:
+                _is_setup, _bnc = is_red_bounce_setup(sym_buf, market_state)
+                if _is_setup:
+                    verb = "BLOCK" if BOUNCE_GUARD_MODE == "active" else "WOULD-BLOCK"
+                    logging.warning(
+                        "[bounce-guard] %s %s red-bounce setup "
+                        "(bounce=%.2f%% off %dm low, neutral state)",
+                        verb, symbol, _bnc * 100, BOUNCE_LOOKBACK_MIN)
+
         if tier is None:
             # Log blocked decisions only when the trigger actually fired
             # and the rejection carries per-trade information.
@@ -2249,7 +2329,7 @@ def _process_entries(state, latest_prices, market_state):
                 "already_in_position", "low_volume",
                 "market_bearish", "market_state_unknown",
                 "max_positions_reached", "kill_switch_tripped",
-                "symbol_blocked", "turn_down",
+                "symbol_blocked", "turn_down", "red_bounce_guard",
             ):
                 log_decision(symbol=symbol, decision="blocked",
                              market_state=market_state,
