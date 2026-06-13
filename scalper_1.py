@@ -1,6 +1,6 @@
 """
 Intraday Breakout Scalper
-Implementation of strategy specification v1.4
+Implementation of strategy specification v1.6
 
 Strategy: Long-only intraday breakout scalping on liquid US large-cap equities.
 Entry: 5-bar price breakout + 2-bar momentum + volume + VWAP + RS filters,
@@ -21,6 +21,13 @@ Changes from v1.2 → v1.3 (2026-05-31, after week-2 data analysis):
 Changes from v1.3 → v1.4 (2026-06-06, after week-3 data analysis):
 - VOLUME_MULTIPLE: 1.5 → 1.2 (capture moderate-volume breakouts that v1.3
   data showed were being rejected despite being valid moves)
+
+Changes from v1.4 → v1.6 (2026-06-11, turn-detector — Candidate B):
+- TURN DETECTOR added (Spec Section 15). SPY momentum + universe breadth,
+  thrust-based pullback immunity, hysteresis. Consumers: entry gate +
+  fast-exit sweep.
+- Ships in OBSERVE mode: logs signal+intended actions, takes NO action
+  until TURN_DETECTOR_MODE='active'.
 """
 
 # ============================================================================
@@ -163,6 +170,19 @@ TIER1_TRIGGER_LOSSES = 2        # consecutive losses to enter Tier 1
 KILL_SWITCH_THRESHOLD = -0.02   # -2% of start-of-day equity
 SYMBOL_BLOCK_LOSSES = 2         # consecutive losses to block symbol
 
+# --- Turn detector (Spec Section 15, Candidate B) ---
+TURN_DETECTOR_MODE = "observe"   # "off" | "observe" | "active"
+TURN_SPY_LOOKBACK_MIN = 5         # SPY short-momentum window
+TURN_SPY_DROP = -0.0015           # SPY -0.15% over window = momentum down
+TURN_BREADTH_LOOKBACK_MIN = 5     # window a symbol is 'falling' over
+TURN_BREADTH_ENTER_FRAC = 0.50    # >=50% red-and-falling => enter TURN_DOWN
+TURN_BREADTH_EXIT_FRAC = 0.30     # <=30% => exit to STABLE (hysteresis)
+TURN_THRUST_LOOKBACK_MIN = 15     # best up-thrust window
+TURN_THRUST_IMMUNITY = 0.008      # >=+0.8% thrust grants pullback immunity
+TURN_WINNER_CUSHION = 0.002       # >+0.2% = winner (keep); else loser
+TURN_WINNER_STOP_BAND = 0.002     # winners' stop pulled to 0.2% below current
+
+
 # --- Session timing (Spec Section 7) ---
 ET_TZ = ZoneInfo("America/New_York")
 SESSION_OPEN_HOUR = 9           # 9:30 ET market open
@@ -246,7 +266,7 @@ def audit_timestamp(dt=None):
 
 
 logging.info("=" * 60)
-logging.info("Scalper starting — strategy spec v1.4")
+logging.info("Scalper starting — strategy spec v1.6 (turn-detector: %s)", TURN_DETECTOR_MODE)
 logging.info("Universe: %d tradable + 1 reference (%s)",
              len(TRADABLE_UNIVERSE), REFERENCE_SYMBOL)
 logging.info("API base: %s", BASE_URL)
@@ -1200,6 +1220,64 @@ def compute_spy_direction(spy_buffer, lookback_minutes, flat_band):
     return "flat"
 
 
+def compute_spy_move(spy_buffer, lookback_minutes):
+    """SPY fractional change over the last lookback_minutes. None if short."""
+    needed = lookback_minutes * 60
+    if spy_buffer.length() < needed:
+        return None
+    then = list(spy_buffer.prices)[-needed]
+    now = spy_buffer.prices[-1]
+    if then <= 0:
+        return None
+    return (now - then) / then
+
+
+def compute_best_upthrust(spy_buffer, window_minutes):
+    """Best (max) SPY up-move measured over any window_minutes span within
+    the buffer — proxy for 'was there a recent strong thrust'. Scans each
+    second-offset start. None if insufficient data."""
+    needed = window_minutes * 60
+    n = spy_buffer.length()
+    if n < needed + 1:
+        return None
+    prices = list(spy_buffer.prices)
+    best = -1.0
+    # step by 30s for efficiency; fine resolution not needed for a threshold
+    for start in range(0, n - needed, 30):
+        p0 = prices[start]
+        p1 = prices[start + needed]
+        if p0 > 0:
+            rise = (p1 - p0) / p0
+            if rise > best:
+                best = rise
+    return best if best > -1.0 else None
+
+
+def compute_universe_breadth(state, lookback_minutes):
+    """Fraction of tradable symbols that are BOTH red-from-open AND falling
+    over the last lookback_minutes. Returns (fraction, n_considered) or
+    (None, 0) if too few symbols have data."""
+    needed = lookback_minutes * 60
+    red_falling = 0
+    considered = 0
+    for sym in TRADABLE_UNIVERSE:
+        buf = state.get_buffer(sym)
+        if buf is None or buf.session_open_price is None:
+            continue
+        price = buf.latest_price()
+        if price is None or buf.length() < needed:
+            continue
+        considered += 1
+        red = price < buf.session_open_price
+        then = list(buf.prices)[-needed]
+        falling = then > 0 and (price - then) / then < 0
+        if red and falling:
+            red_falling += 1
+    if considered < 5:
+        return None, considered
+    return red_falling / considered, considered
+
+
 # ============================================================================
 # SECTION 11: STATE MANAGEMENT
 # ============================================================================
@@ -1225,6 +1303,8 @@ class Position:
         # Mode tracking — starts in "normal", may transition to "runner".
         self.mode = "normal"
         self.peak_price = entry_price         # tracks max price for trailing stop
+        self.protected_stop_price = None      # set by turn-detector fast-exit
+                                              # sweep when this winner is kept
 
     def update_peak(self, current_price):
         """Track the highest price seen since entry. Used by runner mode
@@ -1388,6 +1468,110 @@ class SymbolBlacklist:
         self._blocked.clear()
 
 
+class TurnDetector:
+    """Detects intraday downside turns (Candidate B). Combines SPY short
+    momentum + universe breadth, with thrust-based pullback immunity and
+    hysteresis. Returns 'STABLE' or 'TURN_DOWN'.
+
+    Modes (module param TURN_DETECTOR_MODE):
+      off     - detector disabled, always STABLE
+      observe - signal computed and logged; callers must NOT act on it
+      active  - signal computed and logged; callers act (block + fast-exit)
+
+    Hysteresis (D-2): enter TURN_DOWN when breadth red-falling fraction >=
+    TURN_BREADTH_ENTER_FRAC; return to STABLE only when it recedes to <=
+    TURN_BREADTH_EXIT_FRAC. Asymmetric bands damp oscillation on chop.
+
+    Immunity (B-3): if best recent up-thrust >= TURN_THRUST_IMMUNITY, the
+    market is in an established rally; TURN_DOWN is vetoed (a short drop is
+    treated as a healthy pullback).
+
+    Trigger (D-F=yes): breadth deterioration alone can enter TURN_DOWN even
+    without a sharp SPY momentum drop, so slow bleeds are caught. SPY
+    momentum is an additional (faster) path to the same signal.
+    """
+
+    def __init__(self):
+        self.signal = "STABLE"
+        self._swept_this_episode = False  # fast-exit is one-time per turn
+        self.last_detail = {}             # snapshot for logging
+
+    def update(self, state):
+        """Recompute the signal from current buffers. Returns the signal
+        string. Pure computation + logging; never places orders."""
+        if TURN_DETECTOR_MODE == "off":
+            self.signal = "STABLE"
+            return self.signal
+
+        spy_buffer = state.get_buffer(REFERENCE_SYMBOL)
+        if spy_buffer is None:
+            return self.signal
+
+        spy_move = compute_spy_move(spy_buffer, TURN_SPY_LOOKBACK_MIN)
+        thrust = compute_best_upthrust(spy_buffer, TURN_THRUST_LOOKBACK_MIN)
+        breadth, n = compute_universe_breadth(state, TURN_BREADTH_LOOKBACK_MIN)
+
+        immune = thrust is not None and thrust >= TURN_THRUST_IMMUNITY
+        momentum_down = spy_move is not None and spy_move <= TURN_SPY_DROP
+        breadth_enter = breadth is not None and breadth >= TURN_BREADTH_ENTER_FRAC
+        breadth_exit = breadth is not None and breadth <= TURN_BREADTH_EXIT_FRAC
+
+        prev = self.signal
+
+        if prev == "STABLE":
+            # Enter TURN_DOWN if breadth deteriorating OR momentum down,
+            # UNLESS an established-rally thrust grants pullback immunity.
+            if (breadth_enter or momentum_down) and not immune:
+                self.signal = "TURN_DOWN"
+                self._swept_this_episode = False
+        else:  # currently TURN_DOWN
+            # Return to STABLE only on clear recovery (hysteresis) or if a
+            # strong fresh up-thrust appears (rally resumed).
+            if breadth_exit or immune:
+                self.signal = "STABLE"
+
+        self.last_detail = {
+            "spy_move": spy_move, "thrust": thrust, "breadth": breadth,
+            "n": n, "immune": immune, "momentum_down": momentum_down,
+        }
+
+        if self.signal != prev:
+            sm = f"{spy_move*100:+.2f}%" if spy_move is not None else "n/a"
+            th = f"{thrust*100:+.2f}%" if thrust is not None else "n/a"
+            br = f"{breadth*100:.0f}%" if breadth is not None else "n/a"
+            logging.warning(
+                "[turn] %s -> %s | mode=%s spy5m=%s thrust15m=%s "
+                "breadth=%s(red-falling/%d) immune=%s",
+                prev, self.signal, TURN_DETECTOR_MODE, sm, th, br, n, immune)
+        return self.signal
+
+    def log_observation(self):
+        """Periodic one-line detail for observe-mode visibility."""
+        d = self.last_detail
+        if not d:
+            return
+        sm = f"{d['spy_move']*100:+.2f}%" if d.get('spy_move') is not None else "n/a"
+        th = f"{d['thrust']*100:+.2f}%" if d.get('thrust') is not None else "n/a"
+        br = f"{d['breadth']*100:.0f}%" if d.get('breadth') is not None else "n/a"
+        logging.info(
+            "[turn] signal=%s mode=%s spy5m=%s thrust15m=%s breadth=%s "
+            "immune=%s momdown=%s",
+            self.signal, TURN_DETECTOR_MODE, sm, th, br,
+            d.get('immune'), d.get('momentum_down'))
+
+    def needs_sweep(self):
+        """True once when TURN_DOWN first active and not yet swept."""
+        return self.signal == "TURN_DOWN" and not self._swept_this_episode
+
+    def mark_swept(self):
+        self._swept_this_episode = True
+
+    def reset_for_new_session(self):
+        self.signal = "STABLE"
+        self._swept_this_episode = False
+        self.last_detail = {}
+
+
 class KillSwitch:
     """Daily kill switch. Tracks whether the account has lost more than
     KILL_SWITCH_THRESHOLD from start-of-day equity.
@@ -1465,6 +1649,8 @@ class StrategyState:
         self.tier_tracker = TierTracker()
         self.blacklist = SymbolBlacklist()
         self.kill_switch = KillSwitch()
+        self.turn_detector = TurnDetector()
+        self.turn_signal = "STABLE"   # latest signal, refreshed each loop
         self.buffers = {}  # symbol -> SymbolBuffer
         # Track session start so we can detect when a new day begins
         # (the system might run across multiple sessions).
@@ -1478,6 +1664,8 @@ class StrategyState:
         self.kill_switch.initialize_for_session(equity)
         self.tier_tracker.reset_for_new_session()
         self.blacklist.reset_for_new_session()
+        self.turn_detector.reset_for_new_session()
+        self.turn_signal = "STABLE"
 
         # Create or reset buffers for each symbol.
         for symbol in symbols:
@@ -1610,6 +1798,11 @@ def evaluate_entry(symbol, state, market_state):
 
     if market_state == "bearish":
         return None, "market_bearish", indicators
+
+    # Turn detector entry gate (Candidate B). Only ENFORCED in active
+    # mode; in observe mode the block is logged elsewhere, not applied.
+    if TURN_DETECTOR_MODE == "active" and state.turn_signal == "TURN_DOWN":
+        return None, "turn_down", indicators
 
     symbol_buffer = state.get_buffer(symbol)
     spy_buffer = state.get_buffer(REFERENCE_SYMBOL)
@@ -1810,6 +2003,10 @@ def evaluate_exit(position, current_price, market_state, now=None):
         return False, None
 
     if position.mode == "normal":
+        # Turn-protect stop (set by fast-exit sweep on a kept winner).
+        if (position.protected_stop_price is not None
+                and current_price <= position.protected_stop_price):
+            return True, "turn_protect"
         # Stop-loss check (checked before TP — if both true, stop wins).
         stop_price = position.entry_price * (1 - STOP_LOSS_PCT)
         if current_price <= stop_price:
@@ -2052,7 +2249,7 @@ def _process_entries(state, latest_prices, market_state):
                 "already_in_position", "low_volume",
                 "market_bearish", "market_state_unknown",
                 "max_positions_reached", "kill_switch_tripped",
-                "symbol_blocked",
+                "symbol_blocked", "turn_down",
             ):
                 log_decision(symbol=symbol, decision="blocked",
                              market_state=market_state,
@@ -2297,6 +2494,75 @@ def _check_kill_switch(state, latest_prices):
     return True
 
 
+def _turn_fast_exit_sweep(state, latest_prices, market_state):
+    """One-time sweep when the turn detector enters TURN_DOWN.
+    Flatten losers (<=+cushion) at market; tighten winners’ stop. In
+    OBSERVE mode this only LOGS what it would do and takes no action.
+    """
+    detector = state.turn_detector
+    if not detector.needs_sweep():
+        return
+
+    observe = (TURN_DETECTOR_MODE != "active")
+    tag = "WOULD" if observe else "DO"
+    logging.warning("[turn] fast-exit sweep (%s) — %d open positions",
+                    tag, state.positions.count())
+
+    for position in state.positions.all_positions():
+        symbol = position.symbol
+        pd_ = latest_prices.get(symbol)
+        if pd_ is not None:
+            price = pd_[0]
+        else:
+            buf = state.get_buffer(symbol)
+            price = buf.latest_price() if buf else None
+        if price is None:
+            continue
+        gain = (price - position.entry_price) / position.entry_price
+        is_winner = gain > TURN_WINNER_CUSHION
+
+        if is_winner:
+            new_stop = price * (1 - TURN_WINNER_STOP_BAND)
+            if observe:
+                logging.info("[turn]   %s WINNER gain=%+.2f%% would tighten "
+                             "stop -> %.4f", symbol, gain*100, new_stop)
+            else:
+                # Only tighten (raise) the protective stop, never loosen.
+                if (position.protected_stop_price is None
+                        or new_stop > position.protected_stop_price):
+                    position.protected_stop_price = new_stop
+                logging.info("[turn]   %s WINNER gain=%+.2f%% stop tightened "
+                             "-> %.4f", symbol, gain*100, new_stop)
+        else:
+            if observe:
+                logging.info("[turn]   %s LOSER gain=%+.2f%% would flatten now",
+                             symbol, gain*100)
+                continue
+            result = submit_sell(symbol, position.qty)
+            if result is None:
+                logging.warning("[turn]   %s flatten failed — will retry", symbol)
+                continue
+            exit_price = result.get("filled_price") or price
+            pnl = compute_realized_pnl(position, exit_price)
+            log_trade(symbol=symbol, action="SELL", qty=position.qty,
+                      price=exit_price, fill_status=result.get("status","unknown"),
+                      market_state=market_state, order_id=result.get("order_id",""),
+                      exit_reason="turn_exit", pnl=pnl,
+                      timestamp=result.get("fill_time"))
+            state.tier_tracker.record_outcome(pnl)
+            state.blacklist.record_outcome(symbol, pnl)
+            state.positions.remove(symbol)
+            logging.info("[turn]   %s LOSER flattened gain=%+.2f%% pnl=$%.2f",
+                         symbol, gain*100, pnl)
+
+    if not observe:
+        detector.mark_swept()
+    else:
+        # In observe mode, mark swept too so we don't repeat the log every
+        # loop; the episode is recorded once.
+        detector.mark_swept()
+
+
 def main_loop(state):
     """Run the main trading loop. Blocks until the program is interrupted
     (Ctrl-C) or the session ends.
@@ -2350,6 +2616,11 @@ def main_loop(state):
                     last_logged_state = market_state
                 previous_market_state = market_state
 
+            # Turn detector (Candidate B). Compute every loop; store on
+            # state so the entry gate can read it. In observe mode this
+            # only logs; in active mode the gate + sweep act on it.
+            state.turn_signal = state.turn_detector.update(state)
+
             # Heartbeat — confirm to the operator that the loop is alive
             # even when nothing interesting is happening.
             if (now - last_heartbeat).total_seconds() >= HEARTBEAT_INTERVAL_SEC:
@@ -2370,6 +2641,7 @@ def main_loop(state):
             # operator can see what the bot is seeing for the universe.
             if (now - last_diagnostic).total_seconds() >= DIAGNOSTIC_INTERVAL_SEC:
                 _diagnostic_snapshot(state, market_state)
+                state.turn_detector.log_observation()
                 last_diagnostic = now
 
             # Kill switch check — trips and closes everything if breached.
@@ -2380,6 +2652,9 @@ def main_loop(state):
                 # already closed by _check_kill_switch.
                 time.sleep(LOOP_SLEEP_SEC)
                 continue
+
+            # Turn fast-exit sweep (one-time on entering TURN_DOWN).
+            _turn_fast_exit_sweep(state, latest_prices, market_state)
 
             # Process exits before entries so freed slots are available.
             _process_exits(state, latest_prices, market_state)
