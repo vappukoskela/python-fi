@@ -1,6 +1,6 @@
 """
 Intraday Breakout Scalper
-Implementation of strategy specification v1.7
+Implementation of strategy specification v1.9
 
 Strategy: Long-only intraday breakout scalping on liquid US large-cap equities.
 Entry: 5-bar price breakout + 2-bar momentum + volume + VWAP + RS filters,
@@ -41,6 +41,27 @@ Changes from v1.6 → v1.7 (2026-06-13, red-bounce entry guard — Rule A):
   is expected to subsume this rule. Easily reversed via BOUNCE_GUARD_MODE.
 - Coexists with the turn detector (still observe mode); both are entry
   gates and compose without conflict.
+
+Changes from v1.7 → v1.8 (2026-06-16, session-open anchor fix — BUG):
+- FIXED: session_open_price was anchored to the first live tick the bot
+  happened to see (~bot start time), not the true 09:30 ET official open.
+  When the bot starts after the open (late start, or prepopulate blocked
+  by the free-tier recent-SIP limit), every symbol's 'from open' basis
+  was wrong — distorting market state and the bounce guard (which on
+  2026-06-15 blocked names that were green from the true open).
+- FIX: at startup, set session_open_price from the official daily bar
+  open via get_stock_snapshot (daily_bar.open), verified to be today's
+  bar. Robust to start time. Falls back to first-tick anchor per symbol
+  if the snapshot is unavailable/stale (degraded, never crashes).
+
+Changes from v1.8 → v1.9 (2026-06-16, bounce-guard log quieting — NON-strategy):
+- The bounce-guard visibility log fired every loop (~1-2x/sec) for every
+  symbol in the red-bounce setup, producing ~14k near-identical lines/day
+  (Jun 16) that buried the [turn] and [diag] streams. Pure logging defect;
+  no trading logic affected.
+- FIX: log once when a symbol ENTERS the red-bounce setup and once when it
+  CLEARS, instead of every loop. Per-symbol episode tracked on state
+  (bounce_guard_episode), reset each session. Block behaviour unchanged.
 """
 
 # ============================================================================
@@ -64,6 +85,7 @@ from alpaca.data.historical.stock import StockHistoricalDataClient
 from alpaca.data.requests import (
     StockBarsRequest,
     StockLatestTradeRequest,
+    StockSnapshotRequest,
 )
 from alpaca.data.timeframe import TimeFrame
 from alpaca.trading.client import TradingClient
@@ -287,7 +309,7 @@ def audit_timestamp(dt=None):
 
 
 logging.info("=" * 60)
-logging.info("Scalper starting — strategy spec v1.7 (turn-detector: %s, bounce-guard: %s)", TURN_DETECTOR_MODE, BOUNCE_GUARD_MODE)
+logging.info("Scalper starting — strategy spec v1.9 (turn-detector: %s, bounce-guard: %s)", TURN_DETECTOR_MODE, BOUNCE_GUARD_MODE)
 logging.info("Universe: %d tradable + 1 reference (%s)",
              len(TRADABLE_UNIVERSE), REFERENCE_SYMBOL)
 logging.info("API base: %s", BASE_URL)
@@ -1708,6 +1730,9 @@ class StrategyState:
         self.kill_switch = KillSwitch()
         self.turn_detector = TurnDetector()
         self.turn_signal = "STABLE"   # latest signal, refreshed each loop
+        # Symbols currently in a logged bounce-guard episode, so the
+        # visibility log fires once per episode, not every loop.
+        self.bounce_guard_episode = set()
         self.buffers = {}  # symbol -> SymbolBuffer
         # Track session start so we can detect when a new day begins
         # (the system might run across multiple sessions).
@@ -1723,6 +1748,7 @@ class StrategyState:
         self.blacklist.reset_for_new_session()
         self.turn_detector.reset_for_new_session()
         self.turn_signal = "STABLE"
+        self.bounce_guard_episode = set()
 
         # Create or reset buffers for each symbol.
         for symbol in symbols:
@@ -2296,19 +2322,23 @@ def _process_entries(state, latest_prices, market_state):
             symbol, state, market_state
         )
 
-        # Bounce-guard visibility (Rule A). Log every block (active) and
-        # every would-block (observe) so the rule's behaviour is auditable
-        # live and we can judge whether it holds beyond the first week.
+        # Bounce-guard visibility (Rule A). Log ONCE when a symbol enters
+        # the red-bounce setup and once when it clears — not every loop
+        # (which produced ~14k lines/day). Episode tracked on state.
         if BOUNCE_GUARD_MODE in ("observe", "active"):
             sym_buf = state.get_buffer(symbol)
             if sym_buf is not None:
                 _is_setup, _bnc = is_red_bounce_setup(sym_buf, market_state)
-                if _is_setup:
+                if _is_setup and symbol not in state.bounce_guard_episode:
                     verb = "BLOCK" if BOUNCE_GUARD_MODE == "active" else "WOULD-BLOCK"
                     logging.warning(
-                        "[bounce-guard] %s %s red-bounce setup "
+                        "[bounce-guard] %s %s red-bounce setup begins "
                         "(bounce=%.2f%% off %dm low, neutral state)",
                         verb, symbol, _bnc * 100, BOUNCE_LOOKBACK_MIN)
+                    state.bounce_guard_episode.add(symbol)
+                elif (not _is_setup) and symbol in state.bounce_guard_episode:
+                    logging.info("[bounce-guard] %s setup cleared", symbol)
+                    state.bounce_guard_episode.discard(symbol)
 
         if tier is None:
             # Log blocked decisions only when the trigger actually fired
@@ -2907,6 +2937,75 @@ def startup_populate_buffers(state):
                  populated, skipped)
 
 
+def startup_set_session_opens(state):
+    """Set each symbol's session_open_price to today's OFFICIAL session
+    open, fetched via snapshot (daily_bar.open). Fixes the anchor bug where
+    session_open defaulted to the first tick the bot happened to see, which
+    is wrong whenever the bot starts after the true 09:30 ET open.
+
+    Robust to start time: the official open is a fixed morning value, correct
+    whether the bot starts at the open or hours later. Free-tier note: the
+    daily_bar.open is served on IEX even though recent minute bars are not
+    (the prepopulate limitation). If the snapshot fails or a symbol is
+    missing/stale, that symbol falls back to the first-tick anchor (prior
+    behaviour) rather than crashing.
+
+    Must run AFTER startup_populate_buffers so it overrides any open the
+    prepopulate may have set from a (non-open) historical bar. Sets
+    session_high_price too, to keep the open/high invariant that add_tick
+    relies on (add_tick only initialises high when open is None).
+    """
+    et_today = to_et(now_utc()).date()
+    try:
+        req = StockSnapshotRequest(symbol_or_symbols=ALL_SYMBOLS)
+        snaps = stock_data_client.get_stock_snapshot(req)
+    except Exception as e:
+        logging.warning("Session-open snapshot fetch failed: %s — symbols "
+                        "will anchor to first tick (degraded)", e)
+        return
+
+    set_count = 0
+    for symbol in ALL_SYMBOLS:
+        buffer = state.get_buffer(symbol)
+        if buffer is None:
+            continue
+        snap = snaps.get(symbol) if snaps else None
+        daily = getattr(snap, "daily_bar", None) if snap else None
+        if daily is None:
+            logging.info("No daily bar for %s — anchoring to first tick",
+                         symbol)
+            continue
+        # Verify it is TODAY's daily bar (timestamp is midnight ET of the
+        # session day); a stale prior-day bar must not be trusted.
+        bar_ts = getattr(daily, "timestamp", None)
+        if bar_ts is not None:
+            try:
+                bar_et_date = bar_ts.astimezone(ET_TZ).date()
+            except Exception:
+                bar_et_date = None
+            if bar_et_date is not None and bar_et_date != et_today:
+                logging.info("Daily bar for %s is %s, not today (%s) — "
+                             "anchoring to first tick",
+                             symbol, bar_et_date, et_today)
+                continue
+        open_px = getattr(daily, "open", None)
+        high_px = getattr(daily, "high", None)
+        if open_px is None or open_px <= 0:
+            continue
+        buffer.session_open_price = float(open_px)
+        # Seed high from the daily bar's high-so-far; keeps open/high
+        # invariant so add_tick's else-branch never compares against None.
+        if high_px is not None and high_px >= open_px:
+            buffer.session_high_price = float(high_px)
+        else:
+            buffer.session_high_price = float(open_px)
+        buffer.session_open_set_at = now_utc()
+        set_count += 1
+
+    logging.info("Session opens set from official daily bar: %d/%d symbols",
+                 set_count, len(ALL_SYMBOLS))
+
+
 def startup():
     """Full startup sequence. Returns a fully initialized StrategyState
     ready for main_loop. Raises StartupError on any failure."""
@@ -2922,6 +3021,7 @@ def startup():
     state.initialize_session(equity, ALL_SYMBOLS)
 
     startup_populate_buffers(state)
+    startup_set_session_opens(state)
 
     logging.info("Startup complete — handing off to main loop")
     return state
