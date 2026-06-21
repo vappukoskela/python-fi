@@ -1,6 +1,13 @@
 """
 Intraday Breakout Scalper
-Implementation of strategy specification v1.9
+Implementation of strategy specification v1.10
+
+v1.9 -> v1.10 (2026-06-19): OBSERVE-mode scaffolding for volatility-adaptive risk.
+- New compute_volatility_30min() + compute_vol_adaptive_params() (inert helpers).
+- At each entry, logs an OBSERVE_VOLADAPT line: would-be vol-scaled stop/size/TP
+  vs the live fixed values. Takes NO action; live stop/sizing/TP unchanged.
+- BUFFER_SECONDS 1200->1920 and warmup +VOL_LOOKBACK_MIN feed the 30-min vol window.
+- Spec: volatility_adaptive_risk_design_paper.md (v0.2). Activation (v2.0) is separate.
 
 Strategy: Long-only intraday breakout scalping on liquid US large-cap equities.
 Entry: 5-bar price breakout + 2-bar momentum + volume + VWAP + RS filters,
@@ -201,6 +208,20 @@ MAX_POSITIONS = 5               # max concurrent positions
 PER_POSITION_HARD_CEILING = 0.10  # 10% safety backstop
 TIER1_TRIGGER_LOSSES = 2        # consecutive losses to enter Tier 1
 
+# === Volatility-Adaptive Risk (v1.10 — OBSERVE MODE: logs only, no action) ===
+# Computes the stop / size / TP the bot WOULD use under the constant-dollar-risk
+# design and logs them next to each entry for later validation. Takes NO action:
+# the live stop (STOP_LOSS_PCT), sizing (tiers), and TP (TAKE_PROFIT_PCT) are
+# unchanged while this is "observe". Setting it to "active" is a separate, later
+# change (v2.0) and is NOT yet implemented. Spec: volatility_adaptive_risk_design_paper.md
+VOLATILITY_ADAPTIVE_MODE = "observe"   # "off" | "observe" | "active"
+VOL_LOOKBACK_MIN    = 30        # trailing window for the volatility measure (min)
+VOL_STOP_K          = 10        # stop width in "minutes of normal movement"
+VOL_RISK_BUDGET_PCT = 0.0005    # 0.05% of buying power at risk per trade
+VOL_STOP_FLOOR      = 0.003     # stop never tighter than 0.3%
+VOL_STOP_CEILING    = 0.03      # stop never wider than 3.0%
+VOL_TP_RATIO        = 1.5       # take-profit = 1.5 × stop (preserve 1.5:1 R:R)
+
 # --- Risk governors (Spec Section 7) ---
 KILL_SWITCH_THRESHOLD = -0.02   # -2% of start-of-day equity
 SYMBOL_BLOCK_LOSSES = 2         # consecutive losses to block symbol
@@ -309,7 +330,7 @@ def audit_timestamp(dt=None):
 
 
 logging.info("=" * 60)
-logging.info("Scalper starting — strategy spec v1.9 (turn-detector: %s, bounce-guard: %s)", TURN_DETECTOR_MODE, BOUNCE_GUARD_MODE)
+logging.info("Scalper starting — strategy spec v1.10 (turn-detector: %s, bounce-guard: %s, vol-adaptive: %s)", TURN_DETECTOR_MODE, BOUNCE_GUARD_MODE, VOLATILITY_ADAPTIVE_MODE)
 logging.info("Universe: %d tradable + 1 reference (%s)",
              len(TRADABLE_UNIVERSE), REFERENCE_SYMBOL)
 logging.info("API base: %s", BASE_URL)
@@ -929,7 +950,7 @@ def log_decision(symbol, decision, market_state, rs_15min=None,
 
 # Sized at 20 minutes (1200 seconds) — longer than any lookback we need,
 # with buffer for clean rolling computations.
-BUFFER_SECONDS = 1200
+BUFFER_SECONDS = 1920          # v1.10: 32 min (was 20) — feeds 30-min vol window
 
 
 class SymbolBuffer:
@@ -1363,6 +1384,60 @@ def is_red_bounce_setup(symbol_buffer, market_state):
 # All mutable strategy state lives in classes here. The main loop owns
 # instances of these classes and passes them to decision functions.
 # State is never accessed via module-level globals.
+
+
+def compute_volatility_30min(buffer):
+    """Per-minute realized volatility over the trailing VOL_LOOKBACK_MIN minutes.
+
+    Standard deviation of 1-minute close-to-close returns, as a per-minute
+    fraction (e.g. 0.00257 = 0.257%/min). Reuses _build_minute_bars so it sees
+    the same completed-minute view as the breakout logic. Returns None if there
+    are not yet enough completed bars (e.g. early in a session).
+    """
+    if buffer is None:
+        return None
+    bars = _build_minute_bars(buffer, VOL_LOOKBACK_MIN + 1)
+    if bars is None or len(bars) < VOL_LOOKBACK_MIN + 1:
+        return None
+    closes = [b["close"] for b in bars]
+    rets = []
+    for k in range(1, len(closes)):
+        prev = closes[k - 1]
+        if prev > 0:
+            rets.append((closes[k] - prev) / prev)
+    if len(rets) < 2:
+        return None
+    mean = sum(rets) / len(rets)
+    var = sum((r - mean) ** 2 for r in rets) / (len(rets) - 1)
+    return var ** 0.5
+
+
+def compute_vol_adaptive_params(vol_per_min, entry_price, buying_power):
+    """Would-be volatility-adaptive risk parameters (OBSERVE mode, no action).
+
+    Given a per-minute volatility, returns the stop / position / take-profit the
+    bot WOULD use under the v2.0 constant-dollar-risk design, for logging and
+    later validation. Computes nothing that affects the live trade.
+    """
+    stop_frac = VOL_STOP_K * vol_per_min
+    stop_frac = max(VOL_STOP_FLOOR, min(VOL_STOP_CEILING, stop_frac))
+    risk_budget_dollars = buying_power * VOL_RISK_BUDGET_PCT
+    position_dollars = risk_budget_dollars / stop_frac if stop_frac > 0 else 0.0
+    ceiling = buying_power * PER_POSITION_HARD_CEILING
+    capped = position_dollars > ceiling
+    if capped:
+        position_dollars = ceiling
+    tp_frac = stop_frac * VOL_TP_RATIO
+    trail_ratio = (TRAILING_STOP_PCT / STOP_LOSS_PCT) if STOP_LOSS_PCT > 0 else 0.8
+    trailing_frac = stop_frac * trail_ratio
+    return {
+        "stop_frac": stop_frac,
+        "position_dollars": position_dollars,
+        "tp_frac": tp_frac,
+        "trailing_frac": trailing_frac,
+        "risk_dollars": position_dollars * stop_frac,
+        "ceiling_capped": capped,
+    }
 
 
 class Position:
@@ -2443,6 +2518,27 @@ def _process_entries(state, latest_prices, market_state):
         logging.info("ENTERED %s qty=%d price=%.4f tier=%d state=%s",
                      symbol, position.qty, fill_price, tier, market_state)
 
+        # --- Volatility-Adaptive Risk: OBSERVE-mode logging (v1.10, no action) ---
+        if VOLATILITY_ADAPTIVE_MODE == "observe":
+            try:
+                _vbuf = state.get_buffer(symbol)
+                _vol = compute_volatility_30min(_vbuf)
+                if _vol is not None:
+                    _p = compute_vol_adaptive_params(_vol, fill_price, buying_power)
+                    logging.info(
+                        "OBSERVE_VOLADAPT %s vol=%.3f%%/min | stop wouldbe=%.2f%% "
+                        "fixed=%.2f%% | size wouldbe=$%.0f actual=$%.0f%s | "
+                        "tp wouldbe=%.2f%% fixed=%.2f%%",
+                        symbol, _vol * 100.0,
+                        _p["stop_frac"] * 100.0, STOP_LOSS_PCT * 100.0,
+                        _p["position_dollars"], position.qty * fill_price,
+                        " (ceiling)" if _p["ceiling_capped"] else "",
+                        _p["tp_frac"] * 100.0, TAKE_PROFIT_PCT * 100.0)
+                else:
+                    logging.info("OBSERVE_VOLADAPT %s vol=not_ready", symbol)
+            except Exception as _e:
+                logging.debug("OBSERVE_VOLADAPT failed for %s: %s", symbol, _e)
+
         entered += 1
 
     return entered
@@ -2912,6 +3008,7 @@ def startup_populate_buffers(state):
         VOLUME_LOOKBACK_MIN,
         RS_LOOKBACK_MIN,
         BREAKOUT_BARS + MOMENTUM_BARS + 1,
+        VOL_LOOKBACK_MIN + 1,   # v1.10: history for 30-min volatility
     )
     logging.info("Pre-populating buffers from %d minutes of history...",
                  prepopulate_min)
