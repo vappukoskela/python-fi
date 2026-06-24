@@ -1,6 +1,14 @@
 """
 Intraday Breakout Scalper
-Implementation of strategy specification v1.10
+Implementation of strategy specification v1.11
+
+v1.10 -> v1.11 (2026-06-23): capture overnight gap (observability, no action).
+- startup_set_session_opens now also reads previous_daily_bar.close from the
+  snapshot it already fetches, computes (open - prev_close)/prev_close per symbol,
+  stores it on the buffer, and logs SPY + universe gaps at startup.
+- Closes the blind spot where the open-anchored market_state could not see an
+  overnight gap (a gap-down day looked "neutral" intraday). DATA ONLY: nothing
+  reads overnight_gap for a trade decision yet. Acting on it is a later, validated step.
 
 v1.9 -> v1.10 (2026-06-19): OBSERVE-mode scaffolding for volatility-adaptive risk.
 - New compute_volatility_30min() + compute_vol_adaptive_params() (inert helpers).
@@ -330,7 +338,7 @@ def audit_timestamp(dt=None):
 
 
 logging.info("=" * 60)
-logging.info("Scalper starting — strategy spec v1.10 (turn-detector: %s, bounce-guard: %s, vol-adaptive: %s)", TURN_DETECTOR_MODE, BOUNCE_GUARD_MODE, VOLATILITY_ADAPTIVE_MODE)
+logging.info("Scalper starting — strategy spec v1.11 (turn-detector: %s, bounce-guard: %s, vol-adaptive: %s)", TURN_DETECTOR_MODE, BOUNCE_GUARD_MODE, VOLATILITY_ADAPTIVE_MODE)
 logging.info("Universe: %d tradable + 1 reference (%s)",
              len(TRADABLE_UNIVERSE), REFERENCE_SYMBOL)
 logging.info("API base: %s", BASE_URL)
@@ -973,6 +981,8 @@ class SymbolBuffer:
         self.session_open_price = None
         self.session_high_price = None
         self.session_open_set_at = None  # datetime when session_open was set
+        self.prev_close = None           # prior session close (for overnight gap)
+        self.overnight_gap = None        # (open - prev_close)/prev_close; set at startup
 
     def add_tick(self, price, volume, timestamp):
         """Add a tick to the buffer.
@@ -1011,6 +1021,8 @@ class SymbolBuffer:
         self.session_open_price = None
         self.session_high_price = None
         self.session_open_set_at = None
+        self.prev_close = None
+        self.overnight_gap = None
 
     def populate_from_bars(self, bars_df):
         """Fill the buffer from historical 1-minute bars at startup.
@@ -3062,6 +3074,7 @@ def startup_set_session_opens(state):
         return
 
     set_count = 0
+    gaps = {}
     for symbol in ALL_SYMBOLS:
         buffer = state.get_buffer(symbol)
         if buffer is None:
@@ -3097,10 +3110,27 @@ def startup_set_session_opens(state):
         else:
             buffer.session_high_price = float(open_px)
         buffer.session_open_set_at = now_utc()
+        # v1.11: capture prior close + overnight gap from the same snapshot
+        # (observability only — nothing reads these to make a trade decision).
+        prev_bar = getattr(snap, "previous_daily_bar", None)
+        prev_close = getattr(prev_bar, "close", None) if prev_bar else None
+        if prev_close is not None and prev_close > 0:
+            buffer.prev_close = float(prev_close)
+            buffer.overnight_gap = (float(open_px) - float(prev_close)) / float(prev_close)
+            gaps[symbol] = buffer.overnight_gap
         set_count += 1
 
     logging.info("Session opens set from official daily bar: %d/%d symbols",
                  set_count, len(ALL_SYMBOLS))
+    if gaps:
+        spy_gap = gaps.get(REFERENCE_SYMBOL)
+        avg_gap = sum(gaps.values()) / len(gaps)
+        worst_sym, worst_gap = min(gaps.items(), key=lambda kv: kv[1])
+        logging.info(
+            "Overnight gaps captured: SPY %s | universe avg %+.2f%% | biggest "
+            "gap-down: %s %+.2f%% (observability only — not used in decisions)",
+            ("%+.2f%%" % (spy_gap * 100.0)) if spy_gap is not None else "n/a",
+            avg_gap * 100.0, worst_sym, worst_gap * 100.0)
 
 
 def startup():
