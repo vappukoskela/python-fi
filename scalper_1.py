@@ -1,6 +1,12 @@
 """
 Intraday Breakout Scalper
-Implementation of strategy specification v1.11
+Implementation of strategy specification v1.12
+
+v1.11 -> v1.12 (2026-06-27): vol-adaptive risk budget now sized off EQUITY, not
+buying power. risk_budget = 0.05% of equity (~$37/trade) and the per-position cap
+is 0.10 of equity, matching the design paper. OBSERVE-only: corrects the would-be
+numbers we log for validation (previously 4x too large on buying power). No trade
+behaviour changes.
 
 v1.10 -> v1.11 (2026-06-23): capture overnight gap (observability, no action).
 - startup_set_session_opens now also reads previous_daily_bar.close from the
@@ -338,7 +344,7 @@ def audit_timestamp(dt=None):
 
 
 logging.info("=" * 60)
-logging.info("Scalper starting — strategy spec v1.11 (turn-detector: %s, bounce-guard: %s, vol-adaptive: %s)", TURN_DETECTOR_MODE, BOUNCE_GUARD_MODE, VOLATILITY_ADAPTIVE_MODE)
+logging.info("Scalper starting — strategy spec v1.12 (turn-detector: %s, bounce-guard: %s, vol-adaptive: %s)", TURN_DETECTOR_MODE, BOUNCE_GUARD_MODE, VOLATILITY_ADAPTIVE_MODE)
 logging.info("Universe: %d tradable + 1 reference (%s)",
              len(TRADABLE_UNIVERSE), REFERENCE_SYMBOL)
 logging.info("API base: %s", BASE_URL)
@@ -1424,7 +1430,7 @@ def compute_volatility_30min(buffer):
     return var ** 0.5
 
 
-def compute_vol_adaptive_params(vol_per_min, entry_price, buying_power):
+def compute_vol_adaptive_params(vol_per_min, entry_price, equity):
     """Would-be volatility-adaptive risk parameters (OBSERVE mode, no action).
 
     Given a per-minute volatility, returns the stop / position / take-profit the
@@ -1433,9 +1439,9 @@ def compute_vol_adaptive_params(vol_per_min, entry_price, buying_power):
     """
     stop_frac = VOL_STOP_K * vol_per_min
     stop_frac = max(VOL_STOP_FLOOR, min(VOL_STOP_CEILING, stop_frac))
-    risk_budget_dollars = buying_power * VOL_RISK_BUDGET_PCT
+    risk_budget_dollars = equity * VOL_RISK_BUDGET_PCT
     position_dollars = risk_budget_dollars / stop_frac if stop_frac > 0 else 0.0
-    ceiling = buying_power * PER_POSITION_HARD_CEILING
+    ceiling = equity * PER_POSITION_HARD_CEILING
     capped = position_dollars > ceiling
     if capped:
         position_dollars = ceiling
@@ -2535,8 +2541,9 @@ def _process_entries(state, latest_prices, market_state):
             try:
                 _vbuf = state.get_buffer(symbol)
                 _vol = compute_volatility_30min(_vbuf)
-                if _vol is not None:
-                    _p = compute_vol_adaptive_params(_vol, fill_price, buying_power)
+                _equity = get_account_equity()
+                if _vol is not None and _equity:
+                    _p = compute_vol_adaptive_params(_vol, fill_price, _equity)
                     logging.info(
                         "OBSERVE_VOLADAPT %s vol=%.3f%%/min | stop wouldbe=%.2f%% "
                         "fixed=%.2f%% | size wouldbe=$%.0f actual=$%.0f%s | "
