@@ -1,6 +1,15 @@
 """
 Intraday Breakout Scalper
-Implementation of strategy specification v1.12
+Implementation of strategy specification v2.0
+
+v1.12 -> v2.0 (2026-06-28): vol-adaptive risk goes LIVE (VOLATILITY_ADAPTIVE_MODE
+= "active"). When active AND a 30-min volatility is available, entries are sized
+for constant ~$37 dollar-risk and use volatility-scaled stop / take-profit /
+trailing instead of the fixed 0.4% / 0.6% / 0.32%. When vol is not yet ready, the
+trade falls back to the fixed/tier behaviour. Each active entry logs ACTIVE_VOLADAPT
+with the fixed/tier counterfactual for live comparison. SEATBELT: with mode "off"
+or "observe", behaviour is byte-identical to v1.12 (per-position fracs default to
+the globals; sizing override only fires when active). One-switch revert: "off".
 
 v1.11 -> v1.12 (2026-06-27): vol-adaptive risk budget now sized off EQUITY, not
 buying power. risk_budget = 0.05% of equity (~$37/trade) and the per-position cap
@@ -228,7 +237,7 @@ TIER1_TRIGGER_LOSSES = 2        # consecutive losses to enter Tier 1
 # the live stop (STOP_LOSS_PCT), sizing (tiers), and TP (TAKE_PROFIT_PCT) are
 # unchanged while this is "observe". Setting it to "active" is a separate, later
 # change (v2.0) and is NOT yet implemented. Spec: volatility_adaptive_risk_design_paper.md
-VOLATILITY_ADAPTIVE_MODE = "observe"   # "off" | "observe" | "active"
+VOLATILITY_ADAPTIVE_MODE = "active"    # "off" | "observe" | "active"  (v2.0 LIVE; set "off" to revert to v1.x)
 VOL_LOOKBACK_MIN    = 30        # trailing window for the volatility measure (min)
 VOL_STOP_K          = 10        # stop width in "minutes of normal movement"
 VOL_RISK_BUDGET_PCT = 0.0005    # 0.05% of buying power at risk per trade
@@ -344,7 +353,7 @@ def audit_timestamp(dt=None):
 
 
 logging.info("=" * 60)
-logging.info("Scalper starting — strategy spec v1.12 (turn-detector: %s, bounce-guard: %s, vol-adaptive: %s)", TURN_DETECTOR_MODE, BOUNCE_GUARD_MODE, VOLATILITY_ADAPTIVE_MODE)
+logging.info("Scalper starting — strategy spec v2.0 (turn-detector: %s, bounce-guard: %s, vol-adaptive: %s)", TURN_DETECTOR_MODE, BOUNCE_GUARD_MODE, VOLATILITY_ADAPTIVE_MODE)
 logging.info("Universe: %d tradable + 1 reference (%s)",
              len(TRADABLE_UNIVERSE), REFERENCE_SYMBOL)
 logging.info("API base: %s", BASE_URL)
@@ -1463,7 +1472,8 @@ class Position:
     runner-mode transitions, deleted when the exit fills."""
 
     def __init__(self, symbol, qty, entry_price, entry_time, tier,
-                 market_state_at_entry, order_id):
+                 market_state_at_entry, order_id,
+                 stop_frac=None, tp_frac=None, trailing_frac=None):
         self.symbol = symbol
         self.qty = qty
         self.entry_price = entry_price
@@ -1471,6 +1481,14 @@ class Position:
         self.tier = tier                      # 1, 2, or 3
         self.market_state_at_entry = market_state_at_entry
         self.entry_order_id = order_id
+
+        # Per-position risk fractions. Default to the global fixed values, so
+        # that when vol-adaptive is NOT active, behaviour is identical to v1.x.
+        # When active, the entry path sets these to volatility-scaled values.
+        self.stop_frac = stop_frac if stop_frac is not None else STOP_LOSS_PCT
+        self.tp_frac = tp_frac if tp_frac is not None else TAKE_PROFIT_PCT
+        self.trailing_frac = (trailing_frac if trailing_frac is not None
+                              else TRAILING_STOP_PCT)
 
         # Mode tracking — starts in "normal", may transition to "runner".
         self.mode = "normal"
@@ -2103,7 +2121,7 @@ def _determine_entry_tier(state, symbol, market_state, rs, drawdown):
 
 
 def compute_position_size(tier, current_price, buying_power,
-                          current_exposure):
+                          current_exposure, target_override=None):
     """Compute the share quantity for an entry given tier and account state.
 
     Applies all capacity constraints:
@@ -2125,6 +2143,11 @@ def compute_position_size(tier, current_price, buying_power,
         return 0
 
     target_dollars = buying_power * tier_pct
+    # vol-adaptive ACTIVE: caller supplies an explicit dollar target (already
+    # risk-sized and equity-ceilinged). It replaces the tier-based target; the
+    # total-exposure cap below still applies.
+    if target_override is not None:
+        target_dollars = target_override
 
     # Apply per-position hard ceiling.
     hard_ceiling = buying_power * PER_POSITION_HARD_CEILING
@@ -2193,12 +2216,12 @@ def evaluate_exit(position, current_price, market_state, now=None):
                 and current_price <= position.protected_stop_price):
             return True, "turn_protect"
         # Stop-loss check (checked before TP — if both true, stop wins).
-        stop_price = position.entry_price * (1 - STOP_LOSS_PCT)
+        stop_price = position.entry_price * (1 - position.stop_frac)
         if current_price <= stop_price:
             return True, "stop"
 
         # Take-profit check.
-        tp_price = position.entry_price * (1 + TAKE_PROFIT_PCT)
+        tp_price = position.entry_price * (1 + position.tp_frac)
         if current_price >= tp_price:
             # Note: caller decides whether to transition to runner or exit.
             # Returning "take_profit" here means "TP touched"; the caller
@@ -2216,7 +2239,7 @@ def evaluate_exit(position, current_price, market_state, now=None):
         # Only the trailing stop matters in runner mode.
         # The peak should already be updated by the main loop before this
         # call — we trust position.peak_price as the current peak.
-        trailing_stop_price = position.peak_price * (1 - TRAILING_STOP_PCT)
+        trailing_stop_price = position.peak_price * (1 - position.trailing_frac)
         if current_price <= trailing_stop_price:
             return True, "trailing"
 
@@ -2470,8 +2493,26 @@ def _process_entries(state, latest_prices, market_state):
         if current_price is None:
             continue
 
+        # --- Volatility-adaptive risk (v2.0): compute once; used live if ACTIVE ---
+        _vol = None
+        _vparams = None
+        try:
+            _vol = compute_volatility_30min(buffer)
+            _equity = get_account_equity()
+            if _vol is not None and _equity:
+                _vparams = compute_vol_adaptive_params(_vol, current_price, _equity)
+        except Exception as _e:
+            logging.debug("vol-adaptive params failed for %s: %s", symbol, _e)
+            _vparams = None
+
+        # Tier size = counterfactual baseline, and the size used unless ACTIVE+ready.
         qty = compute_position_size(tier, current_price, buying_power,
                                     current_exposure)
+        _tier_qty = qty
+        if VOLATILITY_ADAPTIVE_MODE == "active" and _vparams is not None:
+            qty = compute_position_size(tier, current_price, buying_power,
+                                        current_exposure,
+                                        target_override=_vparams["position_dollars"])
         if qty <= 0:
             log_decision(symbol=symbol, decision="blocked",
                          market_state=market_state,
@@ -2502,6 +2543,11 @@ def _process_entries(state, latest_prices, market_state):
         order_id = result.get("order_id", "")
         fill_time = result.get("fill_time") or now_utc()
 
+        _entry_stop = _entry_tp = _entry_trail = None
+        if VOLATILITY_ADAPTIVE_MODE == "active" and _vparams is not None:
+            _entry_stop = _vparams["stop_frac"]
+            _entry_tp = _vparams["tp_frac"]
+            _entry_trail = _vparams["trailing_frac"]
         position = Position(
             symbol=symbol,
             qty=int(result.get("filled_qty") or qty),
@@ -2510,6 +2556,9 @@ def _process_entries(state, latest_prices, market_state):
             tier=tier,
             market_state_at_entry=market_state,
             order_id=order_id,
+            stop_frac=_entry_stop,
+            tp_frac=_entry_tp,
+            trailing_frac=_entry_trail,
         )
         state.positions.add(position)
 
@@ -2557,6 +2606,26 @@ def _process_entries(state, latest_prices, market_state):
                     logging.info("OBSERVE_VOLADAPT %s vol=not_ready", symbol)
             except Exception as _e:
                 logging.debug("OBSERVE_VOLADAPT failed for %s: %s", symbol, _e)
+        elif VOLATILITY_ADAPTIVE_MODE == "active":
+            try:
+                if _vparams is not None:
+                    logging.info(
+                        "ACTIVE_VOLADAPT %s vol=%.3f%%/min | stop=%.2f%% (fixed %.2f%%) "
+                        "| tp=%.2f%% (fixed %.2f%%) | trail=%.2f%% (fixed %.2f%%) "
+                        "| size=$%.0f qty=%d (tier wouldbe=$%.0f qty=%d)%s",
+                        symbol, _vol * 100.0,
+                        position.stop_frac * 100.0, STOP_LOSS_PCT * 100.0,
+                        position.tp_frac * 100.0, TAKE_PROFIT_PCT * 100.0,
+                        position.trailing_frac * 100.0, TRAILING_STOP_PCT * 100.0,
+                        position.qty * fill_price, position.qty,
+                        _tier_qty * current_price, _tier_qty,
+                        " (ceiling)" if _vparams.get("ceiling_capped") else "")
+                else:
+                    logging.info(
+                        "ACTIVE_VOLADAPT %s vol=not_ready — used FIXED stop/size "
+                        "(qty=%d)", symbol, position.qty)
+            except Exception as _e:
+                logging.debug("ACTIVE_VOLADAPT failed for %s: %s", symbol, _e)
 
         entered += 1
 
