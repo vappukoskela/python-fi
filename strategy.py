@@ -38,7 +38,7 @@ from zoneinfo import ZoneInfo
 
 # === CONFIGURATION ===
 
-TARGET_DATE = "2026-06-26"  # Edit this each day
+TARGET_DATE = "2026-06-29"  # Edit this each day
 
 # Universe - matches scalper.py TRADABLE_UNIVERSE
 SYMBOLS = [
