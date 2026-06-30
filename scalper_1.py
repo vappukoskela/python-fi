@@ -1,6 +1,13 @@
 """
 Intraday Breakout Scalper
-Implementation of strategy specification v2.0
+Implementation of strategy specification v2.0  (build v2.0.1)
+
+v2.0 -> v2.0.1 (2026-06-30): capitulation-observe logging added. New
+compute_capitulation_observe() flags oversold dips (RSI/Stoch/lower Bollinger)
+and an ATR true-range volatility-spike ratio, logged once per episode to
+capitulation_observe.csv for offline validation. OBSERVE-ONLY: no trade-path
+change (diff vs v2.0 is additive but for the startup banner); strategy spec
+unchanged at v2.0. One-switch off: CAPITULATION_OBSERVE = False.
 
 v1.12 -> v2.0 (2026-06-28): vol-adaptive risk goes LIVE (VOLATILITY_ADAPTIVE_MODE
 = "active"). When active AND a 30-min volatility is available, entries are sized
@@ -267,6 +274,24 @@ TURN_WINNER_STOP_BAND = 0.002     # winners' stop pulled to 0.2% below current
 # trade; "active" actually blocks. Interim; reversible.
 BOUNCE_GUARD_MODE = "active"      # "off" | "observe" | "active"
 BOUNCE_LOOKBACK_MIN = 10          # window for the recent low
+
+# --- Capitulation observe (v2.0.1): oversold + ATR volatility-spike ----------
+# OBSERVE ONLY. No trade path touched. Logs oversold dips (RSI/Stoch/lower
+# Bollinger) plus an ATR (true-range) volatility-spike ratio that, in 20-day
+# backtest, separated bouncing capitulations from falling knives. Goal: build a
+# larger live sample of this RARE setup for later validation. Forward outcomes
+# reconstructed offline from the universe_session recording. ATR windows fit the
+# existing buffer; the 1.8 threshold is provisional and recalibrated on live data.
+CAPITULATION_OBSERVE = True       # set False to disable the observe log
+CAPIT_RSI_MAX        = 40.0       # oversold: RSI(14) below this
+CAPIT_STOCH_MAX      = 20.0       # oversold: Stochastic %K(14) below this
+CAPIT_BB_MAX         = -0.6       # price at/below lower Bollinger band (z of 2-sigma)
+CAPIT_VOLSPIKE_MIN   = 1.8        # ATR-spike ratio that flagged bounces (LABEL only)
+CAPIT_RSI_N          = 14
+CAPIT_STOCH_N        = 14
+CAPIT_BB_N           = 20
+CAPIT_ATR_FAST       = 10         # recent ATR window (bars)
+CAPIT_ATR_SLOW       = 30         # baseline ATR window (bars); fits 32-min buffer
 BOUNCE_MIN_RISE = 0.004           # >=0.4% rise off the 10-min low = bounce
 
 
@@ -353,7 +378,7 @@ def audit_timestamp(dt=None):
 
 
 logging.info("=" * 60)
-logging.info("Scalper starting — strategy spec v2.0 (turn-detector: %s, bounce-guard: %s, vol-adaptive: %s)", TURN_DETECTOR_MODE, BOUNCE_GUARD_MODE, VOLATILITY_ADAPTIVE_MODE)
+logging.info("Scalper starting — build v2.0.1 / strategy spec v2.0 (turn-detector: %s, bounce-guard: %s, vol-adaptive: %s, capitulation-observe: %s)", TURN_DETECTOR_MODE, BOUNCE_GUARD_MODE, VOLATILITY_ADAPTIVE_MODE, CAPITULATION_OBSERVE)
 logging.info("Universe: %d tradable + 1 reference (%s)",
              len(TRADABLE_UNIVERSE), REFERENCE_SYMBOL)
 logging.info("API base: %s", BASE_URL)
@@ -887,6 +912,22 @@ DECISIONS_FIELDS = [
     "tier_assigned",  # 1, 2, 3, or "n/a" if blocked
 ]
 
+CAPIT_OBSERVE_CSV = "capitulation_observe.csv"
+CAPIT_OBSERVE_FIELDS = [
+    "timestamp",
+    "symbol",
+    "price",
+    "rsi",
+    "stoch",
+    "bb",            # close vs lower Bollinger band (z of 2-sigma)
+    "atr",           # recent ATR (true range, fraction of price)
+    "atr_base",      # baseline ATR
+    "atr_spike",     # atr / atr_base  (the backtest discriminator)
+    "is_spike",      # atr_spike >= CAPIT_VOLSPIKE_MIN
+    "market_state",
+    "event",         # "begin" (setup onset)
+]
+
 
 # Lock for CSV writes — prevents interleaved rows if two threads write
 # at the same time. Currently the code is single-threaded but the lock
@@ -959,6 +1000,32 @@ def log_decision(symbol, decision, market_state, rs_15min=None,
         "tier_assigned": tier_assigned if tier_assigned is not None else "n/a",
     }
     _write_csv_row(DECISIONS_CSV, DECISIONS_FIELDS, row)
+
+
+def log_capitulation_observe(symbol, price, cap, is_spike, market_state,
+                             event, timestamp=None):
+    """Record an oversold/capitulation setup onset to capitulation_observe.csv.
+
+    OBSERVE ONLY — never affects trading. 'cap' is the dict from
+    compute_capitulation_observe(). Forward outcomes are reconstructed offline
+    from the universe_session recording, keyed on timestamp+symbol.
+    """
+    sp = cap.get("atr_spike")
+    row = {
+        "timestamp": audit_timestamp(timestamp),
+        "symbol": symbol,
+        "price": round(price, 4) if price is not None else None,
+        "rsi": round(cap["rsi"], 1) if cap.get("rsi") is not None else None,
+        "stoch": round(cap["stoch"], 1) if cap.get("stoch") is not None else None,
+        "bb": round(cap["bb"], 3) if cap.get("bb") is not None else None,
+        "atr": round(cap["atr"], 6) if cap.get("atr") is not None else None,
+        "atr_base": round(cap["atr_base"], 6) if cap.get("atr_base") is not None else None,
+        "atr_spike": round(sp, 3) if sp is not None else None,
+        "is_spike": is_spike,
+        "market_state": market_state,
+        "event": event,
+    }
+    _write_csv_row(CAPIT_OBSERVE_CSV, CAPIT_OBSERVE_FIELDS, row)
 
 
 # ============================================================================
@@ -1439,6 +1506,70 @@ def compute_volatility_30min(buffer):
     return var ** 0.5
 
 
+def compute_capitulation_observe(buffer):
+    """OBSERVE-only oversold/capitulation panel for a symbol buffer.
+
+    Builds completed 1-minute OHLC bars (with lows) from the tick buffer, then
+    returns {"rsi","stoch","bb","atr","atr_base","atr_spike"} or None if there
+    are not enough completed bars. atr_spike = recent ATR / baseline ATR (true
+    range), the backtest discriminator. Touches nothing in the live trade path.
+    """
+    if buffer is None or buffer.length() == 0:
+        return None
+    last_ts = buffer.timestamps[-1]
+    current_minute = last_ts.replace(second=0, microsecond=0)
+    m2p = {}
+    for ts, price in zip(buffer.timestamps, buffer.prices):
+        minute = ts.replace(second=0, microsecond=0)
+        if minute >= current_minute:
+            continue
+        m2p.setdefault(minute, []).append(price)
+    minutes = sorted(m2p.keys())
+    need = max(CAPIT_RSI_N + 1, CAPIT_BB_N, CAPIT_STOCH_N, CAPIT_ATR_SLOW + 1)
+    if len(minutes) < need:
+        return None
+    highs = [max(m2p[m]) for m in minutes]
+    lows = [min(m2p[m]) for m in minutes]
+    closes = [m2p[m][-1] for m in minutes]
+
+    n = CAPIT_RSI_N
+    gains = []; losses = []
+    for k in range(len(closes) - n, len(closes)):
+        if k <= 0:
+            continue
+        ch = closes[k] - closes[k - 1]
+        gains.append(max(ch, 0.0)); losses.append(max(-ch, 0.0))
+    avg_gain = sum(gains) / len(gains) if gains else 0.0
+    avg_loss = sum(losses) / len(losses) if losses else 0.0
+    rsi = 100.0 if avg_loss == 0 else 100.0 - 100.0 / (1.0 + avg_gain / avg_loss)
+
+    sn = CAPIT_STOCH_N
+    hh = max(highs[-sn:]); ll = min(lows[-sn:])
+    stoch = 100.0 * (closes[-1] - ll) / (hh - ll) if hh > ll else 50.0
+
+    bn = CAPIT_BB_N
+    win = closes[-bn:]
+    sma = sum(win) / len(win)
+    sd = (sum((x - sma) ** 2 for x in win) / (len(win) - 1)) ** 0.5
+    bb = (closes[-1] - sma) / (2.0 * sd) if sd > 0 else 0.0
+
+    # True-range series, as a fraction of price (so symbols are comparable).
+    tr = []
+    for k in range(1, len(closes)):
+        rng = max(highs[k] - lows[k], abs(highs[k] - closes[k - 1]),
+                  abs(lows[k] - closes[k - 1]))
+        tr.append(rng / closes[k] if closes[k] > 0 else 0.0)
+    if len(tr) < CAPIT_ATR_SLOW:
+        return None
+    atr = sum(tr[-CAPIT_ATR_FAST:]) / CAPIT_ATR_FAST
+    atr_base = sum(tr[-CAPIT_ATR_SLOW:]) / CAPIT_ATR_SLOW
+    atr_spike = (atr / atr_base) if atr_base > 0 else None
+    return {
+        "rsi": rsi, "stoch": stoch, "bb": bb,
+        "atr": atr, "atr_base": atr_base, "atr_spike": atr_spike,
+    }
+
+
 def compute_vol_adaptive_params(vol_per_min, entry_price, equity):
     """Would-be volatility-adaptive risk parameters (OBSERVE mode, no action).
 
@@ -1844,6 +1975,7 @@ class StrategyState:
         # Symbols currently in a logged bounce-guard episode, so the
         # visibility log fires once per episode, not every loop.
         self.bounce_guard_episode = set()
+        self.capitulation_episode = set()
         self.buffers = {}  # symbol -> SymbolBuffer
         # Track session start so we can detect when a new day begins
         # (the system might run across multiple sessions).
@@ -1860,6 +1992,7 @@ class StrategyState:
         self.turn_detector.reset_for_new_session()
         self.turn_signal = "STABLE"
         self.bounce_guard_episode = set()
+        self.capitulation_episode = set()
 
         # Create or reset buffers for each symbol.
         for symbol in symbols:
@@ -2455,6 +2588,32 @@ def _process_entries(state, latest_prices, market_state):
                 elif (not _is_setup) and symbol in state.bounce_guard_episode:
                     logging.info("[bounce-guard] %s setup cleared", symbol)
                     state.bounce_guard_episode.discard(symbol)
+
+        # Capitulation observe (v2.0.1): log oversold+ATR-spike onset once per
+        # episode (mirrors bounce-guard cadence). OBSERVE ONLY — no trade path.
+        if CAPITULATION_OBSERVE:
+            _cap_buf = state.get_buffer(symbol)
+            if _cap_buf is not None:
+                _cap = compute_capitulation_observe(_cap_buf)
+                if _cap is not None:
+                    _oversold = (
+                        _cap["rsi"] < CAPIT_RSI_MAX
+                        and _cap["stoch"] < CAPIT_STOCH_MAX
+                        and _cap["bb"] <= CAPIT_BB_MAX
+                    )
+                    if _oversold and symbol not in state.capitulation_episode:
+                        _sp = _cap.get("atr_spike")
+                        _is_spike = _sp is not None and _sp >= CAPIT_VOLSPIKE_MIN
+                        log_capitulation_observe(symbol, _cap_buf.latest_price(),
+                                                 _cap, _is_spike, market_state, "begin")
+                        logging.info(
+                            "[capitulation] %s oversold (rsi=%.0f stoch=%.0f bb=%.2f "
+                            "atr_spike=%s)%s", symbol, _cap["rsi"], _cap["stoch"],
+                            _cap["bb"], ("%.2f" % _sp) if _sp is not None else "na",
+                            "  SPIKE" if _is_spike else "")
+                        state.capitulation_episode.add(symbol)
+                    elif (not _oversold) and symbol in state.capitulation_episode:
+                        state.capitulation_episode.discard(symbol)
 
         if tier is None:
             # Log blocked decisions only when the trigger actually fired
